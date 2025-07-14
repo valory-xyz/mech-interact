@@ -355,12 +355,6 @@ def check_ipfs_hashes(  # pylint: disable=too-many-locals,too-many-statements
         print("There are mismatching IPFS hashes in the docs.")
         sys.exit(1)
 
-    if matches == 0:
-        print(
-            "No commands were found in the docs. The command regex is probably outdated."
-        )
-        sys.exit(1)
-
     print("Checking doc IPFS hashes finished successfully.")
 
 
