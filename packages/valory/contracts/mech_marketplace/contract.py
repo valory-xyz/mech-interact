@@ -19,8 +19,7 @@
 
 """This module contains the class to connect to a Mech Marketplace contract."""
 
-import concurrent.futures
-from typing import Any, Callable, Dict, List, Optional, cast
+from typing import Any, Dict, List, cast
 
 from aea.common import JSONLike
 from aea.configurations.base import PublicId
@@ -28,7 +27,7 @@ from aea.contracts.base import Contract
 from aea.crypto.base import LedgerApi
 from aea_ledger_ethereum import EthereumApi
 from eth_typing import HexStr
-from web3.types import BlockData, BlockIdentifier, EventData, TxReceipt
+from web3.types import BlockData, EventData, TxReceipt
 
 
 PUBLIC_ID = PublicId.from_str("valory/mech_marketplace:0.1.0")

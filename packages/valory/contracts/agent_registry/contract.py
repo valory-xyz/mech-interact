@@ -67,7 +67,13 @@ class AgentRegistryContract(Contract):
         return dict(hash=hash_.hex())
 
     @classmethod
-    def authenticate_sender(cls, ledger_api: LedgerApi, contract_address: str, sender_address: str, mech_address: str) -> Dict[str, Any]:
+    def authenticate_sender(
+        cls,
+        ledger_api: LedgerApi,
+        contract_address: str,
+        sender_address: str,
+        mech_address: str,
+    ) -> Dict[str, Any]:
         """Check if the sender address is valid."""
         ledger_api = cast(EthereumApi, ledger_api)
         contract_instance = cls.get_instance(ledger_api, contract_address)
@@ -90,27 +96,29 @@ class AgentRegistryContract(Contract):
                     "inputs": [],
                     "name": "tokenId",
                     "outputs": [
-                        {
-                            "internalType": "uint256",
-                            "name": "",
-                            "type": "uint256"
-                        }
+                        {"internalType": "uint256", "name": "", "type": "uint256"}
                     ],
                     "stateMutability": "view",
-                    "type": "function"
-                }
+                    "type": "function",
+                },
             ]
-            contract = ledger_api.api.eth.contract(address=Web3.to_checksum_address(mech_address), abi=minimal_abi)
+            contract = ledger_api.api.eth.contract(
+                address=Web3.to_checksum_address(mech_address), abi=minimal_abi
+            )
             agent_id = contract.functions.tokenId().call()
 
             agent_owner = contract_instance.functions.ownerOf(agent_id).call()
-            if Web3.to_checksum_address(agent_owner) == Web3.to_checksum_address(sender_address):
+            if Web3.to_checksum_address(agent_owner) == Web3.to_checksum_address(
+                sender_address
+            ):
                 return dict(is_valid=True)
 
-            safe_contract = ledger_api.api.eth.contract(address=Web3.to_checksum_address(agent_owner), abi=minimal_abi)
+            safe_contract = ledger_api.api.eth.contract(
+                address=Web3.to_checksum_address(agent_owner), abi=minimal_abi
+            )
             owners = safe_contract.functions.getOwners().call()
             if Web3.to_checksum_address(sender_address) in owners:
                 return dict(is_valid=True)
 
         except Exception as e:
-            return dict(is_valid=False, error=str(e)) # pragma: no cover
+            return dict(is_valid=False, error=str(e))  # pragma: no cover
