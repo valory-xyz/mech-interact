@@ -1,0 +1,29 @@
+name: Release Flow
+
+on:
+  release:
+    types: [prereleased, released]
+
+jobs:
+  publish-packages:
+    name: Push Packages
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10"]
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-versions }}
+      - uses: addnab/docker-run-action@v3
+        with:
+            image: valory/open-autonomy-user:latest
+            options: -v ${{ github.workspace }}:/work
+            run: |
+              echo "Pushing Packages"
+              cd /work
+              export AUTHOR=$(grep 'service' packages/packages.json | awk -F/ '{print $2}' | head -1)
+              autonomy init --reset --author $AUTHOR --ipfs --remote
+              autonomy push-all
