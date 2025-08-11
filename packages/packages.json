@@ -2,11 +2,11 @@
     "dev": {
         "contract/valory/agent_registry/0.1.0": "bafybeiepkbcx5jrcvoc5nfarw6gt4so4izqxuiliu7gukdvmjiodynecvy",
         "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeiafwem7v7po7xb7rag4zfdqe2uoaqki3xybviciypxr5w6zkoxgse",
-        "contract/valory/mech_marketplace/0.1.0": "bafybeibxvb5txtnho4rc4hz3clghropfdfschthqxtcdai7hx2zycgdjga",
+        "contract/valory/mech_marketplace/0.1.0": "bafybeig5ojdr5gsups7msujjogmwdrzencbn5hnknaml2fwappi5yyk3lq",
         "contract/valory/mech/0.1.0": "bafybeifthpyd2oq5izworldr755sigefinki7caath4aao3hrajpjbhbxe",
         "contract/valory/mech_mm/0.1.0": "bafybeibbz2hlyvtg6yfojzdnou2xqbpu32a4mjvn2xidfypvwy5oj6gx4u",
         "contract/valory/erc20/0.1.0": "bafybeif2ad3gsp7zhmw55rpfy7kiooqjswanyvjisdu43kqaoycspfrbui",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeidi2nfkt5r7cckdd4equdfm5uwiuisrz2splo7om3hkriy5ohx22e"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeickdomkklz4rewxj53e2qxvd2uwsqsjwfxoctgyb24vace4vc2auu"
     },
     "third_party": {
         "protocol/open_aea/signing/1.0.0": "bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm",
