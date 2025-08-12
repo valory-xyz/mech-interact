@@ -193,8 +193,8 @@ class MechMarketplace(Contract):
             tx_hash,
             expected_logs,
             "MarketplaceDelivery",
-            "requestId",
-            "data",
+            "requestIds",
+            "deliveredRequests",
         )
 
         return res
