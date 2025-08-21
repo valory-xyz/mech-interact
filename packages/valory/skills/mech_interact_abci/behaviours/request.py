@@ -786,7 +786,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def _get_target_contract_address(self) -> str:
         """Get the target contract address based on the flow being used."""
-        if self.params.use_mech_marketplace and self.should_use_marketplace_v2():
+        if self.should_use_marketplace_v2():
             return self.mech_marketplace_config.mech_marketplace_address
         if self.params.use_mech_marketplace:
             # Legacy marketplace - might still use marketplace contract but with different flow
