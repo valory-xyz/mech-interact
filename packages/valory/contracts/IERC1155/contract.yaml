@@ -1,0 +1,20 @@
+name: IERC1155
+author: valory
+version: 0.1.0
+type: contract
+description: IERC1155 contract
+license: Apache-2.0
+aea_version: '>=1.0.0, <2.0.0'
+fingerprint:
+  README.md: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+  __init__.py: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+  build/IERC1155.json: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+  contract.py: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+fingerprint_ignore_patterns: []
+contracts: []
+class_name: IERC1155
+contract_interface_paths:
+  ethereum: build/IERC1155.json
+dependencies:
+  open-aea-ledger-ethereum:
+    version: ==1.65.0
