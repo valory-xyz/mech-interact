@@ -1,0 +1,20 @@
+name: BalanceTrackerNvmSubscriptionToken
+author: valory
+version: 0.1.0
+type: contract
+description: Balance tracker contract for a token NVM subscription
+license: Apache-2.0
+aea_version: '>=1.0.0, <2.0.0'
+fingerprint:
+  README.md: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+  __init__.py: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+  build/nvm_balance_tracker_gnosis.json: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+  contract.py: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+fingerprint_ignore_patterns: []
+contracts: []
+class_name: Mech
+contract_interface_paths:
+  ethereum: build/nvm_balance_tracker_token.json
+dependencies:
+  open-aea-ledger-ethereum:
+    version: ==1.65.0
