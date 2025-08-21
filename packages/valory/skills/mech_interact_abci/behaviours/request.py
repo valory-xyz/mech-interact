@@ -180,7 +180,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     @property
     def mech_payment_type(self) -> Optional[str]:
-        """Gets the fetched mech payment type."""
+        """Get the fetched mech payment type."""
         if self._mech_payment_type is None:
             self.context.logger.error(
                 "Accessing mech_payment_type before it has been fetched."
@@ -248,7 +248,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     @property
     def mech_max_delivery_rate(self) -> Optional[int]:
-        """Gets the fetched max delivery rate."""
+        """Get the fetched max delivery rate."""
         if self._mech_max_delivery_rate is None:
             self.context.logger.error(
                 "Accessing mech_max_delivery_rate before it has been fetched."
