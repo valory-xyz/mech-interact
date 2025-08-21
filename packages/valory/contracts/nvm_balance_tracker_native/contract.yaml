@@ -6,10 +6,10 @@ description: Balance tracker contract for a native NVM subscription
 license: Apache-2.0
 aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
-  README.md: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
-  __init__.py: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
-  build/nvm_balance_tracker_gnosis.json: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
-  contract.py: bafybeiunknownnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+  README.md: bafybeihbbepmyfrkvj7j7q7xbno77gapxsyvwjgkz24cjlfe7xkcrgfo6i
+  __init__.py: bafybeia2jy4hgoyhxzxbnc5fccrg55zqmsuonudcbblpvxz7kqlvr7oiwy
+  build/nvm_balance_tracker_native.json: bafybeibgsni2wv4ob3rycrr343aw55dqg62riz3dwilaegkvo7gutoodfi
+  contract.py: bafybeid67dn3jke5nd3rum7gvh7fmyzoal6lxxsmhq3d254ugznqasubb4
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: Mech

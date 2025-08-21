@@ -6,7 +6,10 @@
         "contract/valory/mech/0.1.0": "bafybeifthpyd2oq5izworldr755sigefinki7caath4aao3hrajpjbhbxe",
         "contract/valory/mech_mm/0.1.0": "bafybeibbz2hlyvtg6yfojzdnou2xqbpu32a4mjvn2xidfypvwy5oj6gx4u",
         "contract/valory/erc20/0.1.0": "bafybeif2ad3gsp7zhmw55rpfy7kiooqjswanyvjisdu43kqaoycspfrbui",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeihwuhjifsksoht35q6wk2qwwkzsqvo6sjgzwapyeg2wr7w2lpjp3m"
+        "contract/valory/ierc1155/0.1.0": "bafybeig5lnuicphvwnu55fgmwegpma44l6jldakyfyjciscl274unb5iqy",
+        "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeic7crcdqhuahgs5hyxlgootbjdrucd3ehnibihiqz7iva5ongpxem",
+        "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeie23pqmrwhf7vgiyd5kdfuorzffgo53bfmaw6noomdzot4hft3jny",
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeihnxaxhe7jijlwqmpknj5wjqoabu2w6qmmj6uvhop6zij226eode4"
     },
     "third_party": {
         "protocol/open_aea/signing/1.0.0": "bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm",
