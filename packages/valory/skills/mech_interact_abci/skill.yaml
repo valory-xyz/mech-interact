@@ -178,6 +178,7 @@ models:
         mech_marketplace_address: '0x0000000000000000000000000000000000000000'
         priority_mech_address: '0x0000000000000000000000000000000000000000'
         response_timeout: 300
+      nvm_balance_tracker_address: '0x7D686bD1fD3CFF6E45a40165154D61043af7D67c'
     class_name: Params
   mech_response:
     args:

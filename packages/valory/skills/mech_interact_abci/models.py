@@ -148,6 +148,9 @@ class MechParams(BaseParams):
             "Agent registry address not specified!",
         )
         self.use_acn_for_delivers = self._ensure("use_acn_for_delivers", kwargs, bool)
+        self.nvm_balance_tracker_address = self._ensure(
+            "nvm_balance_tracker_address", kwargs, str
+        )
 
         enforce(
             not self.use_mech_marketplace
