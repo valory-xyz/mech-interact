@@ -884,9 +884,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                     None,
                     self.params.mech_chain_id,
                     self.synchronized_data.safe_contract_address,
-                    None,
-                    None,
-                    None,
+                    SERIALIZED_EMPTY_LIST,
+                    SERIALIZED_EMPTY_LIST,
+                    self.get_updated_compatibility_cache(),
                 )
             yield from self.finish_behaviour(payload)
             return
