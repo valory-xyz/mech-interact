@@ -38,6 +38,9 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
 )
 
 
+SERIALIZED_EMPTY_LIST = "[]"
+
+
 class Event(Enum):
     """MechInteractAbciApp Events"""
 
@@ -103,7 +106,7 @@ class SynchronizedData(TxSynchronizedData):
     @property
     def mech_requests(self) -> List[MechMetadata]:
         """Get the mech requests."""
-        requests = self.db.get("mech_requests", "[]")
+        requests = self.db.get("mech_requests", SERIALIZED_EMPTY_LIST)
         if isinstance(requests, str):
             requests = json.loads(requests)
         return [MechMetadata(**metadata_item) for metadata_item in requests]
@@ -111,7 +114,7 @@ class SynchronizedData(TxSynchronizedData):
     @property
     def mech_responses(self) -> List[MechInteractionResponse]:
         """Get the mech responses."""
-        responses = self.db.get("mech_responses", "[]")
+        responses = self.db.get("mech_responses", SERIALIZED_EMPTY_LIST)
         if isinstance(responses, str):
             responses = json.loads(responses)
         return [MechInteractionResponse(**response_item) for response_item in responses]
