@@ -48,6 +48,7 @@ class Event(Enum):
     NO_MAJORITY = "no_majority"
     ROUND_TIMEOUT = "round_timeout"
     SKIP_REQUEST = "skip_request"
+    BUY_SUBSCRIPTION = "buy_subscription"
 
 
 @dataclass
