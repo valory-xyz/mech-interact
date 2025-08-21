@@ -26,12 +26,6 @@ For a clean workflow run checks in following order before making a PR or pushing
 - make generators
 - make common-checks-1
 
-**else run**
-- make copyright
-
-**run this after making a commit**
-- make common-checks-2
-
 
 ### Documentation (Docstrings and inline comments)
 - Instead of writing just single line of docstring write more informative docstring. If a method is fairly easy to understand one line of docstring will do but if the method has more complex logic it needs be documented properly.
