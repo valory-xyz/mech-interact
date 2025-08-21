@@ -32,7 +32,7 @@ from aea.exceptions import AEAEnforceError
 from aea.helpers.cid import to_v1
 from hexbytes import HexBytes
 
-from packages.valory.contracts.IERC1155.contract import IERC1155
+from packages.valory.contracts.ierc1155.contract import IERC1155
 from packages.valory.contracts.erc20.contract import ERC20
 from packages.valory.contracts.gnosis_safe.contract import (
     GnosisSafeContract,

@@ -1,4 +1,4 @@
-name: BalanceTrackerNvmSubscriptionNative
+name: nvm_balance_tracker_native
 author: valory
 version: 0.1.0
 type: contract

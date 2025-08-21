@@ -1,4 +1,4 @@
-name: BalanceTrackerNvmSubscriptionToken
+name: nvm_balance_tracker_token
 author: valory
 version: 0.1.0
 type: contract
