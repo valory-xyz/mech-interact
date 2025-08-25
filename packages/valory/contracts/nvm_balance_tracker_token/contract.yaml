@@ -12,7 +12,7 @@ fingerprint:
   contract.py: bafybeiasm5hmhj3pv4aavjt6irj3t3gntqly7niqcghy5vdzklzzlo6v5a
 fingerprint_ignore_patterns: []
 contracts: []
-class_name: Mech
+class_name: BalanceTrackerNvmSubscriptionToken
 contract_interface_paths:
   ethereum: build/nvm_balance_tracker_token.json
 dependencies:
