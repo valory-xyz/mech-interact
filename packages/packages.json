@@ -9,7 +9,7 @@
         "contract/valory/ierc1155/0.1.0": "bafybeig5lnuicphvwnu55fgmwegpma44l6jldakyfyjciscl274unb5iqy",
         "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeib5s3h6htopcl4gkexyijjqhk5dkmrru2ltsvvwk47r7dvx46iraa",
         "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeihlbnuistppdcjbxdqwleji4mqhmygezo4n5pwxkn5tbp6rlmithy",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeibst2bd7zgf6xwquhqjirqilhwo7xmv2ie632fos7333m5xln7hiu"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeig7aewbnaqcmgl3haszf75lhgnwa25yeitxceclsaobscjwxlt24e"
     },
     "third_party": {
         "protocol/open_aea/signing/1.0.0": "bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm",
