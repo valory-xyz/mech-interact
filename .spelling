@@ -3,6 +3,11 @@
 # global dictionary is at the start, file overrides afterwards
 # one word per line, to define a file override use ' - filename'
 # where filename is relative to this configuration file
+BalanceTrackerNvmSubscriptionNative
+BalanceTrackerNvmSubscriptionToken
+mechs
+mech-interact
+overridable
 Mech
 Farcaster
 farcaster
