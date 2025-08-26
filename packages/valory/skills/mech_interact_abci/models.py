@@ -66,14 +66,14 @@ class MechMarketplaceConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "MechMarketplaceConfig":
         """Create an instance from a dictionary."""
         if not data["priority_mech_staking_instance_address"]:
-            data[
-                "priority_mech_staking_instance_address"
-            ] = "0x0000000000000000000000000000000000000000"
+            data["priority_mech_staking_instance_address"] = (
+                "0x0000000000000000000000000000000000000000"
+            )
 
         if not data["requester_staking_instance_address"]:
-            data[
-                "requester_staking_instance_address"
-            ] = "0x0000000000000000000000000000000000000000"
+            data["requester_staking_instance_address"] = (
+                "0x0000000000000000000000000000000000000000"
+            )
 
         if not data["priority_mech_service_id"]:
             data["priority_mech_service_id"] = 975
@@ -151,6 +151,25 @@ class MechParams(BaseParams):
         self.nvm_balance_tracker_address = self._ensure(
             "nvm_balance_tracker_address", kwargs, str
         )
+        self.did_registry_address = self._ensure("did_registry_address", kwargs, str)
+        self.agreement_store_manager_address = self._ensure(
+            "agreement_store_manager_address", kwargs, str
+        )
+        self.lock_payment_condition_address = self._ensure(
+            "lock_payment_condition_address", kwargs, str
+        )
+        self.escrow_payment_condition_address = self._ensure(
+            "escrow_payment_condition_address", kwargs, str
+        )
+        self.token_address = self._ensure("token_address", kwargs, str)
+        self.plan_fee_nvm = self._ensure("plan_fee_nvm", kwargs, int)
+        self.plan_price_mech = self._ensure("plan_price_mech", kwargs, int)
+        self.subscription_credits = self._ensure("subscription_credits", kwargs, int)
+        self.subscription_nft_address = self._ensure(
+            "subscription_nft_address", kwargs, str
+        )
+        self.nft_sales = self._ensure("nft_sales", kwargs, str)
+        self.did = self._ensure("did", kwargs, str)
 
         enforce(
             not self.use_mech_marketplace

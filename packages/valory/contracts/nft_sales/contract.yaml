@@ -1,0 +1,20 @@
+name: nft_sales
+author: valory
+version: 0.1.0
+type: contract
+description: NFT Sales Template contract
+license: Apache-2.0
+aea_version: '>=1.0.0, <2.0.0'
+fingerprint:
+    README.md: bafybeihbbepmyfrkvj7j7q7xbno77gapxsyvwjgkz24cjlfe7xkcrgfo6i
+    __init__.py: bafybeia2jy4hgoyhxzxbnc5fccrg55zqmsuonudcbblpvxz7kqlvr7oiwy
+    build/nft_sales.json: bafybeibgsni2wv4ob3rycrr343aw55dqg62riz3dwilaegkvo7gutoodfi
+    contract.py: bafybeid67dn3jke5nd3rum7gvh7fmyzoal6lxxsmhq3d254ugznqasubb4
+fingerprint_ignore_patterns: []
+contracts: []
+class_name: NFTSalesTemplate
+contract_interface_paths:
+    ethereum: build/nft_sales.json
+dependencies:
+    open-aea-ledger-ethereum:
+        version: ==1.65.0
