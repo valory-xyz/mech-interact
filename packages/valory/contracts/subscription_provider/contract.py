@@ -17,57 +17,37 @@
 #
 # ------------------------------------------------------------------------------
 
-"""This module contains the class to connect to a NFTSalesTemplate contract."""
+"""This module contains the class to connect to a SubscriptionProvider contract."""
 
-from typing import List
 from aea.common import JSONLike
 from aea.configurations.base import PublicId
 from aea.contracts.base import Contract
 from aea_ledger_ethereum import EthereumApi
 
 
-PUBLIC_ID = PublicId.from_str("valory/nft_sales:0.1.0")
+PUBLIC_ID = PublicId.from_str("valory/subscription_provider:0.1.0")
 
 
-class NFTSalesTemplate(Contract):
-    """The NFTSalesTemplate contract."""
+class SubscriptionProvider(Contract):
+    """The SubscriptionProvider contract."""
 
     contract_id = PUBLIC_ID
 
     @classmethod
-    def build_create_agreement_tx(
+    def build_create_fulfill_tx(
         cls,
         ledger_api: EthereumApi,
         contract_address: str,
         agreement_id_seed: str,
         did: str,
-        condition_seeds: List[bytes],
-        timelocks: List[int],
-        timeouts: List[int],
-        publisher: str,
-        service_index: int,
-        reward_address: str,
-        token_address: str,
-        amounts: List[int],
-        receivers: List[str],
+        fulfill_for_delegate_params: tuple,
+        fulfill_params: tuple,
     ) -> JSONLike:
-        """Get the tx for create agreeement."""
+        """Get the tx for fulfill."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
         encoded_data = contract_instance.encodeABI(
-            fn_name="createAgreementAndPayEscrow",
-            args=(
-                agreement_id_seed,
-                did,
-                condition_seeds,
-                timelocks,
-                timeouts,
-                publisher,
-                service_index,
-                reward_address,
-                token_address,
-                amounts,
-                receivers,
-            ),
+            fn_name="fulfill",
+            args=(agreement_id_seed, did, fulfill_for_delegate_params, fulfill_params),
         )
         return {"data": bytes.fromhex(encoded_data[2:])}

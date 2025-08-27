@@ -52,6 +52,9 @@ from packages.valory.contracts.escrow_payment_condition.contract import (
     EscrowPaymentConditionContract,
 )
 from packages.valory.contracts.nft_sales.contract import NFTSalesTemplate
+from packages.valory.contracts.subscription_provider.contract import (
+    SubscriptionProvider,
+)
 from packages.valory.contracts.multisend.contract import MultiSendContract
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.skills.abstract_round_abci.base import get_name
@@ -100,6 +103,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._agreement_id_seed: Optional[str] = None
         self._ddo_values: Optional[List] = None
         self._service: Optional[Dict] = None
+        self._create_agreement_tx_data: Optional[str] = None
+        self._subscription_token_approval_tx_data: Optional[str] = None
+        self._create_fulfill_tx_data: Optional[str] = None
 
     @property
     def safe_tx_hash(self) -> str:
@@ -586,7 +592,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(f"Fetched escrow payment hash: {escrow_hash}")
 
         status = self._nft_sales_contract_interact(
-            contract_callable="get_create_agreement_tx",
+            contract_callable="build_create_agreement_tx",
             data_key="data",
             placeholder="_create_agreement_tx_data",
             agreement_id_seed=self.agreement_id_seed,
@@ -600,6 +606,119 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             token_address=self.params.token_address,
             amounts=self.amounts,
             receivers=self.receivers,
+            chain_id=self.params.mech_chain_id,
+        )
+        return status
+
+    def _token_contract_interact(
+        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
+    ) -> WaitableConditionType:
+        """Interact with the NFT Sales Template contract."""
+        status = yield from self.contract_interact(
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
+            contract_address=self.params.subscription_token_address,
+            contract_public_id=ERC20.contract_id,
+            contract_callable=contract_callable,
+            data_key=data_key,
+            placeholder=placeholder,
+            **kwargs,
+        )
+        return status
+
+    # only required for base chain (usdc is the payment token for subscription)
+    def _build_subscription_token_approval_tx_data(self):
+        status = yield from self._token_contract_interact(
+            contract_callable="build_approval_tx",
+            placeholder="_subscription_token_approval_tx_data",
+            data_key="data",
+            spender=self.params.lock_payment_condition_address,
+            amount=10**6,
+            chain_id=self.params.mech_chain_id,
+        )
+        return status
+
+    def _subscription_provider_contract_interact(
+        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
+    ) -> WaitableConditionType:
+        """Interact with the Subscription Provider contract."""
+        status = yield from self.contract_interact(
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
+            contract_address=self.params.subscription_provider_address,
+            contract_public_id=SubscriptionProvider.contract_id,
+            contract_callable=contract_callable,
+            data_key=data_key,
+            placeholder=placeholder,
+            **kwargs,
+        )
+        return status
+
+    def _build_create_fulfill_tx_data(self):
+        if not self.from_address:
+            self.context.logger.error(
+                "from_address attribute not set correctly after contract call."
+            )
+            return None
+
+        lock_id = yield from self._get_lock_id()
+        if not lock_id:
+            self.context.logger.error("Error fetching lock_id")
+            return None
+
+        self.context.logger.info(f"Fetched lock id: {lock_id.hex()}")
+
+        if not self.receivers:
+            self.context.logger.error(
+                "receivers attribute not set correctly after contract call."
+            )
+            return None
+
+        transfer_id = yield from self._get_transfer_id()
+        if not transfer_id:
+            self.context.logger.error("Error fetching transfer_id")
+            return None
+
+        self.context.logger.info(f"Fetched transfer id: {transfer_id.hex()}")
+
+        fulfill_for_delegate_params = (
+            # nftHolder
+            self.from_address,
+            # nftReceiver
+            self.synchronized_data.safe_contract_address,
+            # nftAmount
+            self.params.subscription_credits,
+            # lockPaymentCondition
+            "0x" + lock_id.hex(),
+            # nftContractAddress
+            self.params.subscription_nft_address,
+            # transfer
+            False,
+            # expirationBlock
+            0,
+        )
+        fulfill_params = (
+            # amounts
+            self.amounts,
+            # receivers
+            self.receivers,
+            # returnAddress
+            self.synchronized_data.safe_contract_address,
+            # lockPaymentAddress
+            self.params.escrow_payment_condition_address,
+            # tokenAddress
+            self.params.token_address,
+            # lockCondition
+            "0x" + lock_id.hex(),
+            # releaseCondition
+            "0x" + transfer_id.hex(),
+        )
+        status = self._subscription_provider_contract_interact(
+            contract_callable="build_create_fulfill_tx",
+            data_key="data",
+            placeholder="_create_fulfill_tx_data",
+            agreement_id_seed=self.agreement_id_seed,
+            did=self.params.did,
+            fulfill_for_delegate_params=fulfill_for_delegate_params,
+            fulfill_params=fulfill_params,
             chain_id=self.params.mech_chain_id,
         )
         return status

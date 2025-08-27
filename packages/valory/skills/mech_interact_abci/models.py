@@ -168,6 +168,14 @@ class MechParams(BaseParams):
         self.subscription_nft_address = self._ensure(
             "subscription_nft_address", kwargs, str
         )
+        self.nft_sales_address = self._ensure("nft_sales_address", kwargs, str)
+        # only required for base chain (usdc is the payment token for subscription)
+        self.subscription_token_address = self._ensure(
+            "subscription_token_address", kwargs, str
+        )
+        self.subscription_provider_address = self._ensure(
+            "subscription_provider_address", kwargs, str
+        )
         self.nft_sales = self._ensure("nft_sales", kwargs, str)
         self.did = self._ensure("did", kwargs, str)
 
