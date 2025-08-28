@@ -286,16 +286,3 @@ class MultisendBatch:
             raise ValueError("Value must be non-negative")
         if not isinstance(self.data, HexBytes):
             raise ValueError("Data must be HexBytes instance")
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert the batch to a dictionary representation.
-
-        Returns:
-            Dictionary containing batch parameters
-        """
-        return {
-            "to": self.to,
-            "data": self.data.hex(),
-            "value": self.value,
-            "operation": self.operation.value,
-        }
