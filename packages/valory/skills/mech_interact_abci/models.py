@@ -40,6 +40,29 @@ from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
 
+CHAIN_TO_NVM_CONFIG = {
+    "gnosis": {
+        "plan_fee_nvm": 10000000000000000,
+        "plan_price_mech": 990000000000000000,
+        "subscription_credits": 1000000,
+        "subscription_nft_address": "0x1b5DeaD7309b56ca7663b3301A503e077Be18cba",
+        "nft_sales_address": "0x72201948087aE83f8Eac22cf7A9f2139e4cFA829",
+        "subscription_token_address": "0x0000000000000000000000000000000000000000",
+        "subscription_provider_address": "0x4a2f40E14309c20c0C3803c3CcCd5E9B5F2D4eCA",
+        "plan_did": "did:nv:b0b28402e5a7229804579d4ac55b98a1dd94660d7a7eb4add78e5ca856f2aab7",
+    },
+    "base": {
+        "plan_fee_nvm": 10000,
+        "plan_price_mech": 990000,
+        "subscription_credits": 1000000,
+        "subscription_nft_address": "0xd5318d1A17819F65771B6c9277534C08Dd765498",
+        "nft_sales_address": "0x468dC6d758129c4563005B49aC58DfF2e6f7F08e",
+        "subscription_token_address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "subscription_provider_address": "0x5050c577583D25Ff9C9492A39e8D1B94028ffA55",
+        "plan_did": "did:nv:6f74c18fae7e5c3589b99d7cd0ba317593f00dee53c81a2ba4ac2244232f99da",
+    },
+}
+
 
 class MechResponseSpecs(ApiSpecs):
     """A model that wraps ApiSpecs for the Mech's response specifications."""
@@ -161,22 +184,17 @@ class MechParams(BaseParams):
         self.escrow_payment_condition_address = self._ensure(
             "escrow_payment_condition_address", kwargs, str
         )
-        self.token_address = self._ensure("token_address", kwargs, str)
-        self.plan_fee_nvm = self._ensure("plan_fee_nvm", kwargs, int)
-        self.plan_price_mech = self._ensure("plan_price_mech", kwargs, int)
-        self.subscription_credits = self._ensure("subscription_credits", kwargs, int)
-        self.subscription_nft_address = self._ensure(
-            "subscription_nft_address", kwargs, str
-        )
-        self.nft_sales_address = self._ensure("nft_sales_address", kwargs, str)
-        # only required for base chain (usdc is the payment token for subscription)
-        self.subscription_token_address = self._ensure(
-            "subscription_token_address", kwargs, str
-        )
-        self.subscription_provider_address = self._ensure(
-            "subscription_provider_address", kwargs, str
-        )
-        self.did = self._ensure("did", kwargs, str)
+
+        nvm_config = CHAIN_TO_NVM_CONFIG[str(self.mech_chain_id)]
+        self.plan_fee_nvm = nvm_config["plan_fee_nvm"]
+        self.plan_price_mech = nvm_config["plan_price_mech"]
+        self.subscription_credits = nvm_config["subscription_credits"]
+        self.subscription_nft_address = nvm_config["subscription_nft_address"]
+        self.nft_sales_address = nvm_config["nft_sales_address"]
+        self.subscription_token_address = nvm_config["subscription_token_address"]
+        self.subscription_provider_address = nvm_config["subscription_provider_address"]
+        self.plan_did = nvm_config["did"]
+        self.did = self.plan_did.replace("did:nv:", "0x")
 
         enforce(
             not self.use_mech_marketplace
