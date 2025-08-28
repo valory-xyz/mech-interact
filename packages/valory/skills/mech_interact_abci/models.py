@@ -176,7 +176,6 @@ class MechParams(BaseParams):
         self.subscription_provider_address = self._ensure(
             "subscription_provider_address", kwargs, str
         )
-        self.nft_sales = self._ensure("nft_sales", kwargs, str)
         self.did = self._ensure("did", kwargs, str)
 
         enforce(
