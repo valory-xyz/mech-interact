@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from aea.exceptions import enforce
+from autonomy.chain.config import ChainType
 from hexbytes import HexBytes
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
@@ -40,27 +41,51 @@ from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
 
+
+PLAN_DID_PREFIX = "did:nv:"
+Ox = "0x"
+
+
+@dataclass
+class NVMConfig:
+    """NVM configuration."""
+
+    plan_fee_nvm: int
+    plan_price_mech: int
+    subscription_credits: int
+    subscription_nft_address: str
+    nft_sales_address: str
+    subscription_token_address: str
+    subscription_provider_address: str
+    plan_did: str
+
+    @property
+    def did(self) -> str:
+        """Get the did."""
+        return self.plan_did.replace(PLAN_DID_PREFIX, Ox)
+
+
 CHAIN_TO_NVM_CONFIG = {
-    "gnosis": {
-        "plan_fee_nvm": 10000000000000000,
-        "plan_price_mech": 990000000000000000,
-        "subscription_credits": 1000000,
-        "subscription_nft_address": "0x1b5DeaD7309b56ca7663b3301A503e077Be18cba",
-        "nft_sales_address": "0x72201948087aE83f8Eac22cf7A9f2139e4cFA829",
-        "subscription_token_address": "0x0000000000000000000000000000000000000000",
-        "subscription_provider_address": "0x4a2f40E14309c20c0C3803c3CcCd5E9B5F2D4eCA",
-        "plan_did": "did:nv:b0b28402e5a7229804579d4ac55b98a1dd94660d7a7eb4add78e5ca856f2aab7",
-    },
-    "base": {
-        "plan_fee_nvm": 10000,
-        "plan_price_mech": 990000,
-        "subscription_credits": 1000000,
-        "subscription_nft_address": "0xd5318d1A17819F65771B6c9277534C08Dd765498",
-        "nft_sales_address": "0x468dC6d758129c4563005B49aC58DfF2e6f7F08e",
-        "subscription_token_address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        "subscription_provider_address": "0x5050c577583D25Ff9C9492A39e8D1B94028ffA55",
-        "plan_did": "did:nv:6f74c18fae7e5c3589b99d7cd0ba317593f00dee53c81a2ba4ac2244232f99da",
-    },
+    ChainType.GNOSIS: NVMConfig(
+        plan_fee_nvm=10000000000000000,
+        plan_price_mech=990000000000000000,
+        subscription_credits=1000000,
+        subscription_nft_address="0x1b5DeaD7309b56ca7663b3301A503e077Be18cba",
+        nft_sales_address="0x72201948087aE83f8Eac22cf7A9f2139e4cFA829",
+        subscription_token_address="0x0000000000000000000000000000000000000000",
+        subscription_provider_address="0x4a2f40E14309c20c0C3803c3CcCd5E9B5F2D4eCA",
+        plan_did="did:nv:b0b28402e5a7229804579d4ac55b98a1dd94660d7a7eb4add78e5ca856f2aab7",
+    ),
+    ChainType.BASE: NVMConfig(
+        plan_fee_nvm=10000,
+        plan_price_mech=990000,
+        subscription_credits=1000000,
+        subscription_nft_address="0xd5318d1A17819F65771B6c9277534C08Dd765498",
+        nft_sales_address="0x468dC6d758129c4563005B49aC58DfF2e6f7F08e",
+        subscription_token_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        subscription_provider_address="0x5050c577583D25Ff9C9492A39e8D1B94028ffA55",
+        plan_did="did:nv:6f74c18fae7e5c3589b99d7cd0ba317593f00dee53c81a2ba4ac2244232f99da",
+    ),
 }
 
 
@@ -185,17 +210,6 @@ class MechParams(BaseParams):
             "escrow_payment_condition_address", kwargs, str
         )
 
-        nvm_config = CHAIN_TO_NVM_CONFIG[str(self.mech_chain_id)]
-        self.plan_fee_nvm = nvm_config["plan_fee_nvm"]
-        self.plan_price_mech = nvm_config["plan_price_mech"]
-        self.subscription_credits = nvm_config["subscription_credits"]
-        self.subscription_nft_address = nvm_config["subscription_nft_address"]
-        self.nft_sales_address = nvm_config["nft_sales_address"]
-        self.subscription_token_address = nvm_config["subscription_token_address"]
-        self.subscription_provider_address = nvm_config["subscription_provider_address"]
-        self.plan_did = nvm_config["did"]
-        self.did = self.plan_did.replace("did:nv:", "0x")
-
         enforce(
             not self.use_mech_marketplace
             or self.mech_contract_address
@@ -212,6 +226,11 @@ class MechParams(BaseParams):
         if self._ipfs_address.endswith("/"):
             return self._ipfs_address
         return f"{self._ipfs_address}/"
+
+    @property
+    def nvm_config(self) -> NVMConfig:
+        """Return the NVM configuration for the specified mech chain id."""
+        return CHAIN_TO_NVM_CONFIG[ChainType(self.mech_chain_id)]
 
     def validate_configuration(self) -> None:
         """Validate the entire configuration for consistency."""

@@ -63,6 +63,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
 )
+from packages.valory.skills.mech_interact_abci.models import NVMConfig
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
 from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
@@ -106,6 +107,11 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._create_agreement_tx_data: Optional[str] = None
         self._subscription_token_approval_tx_data: Optional[str] = None
         self._create_fulfill_tx_data: Optional[str] = None
+
+    @property
+    def nvm_config(self) -> NVMConfig:
+        """Return the NVM configuration for the specified mech chain id."""
+        return self.params.nvm_config
 
     @property
     def safe_tx_hash(self) -> str:
@@ -217,7 +223,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     @property
     def amounts(self) -> List:
         """Get the amounts."""
-        amounts = [self.params.plan_fee_nvm, self.params.plan_price_mech]
+        amounts = [self.nvm_config.plan_fee_nvm, self.nvm_config.plan_price_mech]
         return amounts
 
     @staticmethod
@@ -240,7 +246,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             contract_address=self.params.did_registry_address,
             contract_public_id=str(DIDRegistry.public_id),
             contract_callable="get_ddo",
-            did=self.params.did,
+            did=self.nvm_config.did,
             chain_id=self.params.mech_chain_id,
         )
         if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
@@ -345,9 +351,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             contract_address=self.params.lock_payment_condition_address,
             contract_public_id=str(LockPaymentCondition.contract_id),
             contract_callable="get_hash_values",
-            did=self.params.did,
+            did=self.nvm_config.did,
             reward_address=self.params.escrow_payment_condition_address,
-            token_address=self.params.subscription_token_address,
+            token_address=self.nvm_config.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
             chain_id=self.params.mech_chain_id,
@@ -416,12 +422,12 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             contract_address=self.params.lock_payment_condition_address,
             contract_public_id=str(TransferNFTCondition.contract_id),
             contract_callable="get_hash_values",
-            did=self.params.did,
+            did=self.nvm_config.did,
             from_address=self.from_address,
             to_address=self.synchronized_data.safe_contract_address,
-            amount=self.params.subscription_credits,
+            amount=self.nvm_config.subscription_credits,
             lock_condition_id=lock_id,
-            nft_contract_address=self.params.subscription_nft_address,
+            nft_contract_address=self.nvm_config.subscription_nft_address,
             _is_transfer=False,
             chain_id=self.params.mech_chain_id,
         )
@@ -495,12 +501,12 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             contract_address=self.params.lock_payment_condition_address,
             contract_public_id=str(EscrowPaymentConditionContract.contract_id),
             contract_callable="get_hash_values",
-            did=self.params.did,
+            did=self.nvm_config.did,
             amounts=self.amounts,
             receivers=self.receivers,
             sender=self.synchronized_data.safe_contract_address,
             receiver=self.params.escrow_payment_condition_address,
-            token_address=self.params.subscription_token_address,
+            token_address=self.nvm_config.subscription_token_address,
             lock_condition_id=lock_id,
             release_condition_id=transfer_id,
             chain_id=self.params.mech_chain_id,
@@ -555,7 +561,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Interact with the NFT Sales Template contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.nft_sales_address,
+            contract_address=self.nvm_config.nft_sales_address,
             contract_public_id=NFTSalesTemplate.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -600,14 +606,14 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             data_key="data",
             placeholder="_create_agreement_tx_data",
             agreement_id_seed=self.agreement_id_seed,
-            did=self.params.did,
+            did=self.nvm_config.did,
             condition_seeds=[lock_hash, transfer_hash, escrow_hash],
             timelocks=[0, 0, 0],
             timeouts=[0, 90, 0],
             publisher=self.synchronized_data.safe_contract_address,
             service_index=0,
             reward_address=self.params.escrow_payment_condition_address,
-            token_address=self.params.subscription_token_address,
+            token_address=self.nvm_config.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
             chain_id=self.params.mech_chain_id,
@@ -620,7 +626,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Interact with the NFT Sales Template contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.subscription_token_address,
+            contract_address=self.nvm_config.subscription_token_address,
             contract_public_id=ERC20.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -647,7 +653,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Interact with the Subscription Provider contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.subscription_provider_address,
+            contract_address=self.nvm_config.subscription_provider_address,
             contract_public_id=SubscriptionProvider.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -689,11 +695,11 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # nftReceiver
             self.synchronized_data.safe_contract_address,
             # nftAmount
-            self.params.subscription_credits,
+            self.nvm_config.subscription_credits,
             # lockPaymentCondition
             "0x" + lock_id.hex(),
             # nftContractAddress
-            self.params.subscription_nft_address,
+            self.nvm_config.subscription_nft_address,
             # transfer
             False,
             # expirationBlock
@@ -709,7 +715,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # lockPaymentAddress
             self.params.escrow_payment_condition_address,
             # tokenAddress
-            self.params.subscription_token_address,
+            self.nvm_config.subscription_token_address,
             # lockCondition
             "0x" + lock_id.hex(),
             # releaseCondition
@@ -722,7 +728,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             data_key="data",
             placeholder="_create_fulfill_tx_data",
             agreement_id_seed=self.agreement_id_seed,
-            did=self.params.did,
+            did=self.nvm_config.did,
             fulfill_for_delegate_params=fulfill_for_delegate_params,
             fulfill_params=fulfill_params,
             chain_id=self.params.mech_chain_id,
