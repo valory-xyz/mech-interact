@@ -64,8 +64,8 @@ class LockPaymentCondition(Contract):
         cls,
         ledger_api: EthereumApi,
         contract_address: str,
-        agreement_id: str,
-        hash_value: str,
+        agreement_id: bytes,
+        hash_value: bytes,
     ) -> JSONLike:
         """Get the id."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)

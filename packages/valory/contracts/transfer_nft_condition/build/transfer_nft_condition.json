@@ -1,7 +1,7 @@
 {
   "_format": "hh-sol-artifact-1",
-  "contractName": "LockPaymentCondition",
-  "sourceName": "contracts/LockPaymentCondition.sol",
+  "contractName": "TransferNFTCondition",
+  "sourceName": "contracts/TransferNFTCondition.sol",
   "abi": [
     {
       "anonymous": false,

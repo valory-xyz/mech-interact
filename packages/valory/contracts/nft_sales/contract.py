@@ -27,6 +27,7 @@ from aea_ledger_ethereum import EthereumApi
 
 
 PUBLIC_ID = PublicId.from_str("valory/nft_sales:0.1.0")
+HEX_PREFIX_LENGTH = 2
 
 
 class NFTSalesTemplate(Contract):
@@ -70,4 +71,4 @@ class NFTSalesTemplate(Contract):
                 receivers,
             ),
         )
-        return {"data": bytes.fromhex(encoded_data[2:])}
+        return {"data": bytes.fromhex(encoded_data[HEX_PREFIX_LENGTH:])}

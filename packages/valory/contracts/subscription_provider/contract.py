@@ -26,6 +26,7 @@ from aea_ledger_ethereum import EthereumApi
 
 
 PUBLIC_ID = PublicId.from_str("valory/subscription_provider:0.1.0")
+HEX_PREFIX_LENGTH = 2
 
 
 class SubscriptionProvider(Contract):
@@ -50,4 +51,4 @@ class SubscriptionProvider(Contract):
             fn_name="fulfill",
             args=(agreement_id_seed, did, fulfill_for_delegate_params, fulfill_params),
         )
-        return {"data": bytes.fromhex(encoded_data[2:])}
+        return {"data": bytes.fromhex(encoded_data[HEX_PREFIX_LENGTH:])}

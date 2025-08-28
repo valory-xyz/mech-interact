@@ -1,7 +1,7 @@
 {
   "_format": "hh-sol-artifact-1",
-  "contractName": "LockPaymentCondition",
-  "sourceName": "contracts/LockPaymentCondition.sol",
+  "contractName": "EscrowPaymentConditionContract",
+  "sourceName": "contracts/EscrowPaymentConditionContract.sol",
   "abi": [
     {
       "anonymous": false,
