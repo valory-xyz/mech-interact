@@ -12,7 +12,7 @@ fingerprint:
     contract.py: bafybeid67dn3jke5nd3rum7gvh7fmyzoal6lxxsmhq3d254ugznqasubb4
 fingerprint_ignore_patterns: []
 contracts: []
-class_name: LockPaymentCondition
+class_name: TransferNFTCondition
 contract_interface_paths:
     ethereum: build/transfer_nft_condition.json
 dependencies:

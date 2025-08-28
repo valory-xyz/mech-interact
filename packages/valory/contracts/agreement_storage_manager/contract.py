@@ -47,7 +47,7 @@ class AgreementStorageManager(Contract):
         agreement_id = ledger_api.contract_method_call(
             contract_instance,
             "agreementId",
-            agreement_id_seed=agreement_id_seed,
-            subscriber=subscriber,
+            _agreementId=agreement_id_seed,
+            _creator=subscriber,
         )
         return dict(agreement_id=agreement_id.hex())

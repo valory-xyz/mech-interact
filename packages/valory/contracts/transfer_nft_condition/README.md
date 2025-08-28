@@ -1,1 +1,1 @@
-# BalanceTrackerNvmSubscriptionNative contract
+# TransferNFTCondition contract

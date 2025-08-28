@@ -2,7 +2,7 @@ name: did_registry
 author: valory
 version: 0.1.0
 type: contract
-description: Balance tracker contract for a DID Registry
+description: DID Registry contract
 license: Apache-2.0
 aea_version: '>=1.0.0, <2.0.0'
 fingerprint:

@@ -50,18 +50,18 @@ class TransferNFTCondition(Contract):
         """Get the hash values."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
-        hash = ledger_api.contract_method_call(
+        hash_ = ledger_api.contract_method_call(
             contract_instance,
             "hashValues",
-            did=did,
-            from_address=from_address,
-            to_address=to_address,
-            amount=amount,
-            lock_condition_id=lock_condition_id,
-            nft_contract_address=nft_contract_address,
-            _is_transfer=_is_transfer,
+            _did=did,
+            _nftHolder=from_address,
+            _nftReceiver=to_address,
+            _nftAmount=amount,
+            _lockCondition=lock_condition_id,
+            _nftContractAddress=nft_contract_address,
+            _transfer=_is_transfer,
         )
-        return dict(hash=hash.hex())
+        return dict(hash=hash_)
 
     @classmethod
     def get_generate_id(
@@ -71,13 +71,13 @@ class TransferNFTCondition(Contract):
         agreement_id: str,
         hash_value: str,
     ) -> JSONLike:
-        """Get the hash values."""
+        """Get the id."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
         condition_id = ledger_api.contract_method_call(
             contract_instance,
             "generateId",
-            agreement_id=agreement_id,
-            hash_value=hash_value,
+            _agreementId=agreement_id,
+            _valueHash=hash_value,
         )
         return dict(condition_id=condition_id)

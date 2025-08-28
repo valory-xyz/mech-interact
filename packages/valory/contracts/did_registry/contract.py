@@ -40,10 +40,10 @@ class DIDRegistry(Contract):
         contract_address: str,
         did: str,
     ) -> JSONLike:
-        """Get the balance of a requester."""
+        """Get the ddo."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
         registered_values = ledger_api.contract_method_call(
-            contract_instance, "getDIDRegister", did=did
+            contract_instance, "getDIDRegister", _did=did
         )
         return dict(data=registered_values)
