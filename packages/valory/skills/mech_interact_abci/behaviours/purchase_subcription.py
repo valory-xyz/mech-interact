@@ -52,7 +52,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
 )
-from packages.valory.skills.mech_interact_abci.models import NVMConfig
+from packages.valory.skills.mech_interact_abci.models import NVMConfig, Ox
 from packages.valory.skills.mech_interact_abci.states.request import (
     MechPurchaseSubscriptionRound,
 )
@@ -61,7 +61,7 @@ from packages.valory.skills.transaction_settlement_abci.payload_tools import (
 )
 from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
 
-Ox = "0x"
+
 EMPTY_PAYMENT_DATA_HEX = Ox
 HTTP_OK = 200
 
@@ -217,7 +217,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         seed = ""
         while len(seed) < length:
             seed += uuid.uuid4().hex
-        return "0x" + seed[:length]
+        return Ox + seed[:length]
 
     def _get_ddo_data_from_endpoint(self) -> Generator[None, None, bool]:
         """Get the ddo data from endpoint."""
@@ -677,7 +677,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # nftAmount
             self.nvm_config.subscription_credits,
             # lockPaymentCondition
-            "0x" + lock_id.hex(),
+            Ox + lock_id.hex(),
             # nftContractAddress
             self.nvm_config.subscription_nft_address,
             # transfer
@@ -697,9 +697,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # tokenAddress
             self.nvm_config.subscription_token_address,
             # lockCondition
-            "0x" + lock_id.hex(),
+            Ox + lock_id.hex(),
             # releaseCondition
-            "0x" + transfer_id.hex(),
+            Ox + transfer_id.hex(),
         )
         self.context.logger.info(f"{fulfill_for_delegate_params=}")
         self.context.logger.info(f"{fulfill_params=}")
