@@ -79,7 +79,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     def __init__(self, **kwargs: Any) -> None:
         """Initialize Behaviour."""
         super().__init__(**kwargs)
-        # Initialize private attributes for properties
+        # Initialize protected attributes for properties
         self._agreement_id: Optional[bytes] = None
         self._agreement_id_seed: Optional[str] = None
         self._ddo_values: Optional[List] = None
