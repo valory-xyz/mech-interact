@@ -22,64 +22,44 @@
 import json
 import uuid
 from dataclasses import asdict
-from pathlib import Path
-from tempfile import mkdtemp
-from typing import Any, Generator, List, Optional, Dict, cast
+from typing import Any, Dict, Generator, List, Optional
 
-import multibase
-import multicodec
-from aea.configurations.data_types import PublicId
-from aea.exceptions import AEAEnforceError
-from aea.helpers.cid import to_v1
-from hexbytes import HexBytes
-
+from packages.valory.contracts.agreement_storage_manager.contract import (
+    AgreementStorageManager,
+)
+from packages.valory.contracts.did_registry.contract import DIDRegistry
 from packages.valory.contracts.erc20.contract import ERC20
+from packages.valory.contracts.escrow_payment_condition.contract import (
+    EscrowPaymentConditionContract,
+)
 from packages.valory.contracts.gnosis_safe.contract import (
     GnosisSafeContract,
     SafeOperation,
 )
-from packages.valory.contracts.did_registry.contract import DIDRegistry
-from packages.valory.contracts.agreement_storage_manager.contract import (
-    AgreementStorageManager,
-)
 from packages.valory.contracts.lock_payment_condition.contract import (
     LockPaymentCondition,
 )
-from packages.valory.contracts.transfer_nft_condition.contract import (
-    TransferNFTCondition,
-)
-from packages.valory.contracts.escrow_payment_condition.contract import (
-    EscrowPaymentConditionContract,
-)
+from packages.valory.contracts.multisend.contract import MultiSendContract
 from packages.valory.contracts.nft_sales.contract import NFTSalesTemplate
 from packages.valory.contracts.subscription_provider.contract import (
     SubscriptionProvider,
 )
-from packages.valory.contracts.multisend.contract import MultiSendContract
+from packages.valory.contracts.transfer_nft_condition.contract import (
+    TransferNFTCondition,
+)
 from packages.valory.protocols.contract_api import ContractApiMessage
-from packages.valory.skills.abstract_round_abci.base import get_name
-from packages.valory.skills.abstract_round_abci.io_.store import SupportedFiletype
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.models import NVMConfig
-from packages.valory.skills.mech_interact_abci.models import MultisendBatch
-from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
-from packages.valory.skills.mech_interact_abci.states.base import (
-    MechInteractionResponse,
-    MechMetadata,
-    SERIALIZED_EMPTY_LIST,
-)
 from packages.valory.skills.mech_interact_abci.states.request import (
     MechPurchaseSubscriptionRound,
 )
-from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
 from packages.valory.skills.transaction_settlement_abci.payload_tools import (
     hash_payload_to_hex,
 )
 from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
-
 
 Ox = "0x"
 EMPTY_PAYMENT_DATA_HEX = Ox
