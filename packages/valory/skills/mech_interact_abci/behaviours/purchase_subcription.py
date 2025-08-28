@@ -347,7 +347,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             contract_callable="get_hash_values",
             did=self.params.did,
             reward_address=self.params.escrow_payment_condition_address,
-            token_address=self.params.token_address,
+            token_address=self.params.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
             chain_id=self.params.mech_chain_id,
@@ -500,7 +500,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             receivers=self.receivers,
             sender=self.synchronized_data.safe_contract_address,
             receiver=self.params.escrow_payment_condition_address,
-            token_address=self.params.token_address,
+            token_address=self.params.subscription_token_address,
             lock_condition_id=lock_id,
             release_condition_id=transfer_id,
             chain_id=self.params.mech_chain_id,
@@ -607,7 +607,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             publisher=self.synchronized_data.safe_contract_address,
             service_index=0,
             reward_address=self.params.escrow_payment_condition_address,
-            token_address=self.params.token_address,
+            token_address=self.params.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
             chain_id=self.params.mech_chain_id,
@@ -709,7 +709,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # lockPaymentAddress
             self.params.escrow_payment_condition_address,
             # tokenAddress
-            self.params.token_address,
+            self.params.subscription_token_address,
             # lockCondition
             "0x" + lock_id.hex(),
             # releaseCondition
