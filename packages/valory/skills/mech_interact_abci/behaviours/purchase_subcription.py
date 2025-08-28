@@ -353,7 +353,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             chain_id=self.params.mech_chain_id,
         )
         if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(f"get_hash_values unsuccessful: {response_msg}")
+            self.context.logger.error(
+                f"LockPaymentCondition: get_hash_values unsuccessful: {response_msg}"
+            )
             return None
 
         lock_hash = response_msg.raw_transaction.body.get("hash", None)
@@ -386,7 +388,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             chain_id=self.params.mech_chain_id,
         )
         if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(f"get_hash_values unsuccessful: {response_msg}")
+            self.context.logger.error(
+                f"LockPaymentCondition: get_generate_id unsuccessful: {response_msg}"
+            )
             return None
 
         lock_id = response_msg.raw_transaction.body.get("condition_id", None)
@@ -410,7 +414,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_public_id=str(LockPaymentCondition.contract_id),
+            contract_public_id=str(TransferNFTCondition.contract_id),
             contract_callable="get_hash_values",
             did=self.params.did,
             from_address=self.from_address,
@@ -423,7 +427,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
             self.context.logger.error(
-                f"LockPaymentCondition: get_hash_values unsuccessful: {response_msg}"
+                f"TransferNFTCondition: get_hash_values unsuccessful: {response_msg}"
             )
             return None
 
@@ -445,7 +449,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             )
             return None
 
-        self.context.logger.info(f"Fetched agreement id: {self.agreement_id}")
+        self.context.logger.info(f"Fetched agreement id: {self.agreement_id.hex()}")
 
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
@@ -458,7 +462,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
             self.context.logger.error(
-                f"TransferNFTCondition: get_hash_values unsuccessful: {response_msg}"
+                f"TransferNFTCondition: get_generate_id unsuccessful: {response_msg}"
             )
             return None
 
@@ -575,21 +579,21 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             self.context.logger.error("Error fetching lock hash.")
             return None
 
-        self.context.logger.info(f"Fetched lock hash: {lock_hash}")
+        self.context.logger.info(f"Fetched lock hash: {lock_hash.hex()}")
 
         transfer_hash = yield from self._get_transfer_nft_hash()
         if not transfer_hash:
             self.context.logger.error("Error fetching transfer nft hash.")
             return None
 
-        self.context.logger.info(f"Fetched transfer nft hash: {transfer_hash}")
+        self.context.logger.info(f"Fetched transfer nft hash: {transfer_hash.hex()}")
 
         escrow_hash = yield from self._get_escrow_payment_hash()
         if not escrow_hash:
             self.context.logger.error("Error fetching escrow payment hash.")
             return None
 
-        self.context.logger.info(f"Fetched escrow payment hash: {escrow_hash}")
+        self.context.logger.info(f"Fetched escrow payment hash: {escrow_hash.hex()}")
 
         status = self._nft_sales_contract_interact(
             contract_callable="build_create_agreement_tx",
@@ -711,6 +715,8 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # releaseCondition
             "0x" + transfer_id.hex(),
         )
+        self.context.logger.info(f"{fulfill_for_delegate_params=}")
+        self.context.logger.info(f"{fulfill_params=}")
         status = self._subscription_provider_contract_interact(
             contract_callable="build_create_fulfill_tx",
             data_key="data",
