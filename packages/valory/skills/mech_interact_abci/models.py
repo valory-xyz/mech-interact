@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional
 
 from aea.exceptions import enforce
 from autonomy.chain.config import ChainType
+from autonomy.chain.service import NULL_ADDRESS
 from hexbytes import HexBytes
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
@@ -114,14 +115,10 @@ class MechMarketplaceConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "MechMarketplaceConfig":
         """Create an instance from a dictionary."""
         if not data["priority_mech_staking_instance_address"]:
-            data["priority_mech_staking_instance_address"] = (
-                "0x0000000000000000000000000000000000000000"
-            )
+            data["priority_mech_staking_instance_address"] = NULL_ADDRESS
 
         if not data["requester_staking_instance_address"]:
-            data["requester_staking_instance_address"] = (
-                "0x0000000000000000000000000000000000000000"
-            )
+            data["requester_staking_instance_address"] = NULL_ADDRESS
 
         if not data["priority_mech_service_id"]:
             data["priority_mech_service_id"] = 975
