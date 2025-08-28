@@ -176,7 +176,7 @@ class MechParams(BaseParams):
         )
         self.mech_request_price: Optional[int] = kwargs.get("mech_request_price")
         self._ipfs_address: str = self._ensure("ipfs_address", kwargs, str)
-        self.mech_chain_id: Optional[str] = kwargs.get("mech_chain_id", "gnosis")
+        self.mech_chain_id: str = kwargs.get("mech_chain_id", "gnosis")
         self.mech_wrapped_native_token_address: Optional[str] = kwargs.get(
             "mech_wrapped_native_token_address"
         )
