@@ -21,7 +21,6 @@
 
 import json
 import uuid
-from dataclasses import asdict
 from typing import Any, Dict, Generator, List, Optional
 
 from packages.valory.contracts.agreement_storage_manager.contract import (
@@ -51,24 +50,17 @@ from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
+    SAFE_GAS,
 )
 from packages.valory.skills.mech_interact_abci.models import NVMConfig, Ox
 from packages.valory.skills.mech_interact_abci.states.request import (
     MechPurchaseSubscriptionRound,
-)
-from packages.valory.skills.transaction_settlement_abci.payload_tools import (
-    hash_payload_to_hex,
 )
 from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
 
 
 EMPTY_PAYMENT_DATA_HEX = Ox
 HTTP_OK = 200
-
-# setting the safe gas to 0 means that all available gas will be used
-# which is what we want in most cases
-# more info here: https://safe-docs.dev.gnosisdev.com/safe/docs/contracts_tx_execution/
-SAFE_GAS = 0
 
 
 class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
@@ -92,48 +84,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     def nvm_config(self) -> NVMConfig:
         """Return the NVM configuration for the specified mech chain id."""
         return self.params.nvm_config
-
-    @property
-    def safe_tx_hash(self) -> str:
-        """Get the safe_tx_hash."""
-        return self._safe_tx_hash
-
-    @safe_tx_hash.setter
-    def safe_tx_hash(self, safe_hash: str) -> None:
-        """Set the safe_tx_hash."""
-        length = len(safe_hash)
-        if length != TX_HASH_LENGTH:
-            raise ValueError(
-                f"Incorrect length {length} != {TX_HASH_LENGTH} detected "
-                f"when trying to assign a safe transaction hash: {safe_hash}"
-            )
-        self._safe_tx_hash = safe_hash[2:]
-
-    @property
-    def multi_send_txs(self) -> List[dict]:
-        """Get the multisend transactions as a list of dictionaries."""
-        return [asdict(batch) for batch in self.multisend_batches]
-
-    @property
-    def txs_value(self) -> int:
-        """Get the total value of the transactions."""
-        return sum(batch.value for batch in self.multisend_batches)
-
-    @property
-    def tx_hex(self) -> Optional[str]:
-        """Serialize the safe tx to a hex string."""
-        if self.safe_tx_hash == "":
-            raise ValueError(
-                "Cannot prepare a multisend transaction without a safe transaction hash."
-            )
-        return hash_payload_to_hex(
-            self.safe_tx_hash,
-            self.txs_value,
-            SAFE_GAS,
-            self.params.multisend_address,
-            self.multisend_data,
-            SafeOperation.DELEGATE_CALL.value,
-        )
 
     @property
     def ddo_values(self) -> Optional[List]:
