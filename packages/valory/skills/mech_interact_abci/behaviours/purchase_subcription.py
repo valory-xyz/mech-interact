@@ -240,7 +240,12 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             return False
 
         # Load the response
-        ddo = json.loads(response.body)
+        try:
+            ddo = json.loads(response.body)
+        except json.JSONDecodeError:
+            self.context.logger.error(f"Failed to decode ddo: {response.body}.")
+            return False
+
         self.context.logger.info(f"Fetched ddo endpoint data: {ddo}")
         self.ddo_values = ddo
         self.extract_and_set_service()
