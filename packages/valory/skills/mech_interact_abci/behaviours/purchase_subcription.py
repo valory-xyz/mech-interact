@@ -132,6 +132,8 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             f"Fetched service data from ddo endpoint: {self.service}"
         )
 
+        # TODO unsafe access and keys as constants
+        # TODO defined as list accessed as dict
         conditions = self.service["attributes"]["serviceAgreementTemplate"][
             "conditions"
         ]
@@ -147,6 +149,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             )
             return None
 
+        # TODO defined as list accessed as dict
         from_address = self.ddo_values["owner"]
         return from_address
 
@@ -221,21 +224,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
         return True
 
-    def _agreement_store_manager_contract_interact(
-        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
-    ) -> WaitableConditionType:
-        """Interact with the Agreement Storage Manager contract."""
-        status = yield from self.contract_interact(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.agreement_store_manager_address,
-            contract_public_id=AgreementStorageManager.contract_id,
-            contract_callable=contract_callable,
-            data_key=data_key,
-            placeholder=placeholder,
-            **kwargs,
-        )
-        return status
-
     def get_agreement_id(self):
         """Get the agreement id."""
         agreement_id_seed = self._generate_agreement_id_seed()
@@ -250,7 +238,10 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
         self.context.logger.info(f"Fetched agreement id: {self.agreement_id_seed}")
 
-        status = self._agreement_store_manager_contract_interact(
+        status = yield from self.contract_interact(
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
+            contract_address=self.params.agreement_store_manager_address,
+            contract_public_id=AgreementStorageManager.contract_id,
             contract_callable="get_agreement_id",
             data_key="agreement_id",
             placeholder="_agreement_id",
