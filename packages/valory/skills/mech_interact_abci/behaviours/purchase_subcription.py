@@ -96,7 +96,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     @property
     def service(self) -> Optional[List]:
-        """Get the fetched ddo values."""
+        """Get the fetched service."""
         if self._service is None:
             self.context.logger.error("Accessing `service` before it has been fetched.")
         return self._service
@@ -112,7 +112,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     @property
     def agreement_id_seed(self) -> Optional[str]:
-        """Get the fetched agreement id."""
+        """Get the fetched agreement id seed."""
         if self._agreement_id_seed is None:
             self.context.logger.error(
                 "Accessing `agreement_id_seed` before it has been fetched."
@@ -140,7 +140,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     @property
     def from_address(self) -> Optional[str]:
-        """Get the from_address from service."""
+        """Get the from_address from the ddo values."""
         if not self.ddo_values:
             self.context.logger.error(
                 "ddo_values attribute not set correctly after contract call."
