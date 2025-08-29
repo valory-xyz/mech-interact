@@ -21,7 +21,9 @@
 
 import json
 import secrets
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional, Iterable, Union
+
+from aea.common import JSONLike
 
 from packages.valory.contracts.agreement_storage_manager.contract import (
     AgreementStorageManager,
@@ -68,6 +70,28 @@ DDO_ENDPOINT_HEADERS = {"accept": "application/json"}
 SERVICE_KEY = "service"
 SERVICE_TYPE_KEY = "type"
 SERVICE_TYPE = "nft-sales"
+OWNER_KEY = "owner"
+RECEIVERS_PATH = (
+    "attributes",
+    "serviceAgreementTemplate",
+    "conditions",
+    0,
+    "parameters",
+    -1,
+    "value",
+)
+
+
+def dig(
+    data: JSONLike, path: Iterable[Union[str, int]], default: Optional[Any] = None
+) -> Any:
+    """Try to extract information from a JSON data structure, given a path of str or int indexes."""
+    for key in path:
+        try:
+            data = data[key]
+        except (KeyError, IndexError, TypeError):
+            return default
+    return data
 
 
 class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
@@ -83,7 +107,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._agreement_id_seed: Optional[str] = None
         self._ddo_register: Optional[List] = None
         self._ddo_values: Optional[Dict] = None
-        self._service: Optional[Dict] = None
+        self._receivers: Optional[List] = None
         self._create_agreement_tx_data: Optional[str] = None
         self._subscription_token_approval_tx_data: Optional[str] = None
         self._create_fulfill_tx_data: Optional[str] = None
@@ -128,16 +152,18 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._ddo_values = ddo_values
 
     @property
-    def ddo_service(self) -> Optional[Dict]:
-        """Get the fetched service."""
-        if self._service is None:
-            self.context.logger.error("Accessing `service` before it has been fetched.")
-        return self._service
+    def receivers(self) -> Optional[List]:
+        """Get the fetched receivers."""
+        if self._receivers is None:
+            self.context.logger.error(
+                "Accessing `receivers` before it has been fetched."
+            )
+        return self._receivers
 
-    @ddo_service.setter
-    def ddo_service(self, service: Dict) -> None:
-        """Set the fetched service."""
-        self._service = service
+    @receivers.setter
+    def receivers(self, receivers: List) -> None:
+        """Set the fetched receivers."""
+        self._receivers = receivers
 
     @property
     def agreement_id(self) -> Optional[bytes]:
@@ -158,36 +184,15 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return self._agreement_id_seed
 
     @property
-    def receivers(self) -> Optional[List]:
-        """Get the receivers from service."""
-        if not self.ddo_service:
-            self.context.logger.error(
-                "service attribute not set correctly after contract call."
-            )
-            return None
-
-        self.context.logger.info(
-            f"Fetched service data from ddo endpoint: {self.ddo_service}"
-        )
-
-        # TODO unsafe access and keys as constants
-        conditions = self.ddo_service["attributes"]["serviceAgreementTemplate"][
-            "conditions"
-        ]
-        receivers = conditions[0]["parameters"][-1]["value"]
-        return receivers
-
-    @property
     def from_address(self) -> Optional[str]:
         """Get the from_address from the ddo values."""
-        if not self.ddo_values:
+        if not self.ddo_values or OWNER_KEY not in self.ddo_values:
             self.context.logger.error(
-                "ddo_values attribute not set correctly after contract call."
+                f"{self.ddo_values=} attribute not set correctly after contract call."
             )
             return None
 
-        from_address = self.ddo_values["owner"]
-        return from_address
+        return self.ddo_values[OWNER_KEY]
 
     @property
     def amounts(self) -> List:
@@ -214,17 +219,30 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def extract_and_set_service(self) -> None:
-        """Extract the service."""
+    def _extract_and_set_receivers(self) -> None:
+        """Extract and set the receivers."""
         service = next(
-            (s for s in self.ddo_values.get(SERVICE_KEY, []) if s.get(SERVICE_TYPE_KEY) == SERVICE_TYPE), None
+            (
+                s
+                for s in self.ddo_values.get(SERVICE_KEY, [])
+                if s.get(SERVICE_TYPE_KEY) == SERVICE_TYPE
+            ),
+            None,
         )
         if not service:
             self.context.logger.error(f"No {SERVICE_TYPE} service found in DDO.")
             return
 
         self.context.logger.info(f"Fetched service from DDO: {service}")
-        self.ddo_service = service
+
+        receivers = dig(
+            service,
+            RECEIVERS_PATH,
+        )
+        if receivers is None:
+            self.context.logger.error(f"Could not get the receivers from {service=}.")
+
+        self.receivers = receivers
 
     def _get_ddo_data(self) -> WaitableConditionType:
         """Get the ddo data from the did endpoint."""
@@ -248,8 +266,8 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
         self.context.logger.info(f"Fetched ddo endpoint data: {ddo}")
         self.ddo_values = ddo
-        self.extract_and_set_service()
-        if self.ddo_service is None:
+        self._extract_and_set_receivers()
+        if self.receivers is None:
             return False
 
         return True
