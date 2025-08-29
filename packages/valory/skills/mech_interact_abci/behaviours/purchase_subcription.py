@@ -20,7 +20,7 @@
 """This module contains the purchase subscription of the mech interaction abci app."""
 
 import json
-import uuid
+import secrets
 from typing import Any, Dict, Generator, List, Optional
 
 from packages.valory.contracts.agreement_storage_manager.contract import (
@@ -61,7 +61,7 @@ from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LE
 
 EMPTY_PAYMENT_DATA_HEX = Ox
 HTTP_OK = 200
-
+SEED_BYTES_LENGTH = 32
 
 class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     """A behaviour in which the agents prepare a tx to initiate purchase subscription."""
@@ -162,12 +162,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return wei / 10**18
 
     @staticmethod
-    def _generate_agreement_id_seed(self, length: int = 64) -> str:
-        """Generate a random hex string prefixed with 0x."""
-        seed = ""
-        while len(seed) < length:
-            seed += uuid.uuid4().hex
-        return Ox + seed[:length]
+    def _generate_agreement_id_seed() -> str:
+        """Generate a random agreement id seed prefixed with 0x."""
+        return Ox + secrets.token_hex(SEED_BYTES_LENGTH)
 
     def _get_ddo_data_from_endpoint(self) -> Generator[None, None, bool]:
         """Get the ddo data from endpoint."""
