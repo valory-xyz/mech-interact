@@ -163,7 +163,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Generate a random agreement id seed prefixed with 0x."""
         return Ox + secrets.token_hex(SEED_BYTES_LENGTH)
 
-    def _get_ddo_data_from_endpoint(self) -> Generator[None, None, bool]:
+    def _get_ddo_data_from_endpoint(self) -> WaitableConditionType:
         """Get the ddo data from endpoint."""
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
@@ -735,7 +735,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             )
             return None
 
-    def _prepare_safe_tx(self) -> Generator[None, None, bool]:
+    def _prepare_safe_tx(self) -> WaitableConditionType:
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
         # @todo
 
