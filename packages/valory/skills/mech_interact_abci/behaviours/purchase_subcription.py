@@ -63,6 +63,7 @@ EMPTY_PAYMENT_DATA_HEX = Ox
 HTTP_OK = 200
 SEED_BYTES_LENGTH = 32
 
+
 class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     """A behaviour in which the agents prepare a tx to initiate purchase subscription."""
 
@@ -74,7 +75,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         # Initialize protected attributes for properties
         self._agreement_id: Optional[bytes] = None
         self._agreement_id_seed: Optional[str] = None
-        self._ddo_values: Optional[List] = None
+        self._ddo_values: Optional[Dict] = None
         self._service: Optional[Dict] = None
         self._create_agreement_tx_data: Optional[str] = None
         self._subscription_token_approval_tx_data: Optional[str] = None
@@ -86,7 +87,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return self.params.nvm_config
 
     @property
-    def ddo_values(self) -> Optional[List]:
+    def ddo_values(self) -> Optional[Dict]:
         """Get the fetched ddo values."""
         if self._ddo_values is None:
             self.context.logger.error(
@@ -95,7 +96,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return self._ddo_values
 
     @property
-    def service(self) -> Optional[List]:
+    def service(self) -> Optional[Dict]:
         """Get the fetched service."""
         if self._service is None:
             self.context.logger.error("Accessing `service` before it has been fetched.")
@@ -133,7 +134,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
 
         # TODO unsafe access and keys as constants
-        # TODO defined as list accessed as dict
         conditions = self.service["attributes"]["serviceAgreementTemplate"][
             "conditions"
         ]
@@ -149,7 +149,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             )
             return None
 
-        # TODO defined as list accessed as dict
         from_address = self.ddo_values["owner"]
         return from_address
 
@@ -179,8 +178,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             return False
 
         data = response_msg.raw_transaction.body.get("data", None)
-        placeholder = "_ddo_values"
-        setattr(self, placeholder, data)
 
         if not self.ddo_values:
             self.context.logger.error(
@@ -212,7 +209,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         # Load the response
         ddo = json.loads(response.body)
         self.context.logger.info(f"Fetched ddo endpoint data: {ddo}")
-        placeholder = "_service"
+        placeholder = "_ddo_values"
         setattr(self, placeholder, ddo)
 
         service = next(
@@ -221,6 +218,10 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         if not service:
             self.context.logger.error("No nft-sales service found in DDO")
             return False
+
+        self.context.logger.info(f"Fetched service from ddo: {service}")
+        placeholder = "_service"
+        setattr(self, placeholder, service)
 
         return True
 
