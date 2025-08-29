@@ -690,7 +690,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             self.amounts,
             # receivers
             self.receivers,
-            # returnAddress
+            # returnAddress # noqa: E800
             self.synchronized_data.safe_contract_address,
             # lockPaymentAddress
             self.params.escrow_payment_condition_address,

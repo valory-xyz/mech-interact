@@ -19,7 +19,6 @@
 
 """This module contains the class to connect to a TransferNFTCondition contract."""
 
-from typing import List
 
 from aea.common import JSONLike
 from aea.configurations.base import PublicId
