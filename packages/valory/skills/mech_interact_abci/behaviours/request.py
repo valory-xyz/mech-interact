@@ -422,6 +422,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             contract_callable=contract_callable,
             data_key=data_key,
             placeholder=placeholder,
+            chain_id=self.params.mech_chain_id,
             **kwargs,
         )
         return status
@@ -465,6 +466,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             contract_callable=contract_callable,
             data_key=data_key,
             placeholder=placeholder,
+            chain_id=self.params.mech_chain_id,
             **kwargs,
         )
         return status
