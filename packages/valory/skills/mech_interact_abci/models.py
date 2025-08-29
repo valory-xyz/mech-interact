@@ -66,8 +66,9 @@ class NVMConfig:
         return self.plan_did.replace(PLAN_DID_PREFIX, Ox)
 
 
+# false positives for [B105:hardcoded_password_string] Possible hardcoded password
 CHAIN_TO_NVM_CONFIG = {
-    ChainType.GNOSIS: NVMConfig(
+    ChainType.GNOSIS: NVMConfig(  # nosec
         plan_fee_nvm=10000000000000000,
         plan_price_mech=990000000000000000,
         subscription_credits=1000000,
@@ -77,7 +78,7 @@ CHAIN_TO_NVM_CONFIG = {
         subscription_provider_address="0x4a2f40E14309c20c0C3803c3CcCd5E9B5F2D4eCA",
         plan_did="did:nv:b0b28402e5a7229804579d4ac55b98a1dd94660d7a7eb4add78e5ca856f2aab7",
     ),
-    ChainType.BASE: NVMConfig(
+    ChainType.BASE: NVMConfig(  # nosec
         plan_fee_nvm=10000,
         plan_price_mech=990000,
         subscription_credits=1000000,
