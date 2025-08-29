@@ -4,3 +4,4 @@ d71e76b41826e23cbd6412966caaf2f2c409f770:packages/valory/skills/mech_interact_ab
 d71e76b41826e23cbd6412966caaf2f2c409f770:packages/valory/skills/mech_interact_abci/skill.yaml:generic-api-key:165
 12353693ad1b10f757476b1b632360fa47562acd:packages/valory/contracts/nvm_balance_tracker_token/contract.yaml:generic-api-key:11
 7256724c0b32bd6373b7d548cf1c4145fb41eefb:packages/valory/skills/mech_interact_abci/models.py:generic-api-key:60
+cddad79e70e8345cd31514ee8b718a84c7c212e9:packages/valory/skills/mech_interact_abci/models.py:generic-api-key:85
