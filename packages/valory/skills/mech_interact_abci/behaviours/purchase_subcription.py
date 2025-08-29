@@ -731,10 +731,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.safe_tx_hash = str(tx_hash)
         return True
 
-    def setup(self) -> None:
-        """Set up the `Purchase NVM Subscription` behaviour."""
-        self.context.logger.info("Purchase NVM Subscription behaviour...")
-
     def _decode_hex_to_bytes(self, hex_string: str, data_name: str) -> Optional[bytes]:
         """Decode a hex string to bytes, handling potential errors."""
         try:
