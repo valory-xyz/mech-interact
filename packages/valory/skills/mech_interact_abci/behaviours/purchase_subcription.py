@@ -157,11 +157,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return amounts
 
     @staticmethod
-    def wei_to_unit(wei: int) -> float:
-        """Convert WEI to unit token."""
-        return wei / 10**18
-
-    @staticmethod
     def _generate_agreement_id_seed() -> str:
         """Generate a random agreement id seed prefixed with 0x."""
         return Ox + secrets.token_hex(SEED_BYTES_LENGTH)
