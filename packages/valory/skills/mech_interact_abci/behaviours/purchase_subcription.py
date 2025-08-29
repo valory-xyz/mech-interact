@@ -62,6 +62,12 @@ from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LE
 EMPTY_PAYMENT_DATA_HEX = Ox
 HTTP_OK = 200
 SEED_BYTES_LENGTH = 32
+DDO_ENDPOINT_IDX = 2
+GET_METHOD = "GET"
+DDO_ENDPOINT_HEADERS = {"accept": "application/json"}
+SERVICE_KEY = "service"
+SERVICE_TYPE_KEY = "type"
+SERVICE_TYPE = "nft-sales"
 
 
 class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
@@ -75,6 +81,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         # Initialize protected attributes for properties
         self._agreement_id: Optional[bytes] = None
         self._agreement_id_seed: Optional[str] = None
+        self._ddo_register: Optional[List] = None
         self._ddo_values: Optional[Dict] = None
         self._service: Optional[Dict] = None
         self._create_agreement_tx_data: Optional[str] = None
@@ -87,6 +94,26 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return self.params.nvm_config
 
     @property
+    def ddo_register(self) -> Optional[List]:
+        """Get the fetched ddo register."""
+        if self._ddo_register is None:
+            self.context.logger.error(
+                "Accessing `ddo_register` before it has been fetched."
+            )
+        return self._ddo_register
+
+    @property
+    def ddo_endpoint(self) -> Optional[str]:
+        """Return the ddo endpoint."""
+        try:
+            return self.ddo_register[DDO_ENDPOINT_IDX]
+        except IndexError:
+            self.context.logger.error(
+                f"Cannot get ddo endpoint from the fetched {self.ddo_register=}."
+            )
+            return None
+
+    @property
     def ddo_values(self) -> Optional[Dict]:
         """Get the fetched ddo values."""
         if self._ddo_values is None:
@@ -95,12 +122,22 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             )
         return self._ddo_values
 
+    @ddo_values.setter
+    def ddo_values(self, ddo_values: Dict) -> None:
+        """Set the fetched ddo values."""
+        self._ddo_values = ddo_values
+
     @property
-    def service(self) -> Optional[Dict]:
+    def ddo_service(self) -> Optional[Dict]:
         """Get the fetched service."""
         if self._service is None:
             self.context.logger.error("Accessing `service` before it has been fetched.")
         return self._service
+
+    @ddo_service.setter
+    def ddo_service(self, service: Dict) -> None:
+        """Set the fetched service."""
+        self._service = service
 
     @property
     def agreement_id(self) -> Optional[bytes]:
@@ -123,18 +160,18 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     @property
     def receivers(self) -> Optional[List]:
         """Get the receivers from service."""
-        if not self.service:
+        if not self.ddo_service:
             self.context.logger.error(
                 "service attribute not set correctly after contract call."
             )
             return None
 
         self.context.logger.info(
-            f"Fetched service data from ddo endpoint: {self.service}"
+            f"Fetched service data from ddo endpoint: {self.ddo_service}"
         )
 
         # TODO unsafe access and keys as constants
-        conditions = self.service["attributes"]["serviceAgreementTemplate"][
+        conditions = self.ddo_service["attributes"]["serviceAgreementTemplate"][
             "conditions"
         ]
         receivers = conditions[0]["parameters"][-1]["value"]
@@ -163,40 +200,36 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Generate a random agreement id seed prefixed with 0x."""
         return Ox + secrets.token_hex(SEED_BYTES_LENGTH)
 
-    def _get_ddo_data_from_endpoint(self) -> WaitableConditionType:
-        """Get the ddo data from endpoint."""
-        response_msg = yield from self.get_contract_api_response(
+    def _get_ddo_register(self) -> WaitableConditionType:
+        """Get the ddo register from the did registry."""
+        status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.did_registry_address,
-            contract_id=str(DIDRegistry.public_id),
+            contract_public_id=DIDRegistry.contract_id,
             contract_callable="get_ddo",
+            data_key="data",
+            placeholder="_ddo_register",
             did=self.nvm_config.did,
             chain_id=self.params.mech_chain_id,
         )
-        if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(f"get_ddo unsuccessful: {response_msg}")
-            return False
+        return status
 
-        data = response_msg.raw_transaction.body.get("data", None)
+    def extract_and_set_service(self) -> None:
+        """Extract the service."""
+        service = next(
+            (s for s in self.ddo_values.get(SERVICE_KEY, []) if s.get(SERVICE_TYPE_KEY) == SERVICE_TYPE), None
+        )
+        if not service:
+            self.context.logger.error(f"No {SERVICE_TYPE} service found in DDO.")
+            return
 
-        if not self.ddo_values:
-            self.context.logger.error(
-                "ddo_values attribute not set correctly after contract call."
-            )
-            return False
+        self.context.logger.info(f"Fetched service from DDO: {service}")
+        self.ddo_service = service
 
-        ddo_endpoint = self.ddo_values[2]
-        if not ddo_endpoint:
-            self.context.logger.error(
-                f"Cannot fetch ddo endpoint from ddo values: {self.ddo_values}"
-            )
-            return False
-
-        self.context.logger.info(f"Fetched ddo endpoint: {ddo_endpoint}")
-        headers = {"accept": "application/json"}
-
+    def _get_ddo_data(self) -> WaitableConditionType:
+        """Get the ddo data from the did endpoint."""
         response = yield from self.get_http_response(
-            method="GET", url=ddo_endpoint, headers=headers
+            GET_METHOD, self.ddo_endpoint, headers=DDO_ENDPOINT_HEADERS
         )
 
         # Handle HTTP errors
@@ -209,19 +242,10 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         # Load the response
         ddo = json.loads(response.body)
         self.context.logger.info(f"Fetched ddo endpoint data: {ddo}")
-        placeholder = "_ddo_values"
-        setattr(self, placeholder, ddo)
-
-        service = next(
-            (s for s in ddo.get("service", []) if s.get("type") == "nft-sales"), None
-        )
-        if not service:
-            self.context.logger.error("No nft-sales service found in DDO")
+        self.ddo_values = ddo
+        self.extract_and_set_service()
+        if self.ddo_service is None:
             return False
-
-        self.context.logger.info(f"Fetched service from ddo: {service}")
-        placeholder = "_service"
-        setattr(self, placeholder, service)
 
         return True
 
