@@ -213,4 +213,5 @@ dependencies:
   hexbytes: {}
   py-multicodec: {}
   py-multibase: {}
+  open-autonomy: {}
 is_abstract: true

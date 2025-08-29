@@ -21,12 +21,14 @@
 
 import json
 from abc import ABC
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Callable, Generator, List, Optional, cast
 
 from aea.configurations.data_types import PublicId
 
 from packages.valory.contracts.agent_registry.contract import AgentRegistryContract
+from packages.valory.contracts.gnosis_safe.contract import SafeOperation
 from packages.valory.contracts.mech.contract import Mech
 from packages.valory.contracts.mech_marketplace.contract import MechMarketplace
 from packages.valory.contracts.mech_marketplace_legacy.contract import (
@@ -45,9 +47,16 @@ from packages.valory.skills.mech_interact_abci.models import (
     MultisendBatch,
 )
 from packages.valory.skills.mech_interact_abci.states.base import SynchronizedData
-
+from packages.valory.skills.transaction_settlement_abci.payload_tools import hash_payload_to_hex
+from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
 
 WaitableConditionType = Generator[None, None, bool]
+
+
+# setting the safe gas to 0 means that all available gas will be used
+# which is what we want in most cases
+# more info here: https://safe-docs.dev.gnosisdev.com/safe/docs/contracts_tx_execution/
+SAFE_GAS = 0
 
 
 class MechInteractBaseBehaviour(BaseBehaviour, ABC):
@@ -76,6 +85,48 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
     def mech_marketplace_config(self) -> MechMarketplaceConfig:
         """Return the mech marketplace config."""
         return cast(MechMarketplaceConfig, self.context.params.mech_marketplace_config)
+
+    @property
+    def safe_tx_hash(self) -> str:
+        """Get the safe_tx_hash."""
+        return self._safe_tx_hash
+
+    @safe_tx_hash.setter
+    def safe_tx_hash(self, safe_hash: str) -> None:
+        """Set the safe_tx_hash."""
+        length = len(safe_hash)
+        if length != TX_HASH_LENGTH:
+            raise ValueError(
+                f"Incorrect length {length} != {TX_HASH_LENGTH} detected "
+                f"when trying to assign a safe transaction hash: {safe_hash}"
+            )
+        self._safe_tx_hash = safe_hash[2:]
+
+    @property
+    def multi_send_txs(self) -> List[dict]:
+        """Get the multisend transactions as a list of dictionaries."""
+        return [asdict(batch) for batch in self.multisend_batches]
+
+    @property
+    def txs_value(self) -> int:
+        """Get the total value of the transactions."""
+        return sum(batch.value for batch in self.multisend_batches)
+
+    @property
+    def tx_hex(self) -> Optional[str]:
+        """Serialize the safe tx to a hex string."""
+        if self.safe_tx_hash == "":
+            raise ValueError(
+                "Cannot prepare a multisend transaction without a safe transaction hash."
+            )
+        return hash_payload_to_hex(
+            self.safe_tx_hash,
+            self.txs_value,
+            SAFE_GAS,
+            self.params.multisend_address,
+            self.multisend_data,
+            SafeOperation.DELEGATE_CALL.value,
+        )
 
     def default_error(
         self, contract_id: str, contract_callable: str, response_msg: ContractApiMessage

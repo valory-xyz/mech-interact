@@ -35,17 +35,24 @@ class BalanceTrackerNvmSubscriptionNative(Contract):
 
     @classmethod
     def get_balance(
-        cls, ledger_api: EthereumApi, contract_address: str, address: str,
+        cls,
+        ledger_api: EthereumApi,
+        contract_address: str,
+        address: str,
     ) -> JSONLike:
         """Get the balance of a requester."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
-        balance = ledger_api.contract_method_call(contract_instance, "mapRequesterBalances", address=address)
+        balance = ledger_api.contract_method_call(
+            contract_instance, "mapRequesterBalances", address=address
+        )
         return dict(balance=balance)
 
     @classmethod
     def get_subscription_nft(
-        cls, ledger_api: EthereumApi, contract_address: str,
+        cls,
+        ledger_api: EthereumApi,
+        contract_address: str,
     ) -> JSONLike:
         """Get the subscription NFT."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
@@ -55,7 +62,9 @@ class BalanceTrackerNvmSubscriptionNative(Contract):
 
     @classmethod
     def get_subscription_token_id(
-        cls, ledger_api: EthereumApi, contract_address: str,
+        cls,
+        ledger_api: EthereumApi,
+        contract_address: str,
     ) -> JSONLike:
         """Get the subscription token id."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
