@@ -171,7 +171,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.did_registry_address,
-            contract_public_id=str(DIDRegistry.public_id),
+            contract_id=str(DIDRegistry.public_id),
             contract_callable="get_ddo",
             did=self.nvm_config.did,
             chain_id=self.params.mech_chain_id,
@@ -276,7 +276,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_public_id=str(LockPaymentCondition.contract_id),
+            contract_id=str(LockPaymentCondition.contract_id),
             contract_callable="get_hash_values",
             did=self.nvm_config.did,
             reward_address=self.params.escrow_payment_condition_address,
@@ -314,7 +314,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_public_id=str(LockPaymentCondition.contract_id),
+            contract_id=str(LockPaymentCondition.contract_id),
             contract_callable="get_generate_id",
             agreement_id=self.agreement_id,
             hash_value=lock_hash,
@@ -347,7 +347,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_public_id=str(TransferNFTCondition.contract_id),
+            contract_id=str(TransferNFTCondition.contract_id),
             contract_callable="get_hash_values",
             did=self.nvm_config.did,
             from_address=self.from_address,
@@ -387,7 +387,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_public_id=str(TransferNFTCondition.contract_id),
+            contract_id=str(TransferNFTCondition.contract_id),
             contract_callable="get_generate_id",
             agreement_id=self.agreement_id,
             hash_value=transfer_hash,
@@ -426,7 +426,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_public_id=str(EscrowPaymentConditionContract.contract_id),
+            contract_id=str(EscrowPaymentConditionContract.contract_id),
             contract_callable="get_hash_values",
             did=self.nvm_config.did,
             amounts=self.amounts,
@@ -467,7 +467,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_public_id=str(EscrowPaymentConditionContract.contract_id),
+            contract_id=str(EscrowPaymentConditionContract.contract_id),
             contract_callable="get_generate_id",
             agreement_id=self.agreement_id,
             hash_value=escrow_payment_hash,
