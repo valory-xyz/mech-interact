@@ -193,7 +193,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         ddo_endpoint = self.ddo_values[2]
         if not ddo_endpoint:
             self.context.logger.error(
-                f"Cannot fetch ddo endpoint from ddo values: {self._ddo_values}"
+                f"Cannot fetch ddo endpoint from ddo values: {self.ddo_values}"
             )
             return False
 
