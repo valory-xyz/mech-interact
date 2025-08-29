@@ -23,9 +23,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from aea.exceptions import enforce
+from hexbytes import HexBytes
+
 from autonomy.chain.config import ChainType
 from autonomy.chain.service import NULL_ADDRESS
-from hexbytes import HexBytes
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
 from packages.valory.skills.abstract_round_abci.models import ApiSpecs, BaseParams
