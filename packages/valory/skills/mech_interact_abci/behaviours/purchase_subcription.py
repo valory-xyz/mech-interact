@@ -21,7 +21,7 @@
 
 import json
 import secrets
-from typing import Any, Dict, Generator, List, Optional, Iterable, Union
+from typing import Any, Dict, Generator, List, Optional, Iterable, Union, Tuple
 
 from aea.common import JSONLike
 from hexbytes import HexBytes
@@ -89,6 +89,7 @@ TIMELOCKS = [0, 0, 0]
 TIMEOUTS = [0, 90, 0]
 SERVICE_INDEX = 0
 SUBSCRIPTION_COST = 10**6
+EXPIRATION_BLOCK = 0
 
 
 def dig(
@@ -125,7 +126,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._escrow_id: Optional[bytes] = None
         self._agreement_tx_data: Optional[str] = None
         self._subscription_token_approval_tx_data: Optional[str] = None
-        self._create_fulfill_tx_data: Optional[str] = None
+        self._fulfill_tx_data: Optional[str] = None
 
     @property
     def nvm_config(self) -> NVMConfig:
@@ -291,6 +292,54 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
                 "Accessing `_subscription_token_approval_tx_data` before they have been built."
             )
         return HexBytes(self._subscription_token_approval_tx_data)
+
+    @property
+    def fulfill_tx_data(self) -> Optional[HexBytes]:
+        """Get the built fulfill tx data."""
+        if self._fulfill_tx_data is None:
+            self.context.logger.error(
+                "Accessing `_fulfill_tx_data` before they have been built."
+            )
+        return HexBytes(self._fulfill_tx_data)
+
+    @property
+    def fulfill_for_delegate_params(self) -> Tuple[str, str, int, str, str, bool, int]:
+        """Get the fulfill for delegate parameters."""
+        return (
+            # nftHolder
+            self.from_address,
+            # nftReceiver
+            self.synchronized_data.safe_contract_address,
+            # nftAmount
+            self.nvm_config.subscription_credits,
+            # lockPaymentCondition
+            Ox + self.lock_id.hex(),
+            # nftContractAddress
+            self.nvm_config.subscription_nft_address,
+            # transfer
+            False,
+            # expirationBlock
+            EXPIRATION_BLOCK,
+        )
+
+    def fulfill_params(self) -> Tuple[List[int], List[str], str, str, str, str, str]:
+        """Get the fulfill parameters."""
+        return (
+            # amounts
+            self.amounts,
+            # receivers
+            self.receivers,
+            # returnAddress # noqa: E800
+            self.synchronized_data.safe_contract_address,
+            # lockPaymentAddress
+            self.params.escrow_payment_condition_address,
+            # tokenAddress
+            self.nvm_config.subscription_token_address,
+            # lockCondition
+            Ox + self.lock_id.hex(),
+            # releaseCondition
+            Ox + self.transfer_id.hex(),
+        )
 
     @staticmethod
     def _generate_agreement_id_seed() -> str:
@@ -571,93 +620,34 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(f"Built transaction to approve USDC spending.")
         return True
 
-    def _subscription_provider_contract_interact(
-        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
-    ) -> WaitableConditionType:
-        """Interact with the Subscription Provider contract."""
-        status = yield from self.contract_interact(
+    def _build_create_fulfill_tx_data(self):
+        self.context.logger.info(
+            f"Creating a fulfill tx with {self.fulfill_for_delegate_params=} and {self.fulfill_params=}."
+        )
+        status = self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.nvm_config.subscription_provider_address,
             contract_public_id=SubscriptionProvider.contract_id,
-            contract_callable=contract_callable,
-            data_key=data_key,
-            placeholder=placeholder,
-            **kwargs,
-        )
-        return status
-
-    def _build_create_fulfill_tx_data(self):
-        if not self.from_address:
-            self.context.logger.error(
-                "from_address attribute not set correctly after contract call."
-            )
-            return None
-
-        lock_id = yield from self._get_lock_id()
-        if not lock_id:
-            self.context.logger.error("Error fetching lock_id")
-            return None
-
-        self.context.logger.info(f"Fetched lock id: {lock_id.hex()}")
-
-        if not self.receivers:
-            self.context.logger.error(
-                "receivers attribute not set correctly after contract call."
-            )
-            return None
-
-        transfer_id = yield from self._get_transfer_id()
-        if not transfer_id:
-            self.context.logger.error("Error fetching transfer_id")
-            return None
-
-        self.context.logger.info(f"Fetched transfer id: {transfer_id.hex()}")
-
-        fulfill_for_delegate_params = (
-            # nftHolder
-            self.from_address,
-            # nftReceiver
-            self.synchronized_data.safe_contract_address,
-            # nftAmount
-            self.nvm_config.subscription_credits,
-            # lockPaymentCondition
-            Ox + lock_id.hex(),
-            # nftContractAddress
-            self.nvm_config.subscription_nft_address,
-            # transfer
-            False,
-            # expirationBlock
-            0,
-        )
-        fulfill_params = (
-            # amounts
-            self.amounts,
-            # receivers
-            self.receivers,
-            # returnAddress # noqa: E800
-            self.synchronized_data.safe_contract_address,
-            # lockPaymentAddress
-            self.params.escrow_payment_condition_address,
-            # tokenAddress
-            self.nvm_config.subscription_token_address,
-            # lockCondition
-            Ox + lock_id.hex(),
-            # releaseCondition
-            Ox + transfer_id.hex(),
-        )
-        self.context.logger.info(f"{fulfill_for_delegate_params=}")
-        self.context.logger.info(f"{fulfill_params=}")
-        status = self._subscription_provider_contract_interact(
             contract_callable="build_create_fulfill_tx",
             data_key="data",
             placeholder="_create_fulfill_tx_data",
             agreement_id_seed=self.agreement_id_seed,
             did=self.nvm_config.did,
-            fulfill_for_delegate_params=fulfill_for_delegate_params,
-            fulfill_params=fulfill_params,
+            fulfill_for_delegate_params=self.fulfill_for_delegate_params,
+            fulfill_params=self.fulfill_params,
             chain_id=self.params.mech_chain_id,
         )
-        return status
+        if not status:
+            self.context.logger.error("Failed to build data for a fulfill tx.")
+            return False
+
+        batch = MultisendBatch(
+            to=self.nvm_config.subscription_provider_address,
+            data=self.fulfill_tx_data,
+        )
+        self.multisend_batches.append(batch)
+        self.context.logger.info(f"Built transaction to fulfill.")
+        return True
 
     def _build_multisend_data(
         self,
