@@ -88,6 +88,7 @@ RECEIVERS_PATH = (
 TIMELOCKS = [0, 0, 0]
 TIMEOUTS = [0, 90, 0]
 SERVICE_INDEX = 0
+SUBSCRIPTION_COST = 10**6
 
 
 def dig(
@@ -281,6 +282,15 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
                 "Accessing `_agreement_tx_data` before they have been built."
             )
         return HexBytes(self._agreement_tx_data)
+
+    @property
+    def subscription_token_approval_tx_data(self) -> Optional[HexBytes]:
+        """Get the built subscription token approval tx data."""
+        if self._subscription_token_approval_tx_data is None:
+            self.context.logger.error(
+                "Accessing `_subscription_token_approval_tx_data` before they have been built."
+            )
+        return HexBytes(self._subscription_token_approval_tx_data)
 
     @staticmethod
     def _generate_agreement_id_seed() -> str:
@@ -532,32 +542,34 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(f"Built transaction to create agreement.")
         return True
 
-    def _token_contract_interact(
-        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
-    ) -> WaitableConditionType:
-        """Interact with the NFT Sales Template contract."""
+    def _build_subscription_token_approval_tx_data(self) -> WaitableConditionType:
+        """
+        Build a subscription token approval tx.
+
+        This is only required for the base chain as USDC is the payment token for the subscription there.
+        """
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.nvm_config.subscription_token_address,
             contract_public_id=ERC20.contract_id,
-            contract_callable=contract_callable,
-            data_key=data_key,
-            placeholder=placeholder,
-            **kwargs,
-        )
-        return status
-
-    # only required for base chain (usdc is the payment token for subscription)
-    def _build_subscription_token_approval_tx_data(self):
-        status = yield from self._token_contract_interact(
             contract_callable="build_approval_tx",
-            placeholder="_subscription_token_approval_tx_data",
             data_key="data",
+            placeholder="_subscription_token_approval_tx_data",
             spender=self.params.lock_payment_condition_address,
-            amount=10**6,
+            amount=SUBSCRIPTION_COST,
             chain_id=self.params.mech_chain_id,
         )
-        return status
+        if not status:
+            self.context.logger.error("Failed to build data for a USDC approval tx.")
+            return False
+
+        batch = MultisendBatch(
+            to=self.nvm_config.subscription_token_address,
+            data=self.subscription_token_approval_tx_data,
+        )
+        self.multisend_batches.append(batch)
+        self.context.logger.info(f"Built transaction to approve USDC spending.")
+        return True
 
     def _subscription_provider_contract_interact(
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
