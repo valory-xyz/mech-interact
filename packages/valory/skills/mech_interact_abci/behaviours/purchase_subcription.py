@@ -56,7 +56,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     MultisendBatch,
 )
 from packages.valory.skills.mech_interact_abci.payloads import PrepareTxPayload
-from packages.valory.skills.mech_interact_abci.states.request import (
+from packages.valory.skills.mech_interact_abci.states.purchase_subscription import (
     MechPurchaseSubscriptionRound,
 )
 

@@ -32,6 +32,7 @@ from packages.valory.skills.abstract_round_abci.base import (
 from packages.valory.skills.mech_interact_abci.payloads import (
     MechRequestPayload,
     MechResponsePayload,
+    PrepareTxPayload,
 )
 from packages.valory.skills.transaction_settlement_abci.rounds import (
     SynchronizedData as TxSynchronizedData,
@@ -45,6 +46,7 @@ class Event(Enum):
     """MechInteractAbciApp Events"""
 
     DONE = "done"
+    NONE = "none"
     NO_MAJORITY = "no_majority"
     ROUND_TIMEOUT = "round_timeout"
     SKIP_REQUEST = "skip_request"
@@ -133,6 +135,13 @@ class SynchronizedData(TxSynchronizedData):
         serialized = self.db.get_strict("participant_to_responses")
         deserialized = CollectionRound.deserialize_collection(serialized)
         return cast(Mapping[str, MechResponsePayload], deserialized)
+
+    @property
+    def participant_to_purchase(self) -> Mapping[str, PrepareTxPayload]:
+        """Get the `participant_to_purchase`."""
+        serialized = self.db.get_strict("participant_to_purchase")
+        deserialized = CollectionRound.deserialize_collection(serialized)
+        return cast(Mapping[str, PrepareTxPayload], deserialized)
 
     @property
     def final_tx_hash(self) -> Optional[str]:
