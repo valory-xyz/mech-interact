@@ -6,15 +6,15 @@ description: Subscription Provider contract
 license: Apache-2.0
 aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
-    README.md: bafybeihbbepmyfrkvj7j7q7xbno77gapxsyvwjgkz24cjlfe7xkcrgfo6i
-    __init__.py: bafybeia2jy4hgoyhxzxbnc5fccrg55zqmsuonudcbblpvxz7kqlvr7oiwy
-    build/subscription_provider.json: bafybeibgsni2wv4ob3rycrr343aw55dqg62riz3dwilaegkvo7gutoodfi
-    contract.py: bafybeid67dn3jke5nd3rum7gvh7fmyzoal6lxxsmhq3d254ugznqasubb4
+  README.md: bafybeiaz23eqyevmojjquzgxjqa6lc2opeciukngjxwi4jyum7hkljamxq
+  __init__.py: bafybeielqwhv3c3bbl5ong2gq2xvtuisvi4utezz42wz7jxu4b5ivxhu4u
+  build/subscription_provider.json: bafybeibb4ho42g6y5d67dgm5fretwowjie4qoohz7z6voheikht4v4bwcq
+  contract.py: bafybeidvvxxs4ylr5fxd7o2szwdnxaxcjk36uq6hec4pp2egmpvwnnr6b4
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: SubscriptionProvider
 contract_interface_paths:
-    ethereum: build/subscription_provider.json
+  ethereum: build/subscription_provider.json
 dependencies:
-    open-aea-ledger-ethereum:
-        version: ==1.65.0
+  open-aea-ledger-ethereum:
+    version: ==1.65.0

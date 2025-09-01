@@ -6,15 +6,15 @@ description: DID Registry contract
 license: Apache-2.0
 aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
-    README.md: bafybeihbbepmyfrkvj7j7q7xbno77gapxsyvwjgkz24cjlfe7xkcrgfo6i
-    __init__.py: bafybeia2jy4hgoyhxzxbnc5fccrg55zqmsuonudcbblpvxz7kqlvr7oiwy
-    build/did_registry.json: bafybeibgsni2wv4ob3rycrr343aw55dqg62riz3dwilaegkvo7gutoodfi
-    contract.py: bafybeid67dn3jke5nd3rum7gvh7fmyzoal6lxxsmhq3d254ugznqasubb4
+  README.md: bafybeibb3vfw56qtzx2sg5sj3bbfw3u7clqgn3hjjngzbxswx5pvw3utzi
+  __init__.py: bafybeicgozrvijcef4zxrvo2he5uprlvrp6oioedejj6gj2ccityttyjmy
+  build/did_registry.json: bafybeigxejjvpk3wkhvpdnw3c7qx7jbhouubmko67lbkvq27uoj7hnmxia
+  contract.py: bafybeigtho775byf6x66l4ibuhm6fc6a5qb547esmlnz5bcyv4l4ihkf7a
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: DIDRegistry
 contract_interface_paths:
-    ethereum: build/did_registry.json
+  ethereum: build/did_registry.json
 dependencies:
-    open-aea-ledger-ethereum:
-        version: ==1.65.0
+  open-aea-ledger-ethereum:
+    version: ==1.65.0

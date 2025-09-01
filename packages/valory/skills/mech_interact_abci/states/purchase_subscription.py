@@ -19,12 +19,8 @@
 
 """This module contains the purchase subscription state of the mech interaction abci app."""
 
-from packages.valory.skills.abstract_round_abci.base import (
-    get_name,
-)
-from packages.valory.skills.mech_interact_abci.payloads import (
-    PrepareTxPayload,
-)
+from packages.valory.skills.abstract_round_abci.base import get_name
+from packages.valory.skills.mech_interact_abci.payloads import PrepareTxPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechInteractionRound,

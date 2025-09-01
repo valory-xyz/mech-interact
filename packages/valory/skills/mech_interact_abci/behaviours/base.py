@@ -29,8 +29,8 @@ from aea.configurations.data_types import PublicId
 
 from packages.valory.contracts.agent_registry.contract import AgentRegistryContract
 from packages.valory.contracts.gnosis_safe.contract import (
-    SafeOperation,
     GnosisSafeContract,
+    SafeOperation,
 )
 from packages.valory.contracts.mech.contract import Mech
 from packages.valory.contracts.mech_marketplace.contract import MechMarketplace
@@ -51,8 +51,11 @@ from packages.valory.skills.mech_interact_abci.models import (
     MultisendBatch,
 )
 from packages.valory.skills.mech_interact_abci.states.base import SynchronizedData
-from packages.valory.skills.transaction_settlement_abci.payload_tools import hash_payload_to_hex
+from packages.valory.skills.transaction_settlement_abci.payload_tools import (
+    hash_payload_to_hex,
+)
 from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
+
 
 WaitableConditionType = Generator[None, None, bool]
 

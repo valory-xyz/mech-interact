@@ -58,6 +58,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
 from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
 
+
 METADATA_FILENAME = "metadata.json"
 V1_HEX_PREFIX = "f01"
 Ox = "0x"

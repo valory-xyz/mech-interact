@@ -33,13 +33,15 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     SynchronizedData,
 )
 from packages.valory.skills.mech_interact_abci.states.final_states import (
+    FinishedMechPurchaseSubscriptionRound,
     FinishedMechRequestRound,
     FinishedMechRequestSkipRound,
     FinishedMechResponseRound,
     FinishedMechResponseTimeoutRound,
-    FinishedMechPurchaseSubscriptionRound,
 )
-from packages.valory.skills.mech_interact_abci.states.purchase_subscription import MechPurchaseSubscriptionRound
+from packages.valory.skills.mech_interact_abci.states.purchase_subscription import (
+    MechPurchaseSubscriptionRound,
+)
 from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
 from packages.valory.skills.mech_interact_abci.states.response import MechResponseRound
 

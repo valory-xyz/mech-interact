@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeihbbepmyfrkvj7j7q7xbno77gapxsyvwjgkz24cjlfe7xkcrgfo6i
   __init__.py: bafybeia2jy4hgoyhxzxbnc5fccrg55zqmsuonudcbblpvxz7kqlvr7oiwy
   build/nvm_balance_tracker_native.json: bafybeibgsni2wv4ob3rycrr343aw55dqg62riz3dwilaegkvo7gutoodfi
-  contract.py: bafybeid67dn3jke5nd3rum7gvh7fmyzoal6lxxsmhq3d254ugznqasubb4
+  contract.py: bafybeifycclz23zpskood4su2udupn7zpzimb4fefaqlix537yz27nhofi
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: BalanceTrackerNvmSubscriptionNative

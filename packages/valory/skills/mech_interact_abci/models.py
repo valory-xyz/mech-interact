@@ -23,9 +23,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from aea.exceptions import enforce
+from hexbytes import HexBytes
+
 from autonomy.chain.config import ChainType
 from autonomy.chain.service import NULL_ADDRESS
-from hexbytes import HexBytes
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
 from packages.valory.skills.abstract_round_abci.models import ApiSpecs, BaseParams
@@ -203,7 +204,9 @@ class MechParams(BaseParams):
         self.mech_interaction_sleep_time: int = self._ensure(
             "mech_interaction_sleep_time", kwargs, int
         )
-        self.use_mech_marketplace: bool = self._ensure("use_mech_marketplace", kwargs, bool)
+        self.use_mech_marketplace: bool = self._ensure(
+            "use_mech_marketplace", kwargs, bool
+        )
         self.mech_marketplace_config: MechMarketplaceConfig = (
             MechMarketplaceConfig.from_dict(kwargs["mech_marketplace_config"])
         )

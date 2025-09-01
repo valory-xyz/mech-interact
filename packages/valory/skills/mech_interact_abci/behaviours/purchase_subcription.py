@@ -21,11 +21,12 @@
 
 import json
 import secrets
-from typing import Any, Dict, Generator, List, Optional, Iterable, Union, Tuple
+from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple, Union
 
 from aea.common import JSONLike
-from autonomy.chain.config import ChainType
 from hexbytes import HexBytes
+
+from autonomy.chain.config import ChainType
 
 from packages.valory.contracts.agreement_store_manager.contract import (
     AgreementStorageManager,
@@ -51,14 +52,15 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.models import (
+    MultisendBatch,
     NVMConfig,
     Ox,
-    MultisendBatch,
 )
 from packages.valory.skills.mech_interact_abci.payloads import PrepareTxPayload
 from packages.valory.skills.mech_interact_abci.states.purchase_subscription import (
     MechPurchaseSubscriptionRound,
 )
+
 
 EMPTY_PAYMENT_DATA_HEX = Ox
 HTTP_OK = 200
@@ -587,7 +589,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             value=self.nvm_config.agreement_cost,
         )
         self.multisend_batches.append(batch)
-        self.context.logger.info(f"Built transaction to create agreement.")
+        self.context.logger.info("Built transaction to create agreement.")
         return True
 
     def _build_subscription_token_approval_tx_data(self) -> WaitableConditionType:
@@ -616,7 +618,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             data=self.subscription_token_approval_tx_data,
         )
         self.multisend_batches.append(batch)
-        self.context.logger.info(f"Built transaction to approve USDC spending.")
+        self.context.logger.info("Built transaction to approve USDC spending.")
         return True
 
     def _build_create_fulfill_tx_data(self):
@@ -645,7 +647,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             data=self.fulfill_tx_data,
         )
         self.multisend_batches.append(batch)
-        self.context.logger.info(f"Built transaction to fulfill.")
+        self.context.logger.info("Built transaction to fulfill.")
         return True
 
     def _get_approval_steps(self) -> List[WaitableConditionType]:
@@ -683,7 +685,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     def async_act(self) -> Generator:
         """Do the action."""
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
-            self.context.logger.info(f"Preparing a multisend transaction to buy an NVM subscription.")
+            self.context.logger.info(
+                "Preparing a multisend transaction to buy an NVM subscription."
+            )
             yield from self._prepare_safe_tx()
             tx_hex = self.tx_hex
             submitter = None if tx_hex is None else self.matching_round.auto_round_id()
