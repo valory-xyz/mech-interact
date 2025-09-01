@@ -24,6 +24,7 @@ import secrets
 from typing import Any, Dict, Generator, List, Optional, Iterable, Union
 
 from aea.common import JSONLike
+from hexbytes import HexBytes
 
 from packages.valory.contracts.agreement_storage_manager.contract import (
     AgreementStorageManager,
@@ -54,7 +55,11 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     WaitableConditionType,
     SAFE_GAS,
 )
-from packages.valory.skills.mech_interact_abci.models import NVMConfig, Ox
+from packages.valory.skills.mech_interact_abci.models import (
+    NVMConfig,
+    Ox,
+    MultisendBatch,
+)
 from packages.valory.skills.mech_interact_abci.states.request import (
     MechPurchaseSubscriptionRound,
 )
@@ -80,6 +85,9 @@ RECEIVERS_PATH = (
     -1,
     "value",
 )
+TIMELOCKS = [0, 0, 0]
+TIMEOUTS = [0, 90, 0]
+SERVICE_INDEX = 0
 
 
 def dig(
@@ -114,7 +122,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._transfer_id: Optional[bytes] = None
         self._escrow_hash: Optional[bytes] = None
         self._escrow_id: Optional[bytes] = None
-        self._create_agreement_tx_data: Optional[str] = None
+        self._agreement_tx_data: Optional[str] = None
         self._subscription_token_approval_tx_data: Optional[str] = None
         self._create_fulfill_tx_data: Optional[str] = None
 
@@ -264,6 +272,15 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Get the amounts."""
         amounts = [self.nvm_config.plan_fee_nvm, self.nvm_config.plan_price_mech]
         return amounts
+
+    @property
+    def agreement_tx_data(self) -> Optional[HexBytes]:
+        """Get the built create-agreement tx data."""
+        if self._agreement_tx_data is None:
+            self.context.logger.error(
+                "Accessing `_agreement_tx_data` before they have been built."
+            )
+        return HexBytes(self._agreement_tx_data)
 
     @staticmethod
     def _generate_agreement_id_seed() -> str:
@@ -481,70 +498,39 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _nft_sales_contract_interact(
-        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
-    ) -> WaitableConditionType:
-        """Interact with the NFT Sales Template contract."""
+    def _build_create_agreement_tx_data(self) -> WaitableConditionType:
+        """Builds the create-agreement tx data on NFT sales template contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.nvm_config.nft_sales_address,
             contract_public_id=NFTSalesTemplate.contract_id,
-            contract_callable=contract_callable,
-            data_key=data_key,
-            placeholder=placeholder,
-            **kwargs,
-        )
-        return status
-
-    def _build_create_agreement_tx_data(self):
-        """Builds the create agreement tx data on nft sales template contract."""
-        if self.agreement_id_seed is None:
-            self.context.logger.error(
-                "Agreement id seed attribute not set correctly after contract call."
-            )
-            return None
-
-        self.context.logger.info(f"Fetched agreement id: {self.agreement_id_seed}")
-
-        lock_hash = yield from self._get_lock_hash()
-        if not lock_hash:
-            self.context.logger.error("Error fetching lock hash.")
-            return None
-
-        self.context.logger.info(f"Fetched lock hash: {lock_hash.hex()}")
-
-        transfer_hash = yield from self._get_transfer_nft_hash()
-        if not transfer_hash:
-            self.context.logger.error("Error fetching transfer nft hash.")
-            return None
-
-        self.context.logger.info(f"Fetched transfer nft hash: {transfer_hash.hex()}")
-
-        escrow_hash = yield from self._get_escrow_payment_hash()
-        if not escrow_hash:
-            self.context.logger.error("Error fetching escrow payment hash.")
-            return None
-
-        self.context.logger.info(f"Fetched escrow payment hash: {escrow_hash.hex()}")
-
-        status = self._nft_sales_contract_interact(
             contract_callable="build_create_agreement_tx",
             data_key="data",
-            placeholder="_create_agreement_tx_data",
+            placeholder="_agreement_tx_data",
             agreement_id_seed=self.agreement_id_seed,
             did=self.nvm_config.did,
-            condition_seeds=[lock_hash, transfer_hash, escrow_hash],
-            timelocks=[0, 0, 0],
-            timeouts=[0, 90, 0],
+            condition_seeds=[self.lock_hash, self.transfer_hash, self.escrow_hash],
+            timelocks=TIMELOCKS,
+            timeouts=TIMEOUTS,
             publisher=self.synchronized_data.safe_contract_address,
-            service_index=0,
+            service_index=SERVICE_INDEX,
             reward_address=self.params.escrow_payment_condition_address,
             token_address=self.nvm_config.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
             chain_id=self.params.mech_chain_id,
         )
-        return status
+        if not status:
+            self.context.logger.error("Failed to build create-agreement tx data.")
+            return False
+
+        batch = MultisendBatch(
+            to=self.nvm_config.nft_sales_address,
+            data=self.agreement_tx_data,
+        )
+        self.multisend_batches.append(batch)
+        self.context.logger.info(f"Built transaction to create agreement.")
+        return True
 
     def _token_contract_interact(
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
