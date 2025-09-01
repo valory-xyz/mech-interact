@@ -33,12 +33,13 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     SynchronizedData,
 )
 from packages.valory.skills.mech_interact_abci.states.final_states import (
-    FinishedMechRequestBuySubscriptionRound,
     FinishedMechRequestRound,
     FinishedMechRequestSkipRound,
     FinishedMechResponseRound,
     FinishedMechResponseTimeoutRound,
+    FinishedMechPurchaseSubscriptionRound,
 )
+from packages.valory.skills.mech_interact_abci.states.purchase_subscription import MechPurchaseSubscriptionRound
 from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
 from packages.valory.skills.mech_interact_abci.states.response import MechResponseRound
 
@@ -77,9 +78,15 @@ class MechInteractAbciApp(AbciApp[Event]):
         MechRequestRound: {
             Event.DONE: FinishedMechRequestRound,
             Event.SKIP_REQUEST: FinishedMechRequestSkipRound,
-            Event.BUY_SUBSCRIPTION: FinishedMechRequestBuySubscriptionRound,
+            Event.BUY_SUBSCRIPTION: MechPurchaseSubscriptionRound,
             Event.NO_MAJORITY: MechRequestRound,
             Event.ROUND_TIMEOUT: MechRequestRound,
+        },
+        MechPurchaseSubscriptionRound: {
+            Event.DONE: FinishedMechPurchaseSubscriptionRound,
+            Event.NONE: MechPurchaseSubscriptionRound,
+            Event.NO_MAJORITY: MechPurchaseSubscriptionRound,
+            Event.ROUND_TIMEOUT: MechPurchaseSubscriptionRound,
         },
         MechResponseRound: {
             Event.DONE: FinishedMechResponseRound,
@@ -90,14 +97,14 @@ class MechInteractAbciApp(AbciApp[Event]):
         FinishedMechResponseRound: {},
         FinishedMechResponseTimeoutRound: {},
         FinishedMechRequestSkipRound: {},
-        FinishedMechRequestBuySubscriptionRound: {},
+        FinishedMechPurchaseSubscriptionRound: {},
     }
     final_states: Set[AppState] = {
         FinishedMechRequestRound,
         FinishedMechResponseRound,
         FinishedMechResponseTimeoutRound,
         FinishedMechRequestSkipRound,
-        FinishedMechRequestBuySubscriptionRound,
+        FinishedMechPurchaseSubscriptionRound,
     }
     event_to_timeout: EventToTimeout = {
         Event.ROUND_TIMEOUT: 30.0,
@@ -118,7 +125,10 @@ class MechInteractAbciApp(AbciApp[Event]):
             get_name(SynchronizedData.mech_price),
         },
         FinishedMechRequestSkipRound: set(),
-        FinishedMechRequestBuySubscriptionRound: set(),
+        FinishedMechPurchaseSubscriptionRound: {
+            get_name(SynchronizedData.tx_submitter),
+            get_name(SynchronizedData.most_voted_tx_hash),
+        },
         FinishedMechResponseRound: set(get_name(SynchronizedData.mech_responses)),
         FinishedMechResponseTimeoutRound: set(),
     }
