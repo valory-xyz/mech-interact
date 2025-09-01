@@ -50,4 +50,4 @@ class AgreementStorageManager(Contract):
             _agreementId=agreement_id_seed,
             _creator=subscriber,
         )
-        return dict(agreement_id=agreement_id.hex())
+        return dict(agreement_id=agreement_id)
