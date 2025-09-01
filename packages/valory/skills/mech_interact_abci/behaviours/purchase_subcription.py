@@ -55,6 +55,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     Ox,
     MultisendBatch,
 )
+from packages.valory.skills.mech_interact_abci.payloads import PrepareTxPayload
 from packages.valory.skills.mech_interact_abci.states.request import (
     MechPurchaseSubscriptionRound,
 )
@@ -678,4 +679,14 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def async_act(self) -> Generator:
         """Do the action."""
-        # @todo
+        with self.context.benchmark_tool.measure(self.behaviour_id).local():
+            self.context.logger.info(f"Preparing a multisend transaction to buy an NVM subscription.")
+            yield from self._prepare_safe_tx()
+            tx_hex = self.tx_hex
+            submitter = None if tx_hex is None else self.matching_round.auto_round_id()
+            payload = PrepareTxPayload(
+                self.context.agent_address,
+                submitter,
+                tx_hex,
+            )
+        yield from self.finish_behaviour(payload)
