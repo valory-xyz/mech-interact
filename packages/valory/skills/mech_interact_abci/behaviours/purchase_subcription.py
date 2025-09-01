@@ -27,7 +27,7 @@ from aea.common import JSONLike
 from autonomy.chain.config import ChainType
 from hexbytes import HexBytes
 
-from packages.valory.contracts.agreement_storage_manager.contract import (
+from packages.valory.contracts.agreement_store_manager.contract import (
     AgreementStorageManager,
 )
 from packages.valory.contracts.did_registry.contract import DIDRegistry

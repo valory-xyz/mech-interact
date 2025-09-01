@@ -1,0 +1,20 @@
+name: agreement_store_manager
+author: valory
+version: 0.1.0
+type: contract
+description: Agreement Storage Manager contract
+license: Apache-2.0
+aea_version: '>=1.0.0, <2.0.0'
+fingerprint:
+  README.md: bafybeihvrenqqs5unsroous4q7i64dzxzr3yhuseb3iwsmaigizlfcyhey
+  __init__.py: bafybeihqqe5vid3jswhksrf4r2hk4buj3zl7env5crbk4rb45h5kvltmei
+  build/agreement_store_manager.json: bafybeigofhfvvdutp57roysjkvv6j4iquq7kqxnail2ch7skhxktdvgdxy
+  contract.py: bafybeibi62olxqr46s7pyrzc5d2naeenwr5hcrtaz6r6xztyjtzoaaluoy
+fingerprint_ignore_patterns: []
+contracts: []
+class_name: AgreementStorageManager
+contract_interface_paths:
+  ethereum: build/agreement_store_manager.json
+dependencies:
+  open-aea-ledger-ethereum:
+    version: ==1.65.0
