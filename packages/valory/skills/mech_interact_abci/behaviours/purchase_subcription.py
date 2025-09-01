@@ -107,7 +107,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._agreement_id_seed: Optional[str] = None
         self._ddo_register: Optional[List] = None
         self._ddo_values: Optional[Dict] = None
-        self._receivers: Optional[List] = None
+        self._receivers: Optional[List[str]] = None
+        self._lock_hash: Optional[bytes] = None
+        self._lock_id: Optional[bytes] = None
+        self._transfer_hash: Optional[bytes] = None
+        self._transfer_id: Optional[bytes] = None
+        self._escrow_hash: Optional[bytes] = None
+        self._escrow_id: Optional[bytes] = None
         self._create_agreement_tx_data: Optional[str] = None
         self._subscription_token_approval_tx_data: Optional[str] = None
         self._create_fulfill_tx_data: Optional[str] = None
@@ -152,7 +158,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._ddo_values = ddo_values
 
     @property
-    def receivers(self) -> Optional[List]:
+    def receivers(self) -> Optional[List[str]]:
         """Get the fetched receivers."""
         if self._receivers is None:
             self.context.logger.error(
@@ -161,7 +167,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return self._receivers
 
     @receivers.setter
-    def receivers(self, receivers: List) -> None:
+    def receivers(self, receivers: List[str]) -> None:
         """Set the fetched receivers."""
         self._receivers = receivers
 
@@ -188,7 +194,59 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             )
         return self._agreement_id
 
+    @property
+    def lock_hash(self) -> Optional[bytes]:
+        """Get the fetched lock hash."""
+        if self._lock_hash is None:
+            self.context.logger.error(
+                "Accessing `_lock_hash` before it has been fetched."
+            )
+        return self._lock_hash
 
+    @property
+    def lock_id(self) -> Optional[bytes]:
+        """Get the fetched lock id."""
+        if self._lock_id is None:
+            self.context.logger.error(
+                "Accessing `_lock_id` before it has been fetched."
+            )
+        return self._lock_id
+
+    @property
+    def transfer_hash(self) -> Optional[bytes]:
+        """Get the fetched transfer hash."""
+        if self._transfer_hash is None:
+            self.context.logger.error(
+                "Accessing `_transfer_hash` before it has been fetched."
+            )
+        return self._transfer_hash
+
+    @property
+    def transfer_id(self) -> Optional[bytes]:
+        """Get the fetched transfer id."""
+        if self._transfer_id is None:
+            self.context.logger.error(
+                "Accessing `_transfer_id` before it has been fetched."
+            )
+        return self._transfer_id
+
+    @property
+    def escrow_hash(self) -> Optional[bytes]:
+        """Get the fetched escrow hash."""
+        if self._escrow_hash is None:
+            self.context.logger.error(
+                "Accessing `_escrow_hash` before it has been fetched."
+            )
+        return self._escrow_hash
+
+    @property
+    def escrow_id(self) -> Optional[bytes]:
+        """Get the fetched escrow id."""
+        if self._escrow_id is None:
+            self.context.logger.error(
+                "Accessing `_escrow_id` before it has been fetched."
+            )
+        return self._escrow_id
 
     @property
     def from_address(self) -> Optional[str]:
@@ -202,7 +260,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return self.ddo_values[OWNER_KEY]
 
     @property
-    def amounts(self) -> List:
+    def amounts(self) -> List[int]:
         """Get the amounts."""
         amounts = [self.nvm_config.plan_fee_nvm, self.nvm_config.plan_price_mech]
         return amounts
@@ -294,19 +352,28 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_lock_hash(self) -> Generator[None, None, Optional[bytes]]:
-        """Get the lock hash."""
-        if not self.receivers:
-            self.context.logger.error(
-                "receivers attribute not set correctly after contract call."
-            )
-            return None
-
-        response_msg = yield from self.get_contract_api_response(
+    def _lock_contract_interact(
+        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
+    ) -> WaitableConditionType:
+        """Interact with the lock payment condition contract."""
+        status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_id=str(LockPaymentCondition.contract_id),
+            contract_public_id=LockPaymentCondition.contract_id,
+            contract_callable=contract_callable,
+            data_key=data_key,
+            placeholder=placeholder,
+            chain_id=self.params.mech_chain_id,
+            **kwargs,
+        )
+        return status
+
+    def _get_lock_hash(self) -> WaitableConditionType:
+        """Get the lock hash."""
+        status = yield from self._lock_contract_interact(
             contract_callable="get_hash_values",
+            data_key="hash",
+            placeholder="_lock_hash",
             did=self.nvm_config.did,
             reward_address=self.params.escrow_payment_condition_address,
             token_address=self.nvm_config.subscription_token_address,
@@ -314,202 +381,105 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             receivers=self.receivers,
             chain_id=self.params.mech_chain_id,
         )
-        if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(
-                f"LockPaymentCondition: get_hash_values unsuccessful: {response_msg}"
-            )
-            return None
+        return status
 
-        lock_hash = response_msg.raw_transaction.body.get("hash", None)
-        return lock_hash
-
-    def _get_lock_id(self) -> Generator[None, None, Optional[bytes]]:
+    def _get_lock_id(self) -> WaitableConditionType:
         """Get the lock id."""
-        lock_hash = yield from self._get_lock_hash()
-        if not lock_hash:
-            self.context.logger.error("Error fetching lock_hash")
-            return None
-
-        self.context.logger.info(f"Fetched lock hash: {lock_hash.hex()}")
-
-        if self.agreement_id is None:
-            self.context.logger.error(
-                "Agreement id attribute not set correctly after contract call."
-            )
-            return None
-
-        self.context.logger.info(f"Fetched agreement id: {self.agreement_id}")
-
-        response_msg = yield from self.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.lock_payment_condition_address,
-            contract_id=str(LockPaymentCondition.contract_id),
+        status = yield from self._lock_contract_interact(
             contract_callable="get_generate_id",
+            data_key="condition_id",
+            placeholder="_lock_id",
             agreement_id=self.agreement_id,
-            hash_value=lock_hash,
-            chain_id=self.params.mech_chain_id,
+            hash_value=self.lock_hash,
         )
-        if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(
-                f"LockPaymentCondition: get_generate_id unsuccessful: {response_msg}"
-            )
-            return None
+        return status
 
-        lock_id = response_msg.raw_transaction.body.get("condition_id", None)
-        return lock_id
-
-    def _get_transfer_nft_hash(self) -> Generator[None, None, Optional[bytes]]:
-        """Get the transfer nft hash."""
-        if not self.from_address:
-            self.context.logger.error(
-                "from_address attribute not set correctly after contract call."
-            )
-            return None
-
-        lock_id = yield from self._get_lock_id()
-        if not lock_id:
-            self.context.logger.error("Error fetching lock id.")
-            return None
-
-        self.context.logger.info(f"Fetched lock id: {lock_id.hex()}")
-
-        response_msg = yield from self.get_contract_api_response(
+    def _transfer_nft_interact(
+        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
+    ) -> WaitableConditionType:
+        """Interact with the Transfer NFT condition contract."""
+        status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_id=str(TransferNFTCondition.contract_id),
+            contract_public_id=TransferNFTCondition.contract_id,
+            contract_callable=contract_callable,
+            data_key=data_key,
+            placeholder=placeholder,
+            chain_id=self.params.mech_chain_id,
+            **kwargs,
+        )
+        return status
+
+    def _get_transfer_nft_hash(self) -> WaitableConditionType:
+        """Get the transfer nft hash."""
+        status = yield from self._transfer_nft_interact(
             contract_callable="get_hash_values",
+            data_key="hash",
+            placeholder="_transfer_hash",
             did=self.nvm_config.did,
             from_address=self.from_address,
             to_address=self.synchronized_data.safe_contract_address,
             amount=self.nvm_config.subscription_credits,
-            lock_condition_id=lock_id,
+            lock_condition_id=self.lock_id,
             nft_contract_address=self.nvm_config.subscription_nft_address,
-            _is_transfer=False,
-            chain_id=self.params.mech_chain_id,
+            is_transfer=False,
         )
-        if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(
-                f"TransferNFTCondition: get_hash_values unsuccessful: {response_msg}"
-            )
-            return None
+        return status
 
-        transfer_hash = response_msg.raw_transaction.body.get("hash", None)
-        return transfer_hash
-
-    def _get_transfer_id(self) -> Generator[None, None, Optional[bytes]]:
+    def _get_transfer_id(self) -> WaitableConditionType:
         """Get the transfer id."""
-        transfer_hash = yield from self._get_transfer_nft_hash()
-        if not transfer_hash:
-            self.context.logger.error("Error fetching transfer_hash")
-            return None
-
-        self.context.logger.info(f"Fetched transfer hash: {transfer_hash.hex()}")
-
-        if self.agreement_id is None:
-            self.context.logger.error(
-                "Agreement id attribute not set correctly after contract call."
-            )
-            return None
-
-        self.context.logger.info(f"Fetched agreement id: {self.agreement_id.hex()}")
-
-        response_msg = yield from self.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.lock_payment_condition_address,
-            contract_id=str(TransferNFTCondition.contract_id),
+        status = yield from self._transfer_nft_interact(
             contract_callable="get_generate_id",
+            data_key="condition_id",
+            placeholder="_transfer_id",
             agreement_id=self.agreement_id,
-            hash_value=transfer_hash,
-            chain_id=self.params.mech_chain_id,
+            hash_value=self.transfer_hash,
         )
-        if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(
-                f"TransferNFTCondition: get_generate_id unsuccessful: {response_msg}"
-            )
-            return None
+        return status
 
-        transfer_id = response_msg.raw_transaction.body.get("condition_id", None)
-        return transfer_id
-
-    def _get_escrow_payment_hash(self) -> Generator[None, None, Optional[bytes]]:
-        """Get the escrow payment hash."""
-        if not self.receivers:
-            self.context.logger.error(
-                "receivers attribute not set correctly after contract call."
-            )
-            return None
-
-        lock_id = yield from self._get_lock_id()
-        if not lock_id:
-            self.context.logger.error("Error fetching lock id.")
-            return None
-
-        self.context.logger.info(f"Fetched lock id: {lock_id.hex()}")
-
-        transfer_id = yield from self._get_transfer_id()
-        if not transfer_id:
-            self.context.logger.error("Error fetching transfer id.")
-            return None
-        self.context.logger.info(f"Fetched transfer id: {transfer_id.hex()}")
-
-        response_msg = yield from self.get_contract_api_response(
+    def _escrow_interact(
+        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
+    ) -> WaitableConditionType:
+        """Interact with the escrow payment condition contract."""
+        status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.lock_payment_condition_address,
-            contract_id=str(EscrowPaymentConditionContract.contract_id),
+            contract_public_id=EscrowPaymentConditionContract.contract_id,
+            contract_callable=contract_callable,
+            data_key=data_key,
+            placeholder=placeholder,
+            chain_id=self.params.mech_chain_id,
+            **kwargs,
+        )
+        return status
+
+    def _get_escrow_payment_hash(self) -> WaitableConditionType:
+        """Get the escrow payment hash."""
+        status = yield from self._escrow_interact(
             contract_callable="get_hash_values",
+            data_key="hash",
+            placeholder="_escrow_hash",
             did=self.nvm_config.did,
             amounts=self.amounts,
             receivers=self.receivers,
             sender=self.synchronized_data.safe_contract_address,
             receiver=self.params.escrow_payment_condition_address,
             token_address=self.nvm_config.subscription_token_address,
-            lock_condition_id=lock_id,
-            release_condition_id=transfer_id,
-            chain_id=self.params.mech_chain_id,
+            lock_condition_id=self.lock_id,
+            release_condition_id=self.transfer_id,
         )
-        if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(
-                f"EscrowPaymentConditionContract: get_hash_values unsuccessful: {response_msg}"
-            )
-            return None
+        return status
 
-        escrow_hash = response_msg.raw_transaction.body.get("hash", None)
-        return escrow_hash
-
-    def _get_escrow_id(self) -> Generator[None, None, Optional[str]]:
+    def _get_escrow_id(self) -> WaitableConditionType:
         """Get the escrow id."""
-        escrow_payment_hash = yield from self._get_escrow_payment_hash()
-        if not escrow_payment_hash:
-            self.context.logger.error("Error fetching escrow_payment_hash")
-            return None
-
-        self.context.logger.info(f"Fetched escrow hash: {escrow_payment_hash.hex()}")
-
-        if self.agreement_id is None:
-            self.context.logger.error(
-                "Agreement id attribute not set correctly after contract call."
-            )
-            return None
-
-        self.context.logger.info(f"Fetched agreement id: {self.agreement_id}")
-
-        response_msg = yield from self.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.lock_payment_condition_address,
-            contract_id=str(EscrowPaymentConditionContract.contract_id),
+        status = yield from self._escrow_interact(
             contract_callable="get_generate_id",
+            data_key="condition_id",
+            placeholder="_escrow_id",
             agreement_id=self.agreement_id,
-            hash_value=escrow_payment_hash,
-            chain_id=self.params.mech_chain_id,
+            hash_value=self.escrow_hash,
         )
-        if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(
-                f"EscrowPaymentConditionContract: get_generate_id unsuccessful: {response_msg}"
-            )
-            return None
-
-        escrow_payment_id = response_msg.raw_transaction.body.get("condition_id", None)
-        return escrow_payment_id
+        return status
 
     def _nft_sales_contract_interact(
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any

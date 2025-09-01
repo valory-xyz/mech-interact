@@ -45,7 +45,7 @@ class TransferNFTCondition(Contract):
         amount: int,
         lock_condition_id: bytes,
         nft_contract_address: str,
-        _is_transfer: bool,
+        is_transfer: bool,
     ) -> JSONLike:
         """Get the hash values."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
@@ -59,7 +59,7 @@ class TransferNFTCondition(Contract):
             _nftAmount=amount,
             _lockCondition=lock_condition_id,
             _nftContractAddress=nft_contract_address,
-            _transfer=_is_transfer,
+            _transfer=is_transfer,
         )
         return dict(hash=hash_)
 

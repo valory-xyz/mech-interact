@@ -185,27 +185,27 @@ class MechParams(BaseParams):
         self.mech_interaction_sleep_time: int = self._ensure(
             "mech_interaction_sleep_time", kwargs, int
         )
-        self.use_mech_marketplace = self._ensure("use_mech_marketplace", kwargs, bool)
+        self.use_mech_marketplace: bool = self._ensure("use_mech_marketplace", kwargs, bool)
         self.mech_marketplace_config: MechMarketplaceConfig = (
             MechMarketplaceConfig.from_dict(kwargs["mech_marketplace_config"])
         )
-        self.agent_registry_address = kwargs.get("agent_registry_address")
+        self.agent_registry_address: str = kwargs.get("agent_registry_address")
         enforce(
             self.agent_registry_address is not None,
             "Agent registry address not specified!",
         )
-        self.use_acn_for_delivers = self._ensure("use_acn_for_delivers", kwargs, bool)
-        self.nvm_balance_tracker_address = self._ensure(
+        self.use_acn_for_delivers: bool = self._ensure("use_acn_for_delivers", kwargs, bool)
+        self.nvm_balance_tracker_address: str = self._ensure(
             "nvm_balance_tracker_address", kwargs, str
         )
-        self.did_registry_address = self._ensure("did_registry_address", kwargs, str)
-        self.agreement_store_manager_address = self._ensure(
+        self.did_registry_address: str = self._ensure("did_registry_address", kwargs, str)
+        self.agreement_store_manager_address: str = self._ensure(
             "agreement_store_manager_address", kwargs, str
         )
-        self.lock_payment_condition_address = self._ensure(
+        self.lock_payment_condition_address: str = self._ensure(
             "lock_payment_condition_address", kwargs, str
         )
-        self.escrow_payment_condition_address = self._ensure(
+        self.escrow_payment_condition_address: str = self._ensure(
             "escrow_payment_condition_address", kwargs, str
         )
 
