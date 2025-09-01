@@ -205,6 +205,9 @@ class MechParams(BaseParams):
         self.lock_payment_condition_address: str = self._ensure(
             "lock_payment_condition_address", kwargs, str
         )
+        self.transfer_nft_condition_address: str = self._ensure(
+            "transfer_nft_condition_address", kwargs, str
+        )
         self.escrow_payment_condition_address: str = self._ensure(
             "escrow_payment_condition_address", kwargs, str
         )

@@ -411,13 +411,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _transfer_nft_interact(
+    def _transfer_nft_contract_interact(
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the Transfer NFT condition contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.lock_payment_condition_address,
+            contract_address=self.params.transfer_nft_condition_address,
             contract_public_id=TransferNFTCondition.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -429,7 +429,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def _get_transfer_nft_hash(self) -> WaitableConditionType:
         """Get the transfer nft hash."""
-        status = yield from self._transfer_nft_interact(
+        status = yield from self._transfer_nft_contract_interact(
             contract_callable="get_hash_values",
             data_key="hash",
             placeholder="_transfer_hash",
@@ -445,7 +445,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def _get_transfer_id(self) -> WaitableConditionType:
         """Get the transfer id."""
-        status = yield from self._transfer_nft_interact(
+        status = yield from self._transfer_nft_contract_interact(
             contract_callable="get_generate_id",
             data_key="condition_id",
             placeholder="_transfer_id",
@@ -454,13 +454,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _escrow_interact(
+    def _escrow_contract_interact(
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the escrow payment condition contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.lock_payment_condition_address,
+            contract_address=self.params.escrow_payment_condition_address,
             contract_public_id=EscrowPaymentConditionContract.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -472,7 +472,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def _get_escrow_payment_hash(self) -> WaitableConditionType:
         """Get the escrow payment hash."""
-        status = yield from self._escrow_interact(
+        status = yield from self._escrow_contract_interact(
             contract_callable="get_hash_values",
             data_key="hash",
             placeholder="_escrow_hash",
@@ -489,7 +489,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def _get_escrow_id(self) -> WaitableConditionType:
         """Get the escrow id."""
-        status = yield from self._escrow_interact(
+        status = yield from self._escrow_contract_interact(
             contract_callable="get_generate_id",
             data_key="condition_id",
             placeholder="_escrow_id",
