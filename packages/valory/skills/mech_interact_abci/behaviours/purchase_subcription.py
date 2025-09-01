@@ -166,6 +166,20 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._receivers = receivers
 
     @property
+    def agreement_id_seed(self) -> Optional[str]:
+        """Get the fetched agreement id seed."""
+        if self._agreement_id_seed is None:
+            self.context.logger.error(
+                "Accessing `agreement_id_seed` before it has been generated."
+            )
+        return self._agreement_id_seed
+
+    @agreement_id_seed.setter
+    def agreement_id_seed(self, agreement_id_seed: str) -> None:
+        """Set the `agreement_id_seed`."""
+        self._agreement_id_seed = agreement_id_seed
+
+    @property
     def agreement_id(self) -> Optional[bytes]:
         """Get the fetched agreement id."""
         if self._agreement_id is None:
@@ -174,14 +188,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             )
         return self._agreement_id
 
-    @property
-    def agreement_id_seed(self) -> Optional[str]:
-        """Get the fetched agreement id seed."""
-        if self._agreement_id_seed is None:
-            self.context.logger.error(
-                "Accessing `agreement_id_seed` before it has been fetched."
-            )
-        return self._agreement_id_seed
+
 
     @property
     def from_address(self) -> Optional[str]:
@@ -272,20 +279,8 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
         return True
 
-    def get_agreement_id(self):
+    def _get_agreement_id(self) -> WaitableConditionType:
         """Get the agreement id."""
-        agreement_id_seed = self._generate_agreement_id_seed()
-        placeholder = "_agreement_id_seed"
-        setattr(self, placeholder, agreement_id_seed)
-
-        if self.agreement_id_seed is None:
-            self.context.logger.error(
-                "Agreement id seed attribute not set correctly after call."
-            )
-            return None
-
-        self.context.logger.info(f"Fetched agreement id: {self.agreement_id_seed}")
-
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.agreement_store_manager_address,
@@ -785,6 +780,10 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     def _prepare_safe_tx(self) -> WaitableConditionType:
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
         # @todo
+
+    def setup(self) -> None:
+        """Setup the `MechPurchaseSubscriptionBehaviour` behaviour."""
+        self.agreement_id_seed = self._generate_agreement_id_seed()
 
     def async_act(self) -> Generator:
         """Do the action."""
