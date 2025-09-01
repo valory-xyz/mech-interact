@@ -24,6 +24,7 @@ import secrets
 from typing import Any, Dict, Generator, List, Optional, Iterable, Union, Tuple
 
 from aea.common import JSONLike
+from autonomy.chain.config import ChainType
 from hexbytes import HexBytes
 
 from packages.valory.contracts.agreement_storage_manager.contract import (
@@ -641,9 +642,35 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(f"Built transaction to fulfill.")
         return True
 
-    def _prepare_safe_tx(self) -> WaitableConditionType:
-        """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
-        # @todo
+    def _get_approval_steps(self) -> List[WaitableConditionType]:
+        """Get the approval steps, if necessary, otherwise return an empty list."""
+        return (
+            [self._build_subscription_token_approval_tx_data]
+            if ChainType(self.params.mech_chain_id) == ChainType.BASE
+            else []
+        )
+
+    def _prepare_safe_tx(self) -> Generator:
+        """Prepare a multisend safe tx for buying an NVM subscription."""
+        steps = [
+            self._get_ddo_register,
+            self._get_ddo_data,
+            self._get_agreement_id,
+            self._get_lock_hash,
+            self._get_lock_id,
+            self._get_transfer_nft_hash,
+            self._get_transfer_id,
+            self._get_escrow_payment_hash,
+            self._get_escrow_id,
+            self._build_create_agreement_tx_data,
+            *self._get_approval_steps(),
+            self._build_create_fulfill_tx_data,
+            self._build_multisend_data,
+            self._build_multisend_safe_tx_hash,
+        ]
+
+        for step in steps:
+            yield from self.wait_for_condition_with_sleep(step)
 
     def setup(self) -> None:
         """Setup the `MechPurchaseSubscriptionBehaviour` behaviour."""
