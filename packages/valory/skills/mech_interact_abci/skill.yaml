@@ -182,6 +182,11 @@ models:
         priority_mech_address: '0x0000000000000000000000000000000000000000'
         response_timeout: 300
       nvm_balance_tracker_address: '0x7D686bD1fD3CFF6E45a40165154D61043af7D67c'
+      did_registry_address: '0x0000000000000000000000000000000000000000'
+      agreement_store_manager_address: '0x0000000000000000000000000000000000000000'
+      lock_payment_condition_address: '0x0000000000000000000000000000000000000000'
+      transfer_nft_condition_address: '0x0000000000000000000000000000000000000000'
+      escrow_payment_condition_address: '0x0000000000000000000000000000000000000000'
     class_name: Params
   mech_response:
     args:
