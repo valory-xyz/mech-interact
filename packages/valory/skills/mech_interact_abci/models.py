@@ -53,12 +53,12 @@ class NVMConfig:
 
     plan_fee_nvm: int
     plan_price_mech: int
-    subscription_credits: int
     subscription_nft_address: str
     nft_sales_address: str
     subscription_token_address: str
     subscription_provider_address: str
     plan_did: str
+    subscription_credits: int = 1e6
     subscription_cost: int = 0
     agreement_cost: int = 0
 
@@ -73,7 +73,6 @@ CHAIN_TO_NVM_CONFIG = {
     ChainType.GNOSIS: NVMConfig(  # nosec
         plan_fee_nvm=10000000000000000,
         plan_price_mech=990000000000000000,
-        subscription_credits=1000000,
         subscription_nft_address="0x1b5DeaD7309b56ca7663b3301A503e077Be18cba",
         nft_sales_address="0x72201948087aE83f8Eac22cf7A9f2139e4cFA829",
         subscription_token_address="0x0000000000000000000000000000000000000000",
@@ -84,7 +83,6 @@ CHAIN_TO_NVM_CONFIG = {
     ChainType.BASE: NVMConfig(  # nosec
         plan_fee_nvm=10000,
         plan_price_mech=990000,
-        subscription_credits=1000000,
         subscription_nft_address="0xd5318d1A17819F65771B6c9277534C08Dd765498",
         nft_sales_address="0x468dC6d758129c4563005B49aC58DfF2e6f7F08e",
         subscription_token_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
