@@ -51,6 +51,12 @@ Ox = "0x"
 class NVMConfig:
     """NVM configuration."""
 
+    balance_tracker_address: str
+    did_registry_address: str
+    agreement_store_manager_address: str
+    lock_payment_condition_address: str
+    transfer_nft_condition_address: str
+    escrow_payment_condition_address: str
     plan_fee_nvm: int
     plan_price_mech: int
     subscription_nft_address: str
@@ -71,6 +77,12 @@ class NVMConfig:
 # false positives for [B105:hardcoded_password_string] Possible hardcoded password
 CHAIN_TO_NVM_CONFIG = {
     ChainType.GNOSIS: NVMConfig(  # nosec
+        balance_tracker_address="0x7D686bD1fD3CFF6E45a40165154D61043af7D67c",
+        did_registry_address="0x4Cd9b03bEB7D68bC397B64521DF0A272bE94a4Df",
+        agreement_store_manager_address="0xCB0A331cB1F57E01FF0FA2d664f2F100081cbc3b",
+        lock_payment_condition_address="0x31B2D187d674C9ACBD2b25f6EDce3d2Db2B7f446",
+        transfer_nft_condition_address="0x2749DDEd394196835199471027713773736bffF2",
+        escrow_payment_condition_address="0x659fCA7436936e9fe8383831b65B8B442eFc8Ea8",
         plan_fee_nvm=10000000000000000,
         plan_price_mech=990000000000000000,
         subscription_nft_address="0x1b5DeaD7309b56ca7663b3301A503e077Be18cba",
@@ -81,6 +93,12 @@ CHAIN_TO_NVM_CONFIG = {
         agreement_cost=10**18,
     ),
     ChainType.BASE: NVMConfig(  # nosec
+        balance_tracker_address="0xaaFBeef195BDAb1Bb6f3Dc9cEbA875Cd72499230",
+        did_registry_address="0x173CFb11baa0Cf18FDA698cF82AEf6181D84B845",
+        agreement_store_manager_address="0x5FD091093152403BEE33a5c4Db60721Fc513985D",
+        lock_payment_condition_address="0xA33f6149563CfEC51C9e7961A3FB5DdF5F9D5B68",
+        transfer_nft_condition_address="0x7d1b782A347234d1442e57721444B778D5B2E6B7",
+        escrow_payment_condition_address="0x17a49d0942b987ebDE9D6400A045159bd3936541",
         plan_fee_nvm=10000,
         plan_price_mech=990000,
         subscription_nft_address="0xd5318d1A17819F65771B6c9277534C08Dd765498",
@@ -195,22 +213,8 @@ class MechParams(BaseParams):
             self.agent_registry_address is not None,
             "Agent registry address not specified!",
         )
-        self.use_acn_for_delivers: bool = self._ensure("use_acn_for_delivers", kwargs, bool)
-        self.nvm_balance_tracker_address: str = self._ensure(
-            "nvm_balance_tracker_address", kwargs, str
-        )
-        self.did_registry_address: str = self._ensure("did_registry_address", kwargs, str)
-        self.agreement_store_manager_address: str = self._ensure(
-            "agreement_store_manager_address", kwargs, str
-        )
-        self.lock_payment_condition_address: str = self._ensure(
-            "lock_payment_condition_address", kwargs, str
-        )
-        self.transfer_nft_condition_address: str = self._ensure(
-            "transfer_nft_condition_address", kwargs, str
-        )
-        self.escrow_payment_condition_address: str = self._ensure(
-            "escrow_payment_condition_address", kwargs, str
+        self.use_acn_for_delivers: bool = self._ensure(
+            "use_acn_for_delivers", kwargs, bool
         )
 
         enforce(

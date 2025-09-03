@@ -361,7 +361,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Interact with the NVM balance tracker contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.nvm_balance_tracker_address,
+            contract_address=self.params.nvm_config.balance_tracker_address,
             contract_public_id=self.nvm_balance_tracker_contract_id,
             contract_callable=contract_callable,
             data_key=data_key,

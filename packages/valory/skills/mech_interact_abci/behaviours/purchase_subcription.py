@@ -330,7 +330,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # returnAddress # noqa: E800
             self.synchronized_data.safe_contract_address,
             # lockPaymentAddress
-            self.params.escrow_payment_condition_address,
+            self.nvm_config.escrow_payment_condition_address,
             # tokenAddress
             self.nvm_config.subscription_token_address,
             # lockCondition
@@ -348,7 +348,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Get the ddo register from the did registry."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.did_registry_address,
+            contract_address=self.nvm_config.did_registry_address,
             contract_public_id=DIDRegistry.contract_id,
             contract_callable="get_ddo",
             data_key="data",
@@ -415,7 +415,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Get the agreement id."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.agreement_store_manager_address,
+            contract_address=self.nvm_config.agreement_store_manager_address,
             contract_public_id=AgreementStorageManager.contract_id,
             contract_callable="get_agreement_id",
             data_key="agreement_id",
@@ -432,7 +432,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Interact with the lock payment condition contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.lock_payment_condition_address,
+            contract_address=self.nvm_config.lock_payment_condition_address,
             contract_public_id=LockPaymentCondition.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -449,7 +449,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             data_key="hash",
             placeholder="_lock_hash",
             did=self.nvm_config.did,
-            reward_address=self.params.escrow_payment_condition_address,
+            reward_address=self.nvm_config.escrow_payment_condition_address,
             token_address=self.nvm_config.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
@@ -474,7 +474,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Interact with the Transfer NFT condition contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.transfer_nft_condition_address,
+            contract_address=self.nvm_config.transfer_nft_condition_address,
             contract_public_id=TransferNFTCondition.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -517,7 +517,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Interact with the escrow payment condition contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.escrow_payment_condition_address,
+            contract_address=self.nvm_config.escrow_payment_condition_address,
             contract_public_id=EscrowPaymentConditionContract.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -537,7 +537,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             amounts=self.amounts,
             receivers=self.receivers,
             sender=self.synchronized_data.safe_contract_address,
-            receiver=self.params.escrow_payment_condition_address,
+            receiver=self.nvm_config.escrow_payment_condition_address,
             token_address=self.nvm_config.subscription_token_address,
             lock_condition_id=self.lock_id,
             release_condition_id=self.transfer_id,
@@ -571,7 +571,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             timeouts=TIMEOUTS,
             publisher=self.synchronized_data.safe_contract_address,
             service_index=SERVICE_INDEX,
-            reward_address=self.params.escrow_payment_condition_address,
+            reward_address=self.nvm_config.escrow_payment_condition_address,
             token_address=self.nvm_config.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
@@ -603,7 +603,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             contract_callable="build_approval_tx",
             data_key="data",
             placeholder="_subscription_token_approval_tx_data",
-            spender=self.params.lock_payment_condition_address,
+            spender=self.nvm_config.lock_payment_condition_address,
             amount=self.nvm_config.subscription_cost,
             chain_id=self.params.mech_chain_id,
         )
