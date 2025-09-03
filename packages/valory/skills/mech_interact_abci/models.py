@@ -23,10 +23,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from aea.exceptions import enforce
-from hexbytes import HexBytes
-
 from autonomy.chain.config import ChainType
 from autonomy.chain.service import NULL_ADDRESS
+from hexbytes import HexBytes
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
 from packages.valory.skills.abstract_round_abci.models import ApiSpecs, BaseParams
@@ -60,6 +59,8 @@ class NVMConfig:
     subscription_token_address: str
     subscription_provider_address: str
     plan_did: str
+    subscription_cost: int = 0
+    agreement_cost: int = 0
 
     @property
     def did(self) -> str:
@@ -78,6 +79,7 @@ CHAIN_TO_NVM_CONFIG = {
         subscription_token_address="0x0000000000000000000000000000000000000000",
         subscription_provider_address="0x4a2f40E14309c20c0C3803c3CcCd5E9B5F2D4eCA",
         plan_did="did:nv:b0b28402e5a7229804579d4ac55b98a1dd94660d7a7eb4add78e5ca856f2aab7",
+        agreement_cost=10**18,
     ),
     ChainType.BASE: NVMConfig(  # nosec
         plan_fee_nvm=10000,
@@ -88,6 +90,7 @@ CHAIN_TO_NVM_CONFIG = {
         subscription_token_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         subscription_provider_address="0x5050c577583D25Ff9C9492A39e8D1B94028ffA55",
         plan_did="did:nv:6f74c18fae7e5c3589b99d7cd0ba317593f00dee53c81a2ba4ac2244232f99da",
+        subscription_cost=10**6,
     ),
 }
 

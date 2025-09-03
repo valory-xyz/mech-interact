@@ -82,7 +82,6 @@ RECEIVERS_PATH = (
 TIMELOCKS = [0, 0, 0]
 TIMEOUTS = [0, 90, 0]
 SERVICE_INDEX = 0
-SUBSCRIPTION_COST = 10**6
 EXPIRATION_BLOCK = 0
 
 
@@ -268,6 +267,11 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Get the amounts."""
         amounts = [self.nvm_config.plan_fee_nvm, self.nvm_config.plan_price_mech]
         return amounts
+
+    @property
+    def using_base(self) -> bool:
+        """Whether we are using Base chain."""
+        return ChainType(self.params.mech_chain_id) == ChainType.BASE
 
     @property
     def agreement_tx_data(self) -> Optional[HexBytes]:
@@ -580,6 +584,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         batch = MultisendBatch(
             to=self.nvm_config.nft_sales_address,
             data=self.agreement_tx_data,
+            value=self.nvm_config.agreement_cost,
         )
         self.multisend_batches.append(batch)
         self.context.logger.info(f"Built transaction to create agreement.")
@@ -599,7 +604,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             data_key="data",
             placeholder="_subscription_token_approval_tx_data",
             spender=self.params.lock_payment_condition_address,
-            amount=SUBSCRIPTION_COST,
+            amount=self.nvm_config.subscription_cost,
             chain_id=self.params.mech_chain_id,
         )
         if not status:
@@ -646,9 +651,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     def _get_approval_steps(self) -> List[WaitableConditionType]:
         """Get the approval steps, if necessary, otherwise return an empty list."""
         return (
-            [self._build_subscription_token_approval_tx_data]
-            if ChainType(self.params.mech_chain_id) == ChainType.BASE
-            else []
+            [self._build_subscription_token_approval_tx_data] if self.using_base else []
         )
 
     def _prepare_safe_tx(self) -> Generator:
