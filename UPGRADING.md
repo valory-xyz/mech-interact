@@ -13,7 +13,7 @@ Below, we describe the additional manual steps required to upgrade between diffe
   If you are using the mech interact abci, you will need to add them as third party packages:
   ```json
   {
-    "skill/valory/mech_interact_abci/0.1.0": "bafybeievndqg7cjipzinkoshych5ea4k554c2yxwcumvqcq6j273pfmghe",
+    "skill/valory/mech_interact_abci/0.1.0": "bafybeihlgdbbufr2rugl4c4w6dtlvgfjbkeistqunu4gma64ku4vsjbsyu",
     "contract/valory/ierc1155/0.1.0": "bafybeig5lnuicphvwnu55fgmwegpma44l6jldakyfyjciscl274unb5iqy",
     "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeifrj4w5zz7dnvakfuuxcse54intris7uplnxtkihflpcd3o6i2nji",
     "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeicmrhh7lqxgfwk4ck3ppqigud7xphkhensbkb2ouyluewyqezj2wm",
@@ -41,7 +41,7 @@ Below, we describe the additional manual steps required to upgrade between diffe
   - valory/transfer_nft_condition:0.1.0:bafybeibvcrlgfuy5wt2xolzqsywbzfaquwfdvqn44ppcdka2ymk3e5kxm4
   - valory/subscription_provider:0.1.0:bafybeibrt3446p5lzig3igoez3wyg6qtmcacgzvuubrhmhrqj6kxqsq4nq
   skills:
-  - valory/mech_interact_abci:0.1.0:bafybeievndqg7cjipzinkoshych5ea4k554c2yxwcumvqcq6j273pfmghe
+  - valory/mech_interact_abci:0.1.0:bafybeihlgdbbufr2rugl4c4w6dtlvgfjbkeistqunu4gma64ku4vsjbsyu
   ```
 
 #### Misc
