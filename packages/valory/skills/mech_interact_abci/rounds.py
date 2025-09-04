@@ -55,20 +55,27 @@ class MechInteractAbciApp(AbciApp[Event]):
 
     Transition states:
         0. MechRequestRound
-            - done: 2.
-            - skip request: 5.
+            - done: 3.
+            - skip request: 6.
+            - buy subscription: 1.
             - no majority: 0.
             - round timeout: 0.
-        1. MechResponseRound
-            - done: 3.
+        1. MechPurchaseSubscriptionRound
+            - done: 7.
+            - none: 1.
             - no majority: 1.
-            - round timeout: 4.
-        2. FinishedMechRequestRound
-        3. FinishedMechResponseRound
-        4. FinishedMechResponseTimeoutRound
-        5. FinishedMechRequestSkipRound
+            - round timeout: 1.
+        2. MechResponseRound
+            - done: 4.
+            - no majority: 2.
+            - round timeout: 5.
+        3. FinishedMechRequestRound
+        4. FinishedMechResponseRound
+        5. FinishedMechResponseTimeoutRound
+        6. FinishedMechRequestSkipRound
+        7. FinishedMechPurchaseSubscriptionRound
 
-    Final states: {FinishedMechRequestRound, FinishedMechRequestSkipRound, FinishedMechResponseRound, FinishedMechResponseTimeoutRound}
+    Final states: {FinishedMechPurchaseSubscriptionRound, FinishedMechRequestRound, FinishedMechRequestSkipRound, FinishedMechResponseRound, FinishedMechResponseTimeoutRound}
 
     Timeouts:
         round timeout: 30.0
