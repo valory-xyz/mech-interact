@@ -33,12 +33,7 @@ from aea.helpers.cid import to_v1
 from hexbytes import HexBytes
 
 from packages.valory.contracts.erc20.contract import ERC20
-from packages.valory.contracts.gnosis_safe.contract import (
-    GnosisSafeContract,
-    SafeOperation,
-)
 from packages.valory.contracts.ierc1155.contract import IERC1155
-from packages.valory.contracts.multisend.contract import MultiSendContract
 from packages.valory.contracts.nvm_balance_tracker_native.contract import (
     BalanceTrackerNvmSubscriptionNative,
 )
@@ -62,10 +57,6 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 )
 from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
 from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
-from packages.valory.skills.transaction_settlement_abci.payload_tools import (
-    hash_payload_to_hex,
-)
-from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
 
 
 METADATA_FILENAME = "metadata.json"
@@ -73,10 +64,6 @@ V1_HEX_PREFIX = "f01"
 Ox = "0x"
 EMPTY_PAYMENT_DATA_HEX = Ox
 
-# setting the safe gas to 0 means that all available gas will be used
-# which is what we want in most cases
-# more info here: https://safe-docs.dev.gnosisdev.com/safe/docs/contracts_tx_execution/
-SAFE_GAS = 0
 NATIVE_PAYMENT_TYPE = (
     "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
 )
@@ -135,48 +122,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     def price(self, price: int) -> None:
         """Set the price."""
         self._price = price
-
-    @property
-    def safe_tx_hash(self) -> str:
-        """Get the safe_tx_hash."""
-        return self._safe_tx_hash
-
-    @safe_tx_hash.setter
-    def safe_tx_hash(self, safe_hash: str) -> None:
-        """Set the safe_tx_hash."""
-        length = len(safe_hash)
-        if length != TX_HASH_LENGTH:
-            raise ValueError(
-                f"Incorrect length {length} != {TX_HASH_LENGTH} detected "
-                f"when trying to assign a safe transaction hash: {safe_hash}"
-            )
-        self._safe_tx_hash = safe_hash[2:]
-
-    @property
-    def multi_send_txs(self) -> List[dict]:
-        """Get the multisend transactions as a list of dictionaries."""
-        return [asdict(batch) for batch in self.multisend_batches]
-
-    @property
-    def txs_value(self) -> int:
-        """Get the total value of the transactions."""
-        return sum(batch.value for batch in self.multisend_batches)
-
-    @property
-    def tx_hex(self) -> Optional[str]:
-        """Serialize the safe tx to a hex string."""
-        if self.safe_tx_hash == "":
-            raise ValueError(
-                "Cannot prepare a multisend transaction without a safe transaction hash."
-            )
-        return hash_payload_to_hex(
-            self.safe_tx_hash,
-            self.txs_value,
-            SAFE_GAS,
-            self.params.multisend_address,
-            self.multisend_data,
-            SafeOperation.DELEGATE_CALL.value,
-        )
 
     @property
     def mech_payment_type(self) -> Optional[str]:
@@ -417,7 +362,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Interact with the NVM balance tracker contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.nvm_balance_tracker_address,
+            contract_address=self.params.nvm_config.balance_tracker_address,
             contract_public_id=self.nvm_balance_tracker_contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -515,80 +460,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.warning(balance_info + " " + refill_info)
         self.sleep(self.params.sleep_time)
         return False
-
-    def _build_multisend_data(
-        self,
-    ) -> WaitableConditionType:
-        """Get the multisend tx."""
-        response_msg = yield from self.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.multisend_address,
-            contract_id=str(MultiSendContract.contract_id),
-            contract_callable="get_tx_data",
-            multi_send_txs=self.multi_send_txs,
-            chain_id=self.params.mech_chain_id,
-        )
-        expected_performative = ContractApiMessage.Performative.RAW_TRANSACTION
-        if response_msg.performative != expected_performative:
-            self.context.logger.error(
-                f"Couldn't compile the multisend tx. "
-                f"Expected response performative {expected_performative.value}, "  # type: ignore
-                f"received {response_msg.performative.value}: {response_msg}"
-            )
-            return False
-
-        multisend_data_str = response_msg.raw_transaction.body.get("data", None)
-        if multisend_data_str is None:
-            self.context.logger.error(
-                f"Something went wrong while trying to prepare the multisend data: {response_msg}"
-            )
-            return False
-
-        # strip "0x" from the response
-        multisend_data_str = str(response_msg.raw_transaction.body["data"])[2:]
-        self.multisend_data = bytes.fromhex(multisend_data_str)
-        return True
-
-    def _build_multisend_safe_tx_hash(self) -> WaitableConditionType:
-        """Prepares and returns the safe tx hash for a multisend tx."""
-        self.context.logger.info(
-            f"Building multisend safe tx hash: safe={self.synchronized_data.safe_contract_address}"
-        )
-        response_msg = yield from self.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
-            contract_address=self.synchronized_data.safe_contract_address,
-            contract_id=str(GnosisSafeContract.contract_id),
-            contract_callable="get_raw_safe_transaction_hash",
-            to_address=self.params.multisend_address,
-            value=self.txs_value,
-            data=self.multisend_data,
-            safe_tx_gas=SAFE_GAS,
-            operation=SafeOperation.DELEGATE_CALL.value,
-            chain_id=self.params.mech_chain_id,
-        )
-
-        if response_msg.performative != ContractApiMessage.Performative.STATE:
-            self.context.logger.error(
-                "Couldn't get safe tx hash. Expected response performative "
-                f"{ContractApiMessage.Performative.STATE.value}, "  # type: ignore
-                f"received {response_msg.performative.value}: {response_msg}."
-            )
-            return False
-
-        tx_hash = response_msg.state.body.get("tx_hash", None)
-        if (
-            tx_hash is None
-            or not isinstance(tx_hash, str)
-            or len(tx_hash) != TX_HASH_LENGTH
-        ):
-            self.context.logger.error(
-                "Something went wrong while trying to get the buy transaction's hash. "
-                f"Invalid hash {tx_hash!r} was returned."
-            )
-            return False
-
-        self.safe_tx_hash = str(tx_hash)
-        return True
 
     def setup(self) -> None:
         """Set up the `MechRequest` behaviour."""

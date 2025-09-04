@@ -118,13 +118,11 @@ all-linters:
 	tox -e spell-check
 	tomte check-copyright --author valory --exclude-part abci  --exclude-part http_client  --exclude-part ipfs  --exclude-part ledger  --exclude-part p2p_libp2p_client  --exclude-part gnosis_safe  --exclude-part gnosis_safe_proxy_factory  --exclude-part multisend  --exclude-part service_registry  --exclude-part acn  --exclude-part contract_api  --exclude-part http  --exclude-part ipfs  --exclude-part ledger_api --exclude-part tendermint --exclude-part abstract_abci --exclude-part abstract_round_abci --exclude-part registration_abci --exclude-part reset_pause_abci --exclude-part termination_abci --exclude-part transaction_settlement_abci  --exclude-part http_server --exclude-part acn_data_share
 	tox -e bandit
-	tox -e safety
+	tomte check-security
 	tox -e check-packages
 	tox -e check-abciapp-specs
 	tox -e check-hash
-	tox -e black-check
-	tox -e isort-check
-	tox -e flake8
-	tox -e darglint
-	tox -e pylint
-	tox -e mypy
+	tomte check-code
+	tomte check-spelling
+	tox -e check-abci-docstrings
+	tox -e check-handlers

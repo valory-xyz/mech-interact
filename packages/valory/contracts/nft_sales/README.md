@@ -1,0 +1,1 @@
+# NFTSalesTemplate contract

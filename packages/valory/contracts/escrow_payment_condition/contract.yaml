@@ -1,0 +1,20 @@
+name: escrow_payment_condition
+author: valory
+version: 0.1.0
+type: contract
+description: Escrow Payment Condition contract
+license: Apache-2.0
+aea_version: '>=1.0.0, <2.0.0'
+fingerprint:
+  README.md: bafybeicrryg5u4zri42zd4qdarwapal6sayy7yyrrzzumurrpwkdt26ca4
+  __init__.py: bafybeigtorc5oz4r5lfj5bhlajqc34nkknbkuswbupogg7kuquuxdilxgi
+  build/escrow_payment_condition.json: bafybeie5bs35fhf5wgvjiynsw4lgzfwkk6643cmov2hpojdwp6lma54vgi
+  contract.py: bafybeibw7c7xmshlod7hglpr6adl4xpbe72xmsnurbbkbdibhmex3dhmfy
+fingerprint_ignore_patterns: []
+contracts: []
+class_name: EscrowPaymentConditionContract
+contract_interface_paths:
+  ethereum: build/escrow_payment_condition.json
+dependencies:
+  open-aea-ledger-ethereum:
+    version: ==1.65.0
