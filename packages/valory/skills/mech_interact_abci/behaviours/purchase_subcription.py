@@ -71,7 +71,7 @@ DDO_ENDPOINT_HEADERS = {"accept": "application/json"}
 SERVICE_KEY = "service"
 SERVICE_TYPE_KEY = "type"
 SERVICE_TYPE = "nft-sales"
-OWNER_KEY = "owner"
+OWNER_PATH = ("proof", "creator")
 RECEIVERS_PATH = (
     "attributes",
     "serviceAgreementTemplate",
@@ -256,13 +256,16 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     @property
     def from_address(self) -> Optional[str]:
         """Get the from_address from the ddo values."""
-        if not self.ddo_values or OWNER_KEY not in self.ddo_values:
-            self.context.logger.error(
-                f"{self.ddo_values=} attribute not set correctly after contract call."
-            )
+        if not self.ddo_values:
+            self.context.logger.error("`ddo_values` missing after contract call.")
             return None
 
-        return self.ddo_values[OWNER_KEY]
+        owner = dig(self.ddo_values, OWNER_PATH, None)
+        if not owner:
+            self.context.logger.error(f"Owner path missing in {self.ddo_values=}!")
+            return None
+
+        return owner
 
     @property
     def amounts(self) -> List[int]:
