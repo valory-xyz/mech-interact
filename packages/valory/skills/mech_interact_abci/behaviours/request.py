@@ -731,7 +731,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         steps = []
         if self.using_nevermined:
-            yield from self.wait_for_condition_with_sleep(self.set_total_nvm_balance)
+            yield from self.set_total_nvm_balance()
             if self.total_nvm_balance < self.mech_max_delivery_rate:
                 # if the total nvm balance is not enough, we should stop and return to buy a subscription first
                 return True
