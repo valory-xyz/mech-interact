@@ -71,7 +71,7 @@ DDO_ENDPOINT_HEADERS = {"accept": "application/json"}
 SERVICE_KEY = "service"
 SERVICE_TYPE_KEY = "type"
 SERVICE_TYPE = "nft-sales"
-OWNER_KEY = "owner"
+OWNER_PATH = ("proof", "creator")
 RECEIVERS_PATH = (
     "attributes",
     "serviceAgreementTemplate",
@@ -256,13 +256,16 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     @property
     def from_address(self) -> Optional[str]:
         """Get the from_address from the ddo values."""
-        if not self.ddo_values or OWNER_KEY not in self.ddo_values:
-            self.context.logger.error(
-                f"{self.ddo_values=} attribute not set correctly after contract call."
-            )
+        if not self.ddo_values:
+            self.context.logger.error("`ddo_values` missing after contract call.")
             return None
 
-        return self.ddo_values[OWNER_KEY]
+        owner = dig(self.ddo_values, OWNER_PATH, None)
+        if not owner:
+            self.context.logger.error(f"Owner path missing in {self.ddo_values=}!")
+            return None
+
+        return owner
 
     @property
     def amounts(self) -> List[int]:
@@ -322,6 +325,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             EXPIRATION_BLOCK,
         )
 
+    @property
     def fulfill_params(self) -> Tuple[List[int], List[str], str, str, str, str, str]:
         """Get the fulfill parameters."""
         return (
@@ -455,7 +459,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             token_address=self.nvm_config.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
-            chain_id=self.params.mech_chain_id,
         )
         return status
 
@@ -621,18 +624,18 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Built transaction to approve USDC spending.")
         return True
 
-    def _build_create_fulfill_tx_data(self):
+    def _build_create_fulfill_tx_data(self) -> WaitableConditionType:
         self.context.logger.info(
             f"Creating a fulfill tx with {self.fulfill_for_delegate_params=} and {self.fulfill_params=}."
         )
-        status = self.contract_interact(
+        status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.nvm_config.subscription_provider_address,
             contract_public_id=SubscriptionProvider.contract_id,
             contract_callable="build_create_fulfill_tx",
             data_key="data",
-            placeholder="_create_fulfill_tx_data",
-            agreement_id_seed=self.agreement_id_seed,
+            placeholder="_fulfill_tx_data",
+            agreement_id=self.agreement_id,
             did=self.nvm_config.did,
             fulfill_for_delegate_params=self.fulfill_for_delegate_params,
             fulfill_params=self.fulfill_params,

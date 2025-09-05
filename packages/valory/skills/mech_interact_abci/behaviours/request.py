@@ -49,7 +49,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
-from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
+from packages.valory.skills.mech_interact_abci.payloads import (
+    MechRequestPayload,
+    PrepareTxPayload,
+)
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
     MechMetadata,
@@ -169,7 +172,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Get the total NVM balance."""
         balance0 = self.olas_subscription_balance
         balance1 = self.nvm_balance
-        if balance0 and balance1:
+        if balance0 is not None and balance1 is not None:
             return balance0 + balance1
         return None
 
@@ -372,9 +375,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_nvm_balance(self):
+    def get_nvm_balance(self) -> WaitableConditionType:
         """Get the NVM balance."""
-        status = self._nvm_balance_tracker_contract_interact(
+        status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_balance",
             data_key="balance",
             placeholder="_nvm_balance",
@@ -382,18 +385,18 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_subscription_nft(self):
+    def get_subscription_nft(self) -> WaitableConditionType:
         """Get the subscription NFT."""
-        status = self._nvm_balance_tracker_contract_interact(
+        status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_subscription_nft",
             data_key="address",
             placeholder="_olas_subscription_address",
         )
         return status
 
-    def get_subscription_token_id(self):
+    def get_subscription_token_id(self) -> WaitableConditionType:
         """Get the subscription NFT."""
-        status = self._nvm_balance_tracker_contract_interact(
+        status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_subscription_token_id",
             data_key="id",
             placeholder="_subscription_id",
@@ -416,9 +419,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_olas_subscription_balance(self):
+    def get_olas_subscription_balance(self) -> WaitableConditionType:
         """Get the OLAS subscription's balance."""
-        status = self._olas_subscription_contract_interact(
+        status = yield from self._olas_subscription_contract_interact(
             contract_callable="get_balance",
             data_key="balance",
             placeholder="_olas_subscription_balance",
@@ -731,7 +734,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         steps = []
         if self.using_nevermined:
-            yield from self.wait_for_condition_with_sleep(self.set_total_nvm_balance)
+            yield from self.set_total_nvm_balance()
             if self.total_nvm_balance < self.mech_max_delivery_rate:
                 # if the total nvm balance is not enough, we should stop and return to buy a subscription first
                 return True
@@ -771,7 +774,11 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         if should_buy_subscription:
             payload = MechRequestPayload(
                 self.context.agent_address,
-                *(None,) * len(MechRequestPayload.__annotations__),
+                *(None,)
+                * (
+                    len(MechRequestPayload.__annotations__)
+                    + len(PrepareTxPayload.__annotations__)
+                ),
             )
             yield from self.finish_behaviour(payload)
             return

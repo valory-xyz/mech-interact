@@ -65,7 +65,7 @@ class NVMConfig:
     subscription_token_address: str
     subscription_provider_address: str
     plan_did: str
-    subscription_credits: int = 1e6
+    subscription_credits: int = int(1e6)
     subscription_cost: int = 0
     agreement_cost: int = 0
 
@@ -79,11 +79,11 @@ class NVMConfig:
 CHAIN_TO_NVM_CONFIG = {
     ChainType.GNOSIS: NVMConfig(  # nosec
         balance_tracker_address="0x7D686bD1fD3CFF6E45a40165154D61043af7D67c",
-        did_registry_address="0x4Cd9b03bEB7D68bC397B64521DF0A272bE94a4Df",
-        agreement_store_manager_address="0xCB0A331cB1F57E01FF0FA2d664f2F100081cbc3b",
-        lock_payment_condition_address="0x31B2D187d674C9ACBD2b25f6EDce3d2Db2B7f446",
-        transfer_nft_condition_address="0x2749DDEd394196835199471027713773736bffF2",
-        escrow_payment_condition_address="0x659fCA7436936e9fe8383831b65B8B442eFc8Ea8",
+        did_registry_address="0xCB0A331cB1F57E01FF0FA2d664f2F100081cbc3b",
+        agreement_store_manager_address="0x4Cd9b03bEB7D68bC397B64521DF0A272bE94a4Df",
+        lock_payment_condition_address="0x2749DDEd394196835199471027713773736bffF2",
+        transfer_nft_condition_address="0x659fCA7436936e9fe8383831b65B8B442eFc8Ea8",
+        escrow_payment_condition_address="0x31B2D187d674C9ACBD2b25f6EDce3d2Db2B7f446",
         plan_fee_nvm=10000000000000000,
         plan_price_mech=990000000000000000,
         subscription_nft_address="0x1b5DeaD7309b56ca7663b3301A503e077Be18cba",
@@ -95,11 +95,11 @@ CHAIN_TO_NVM_CONFIG = {
     ),
     ChainType.BASE: NVMConfig(  # nosec
         balance_tracker_address="0xaaFBeef195BDAb1Bb6f3Dc9cEbA875Cd72499230",
-        did_registry_address="0x173CFb11baa0Cf18FDA698cF82AEf6181D84B845",
-        agreement_store_manager_address="0x5FD091093152403BEE33a5c4Db60721Fc513985D",
-        lock_payment_condition_address="0xA33f6149563CfEC51C9e7961A3FB5DdF5F9D5B68",
-        transfer_nft_condition_address="0x7d1b782A347234d1442e57721444B778D5B2E6B7",
-        escrow_payment_condition_address="0x17a49d0942b987ebDE9D6400A045159bd3936541",
+        did_registry_address="0x5FD091093152403BEE33a5c4Db60721Fc513985D",
+        agreement_store_manager_address="0x173CFb11baa0Cf18FDA698cF82AEf6181D84B845",
+        lock_payment_condition_address="0x7d1b782A347234d1442e57721444B778D5B2E6B7",
+        transfer_nft_condition_address="0x17a49d0942b987ebDE9D6400A045159bd3936541",
+        escrow_payment_condition_address="0xA33f6149563CfEC51C9e7961A3FB5DdF5F9D5B68",
         plan_fee_nvm=10000,
         plan_price_mech=990000,
         subscription_nft_address="0xd5318d1A17819F65771B6c9277534C08Dd765498",

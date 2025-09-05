@@ -53,7 +53,7 @@ class NFTSalesTemplate(Contract):
         amounts: List[int],
         receivers: List[str],
     ) -> JSONLike:
-        """Get the tx for create agreeement."""
+        """Get the tx for create agreement."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
         encoded_data = contract_instance.encodeABI(

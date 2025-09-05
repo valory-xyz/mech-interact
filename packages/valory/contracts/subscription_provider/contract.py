@@ -39,7 +39,7 @@ class SubscriptionProvider(Contract):
         cls,
         ledger_api: EthereumApi,
         contract_address: str,
-        agreement_id_seed: str,
+        agreement_id: str,
         did: str,
         fulfill_for_delegate_params: tuple,
         fulfill_params: tuple,
@@ -49,6 +49,6 @@ class SubscriptionProvider(Contract):
         contract_instance = cls.get_instance(ledger_api, contract_address)
         encoded_data = contract_instance.encodeABI(
             fn_name="fulfill",
-            args=(agreement_id_seed, did, fulfill_for_delegate_params, fulfill_params),
+            args=(agreement_id, did, fulfill_for_delegate_params, fulfill_params),
         )
         return {"data": bytes.fromhex(encoded_data[HEX_PREFIX_LENGTH:])}
