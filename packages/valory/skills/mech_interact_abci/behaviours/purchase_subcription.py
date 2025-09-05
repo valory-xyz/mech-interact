@@ -624,11 +624,11 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Built transaction to approve USDC spending.")
         return True
 
-    def _build_create_fulfill_tx_data(self):
+    def _build_create_fulfill_tx_data(self) -> WaitableConditionType:
         self.context.logger.info(
             f"Creating a fulfill tx with {self.fulfill_for_delegate_params=} and {self.fulfill_params=}."
         )
-        status = self.contract_interact(
+        status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.nvm_config.subscription_provider_address,
             contract_public_id=SubscriptionProvider.contract_id,

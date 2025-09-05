@@ -372,9 +372,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_nvm_balance(self):
+    def get_nvm_balance(self) -> WaitableConditionType:
         """Get the NVM balance."""
-        status = self._nvm_balance_tracker_contract_interact(
+        status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_balance",
             data_key="balance",
             placeholder="_nvm_balance",
@@ -382,18 +382,18 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_subscription_nft(self):
+    def get_subscription_nft(self) -> WaitableConditionType:
         """Get the subscription NFT."""
-        status = self._nvm_balance_tracker_contract_interact(
+        status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_subscription_nft",
             data_key="address",
             placeholder="_olas_subscription_address",
         )
         return status
 
-    def get_subscription_token_id(self):
+    def get_subscription_token_id(self) -> WaitableConditionType:
         """Get the subscription NFT."""
-        status = self._nvm_balance_tracker_contract_interact(
+        status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_subscription_token_id",
             data_key="id",
             placeholder="_subscription_id",
@@ -416,9 +416,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_olas_subscription_balance(self):
+    def get_olas_subscription_balance(self) -> WaitableConditionType:
         """Get the OLAS subscription's balance."""
-        status = self._olas_subscription_contract_interact(
+        status = yield from self._olas_subscription_contract_interact(
             contract_callable="get_balance",
             data_key="balance",
             placeholder="_olas_subscription_balance",
