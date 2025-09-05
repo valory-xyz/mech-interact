@@ -169,7 +169,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Get the total NVM balance."""
         balance0 = self.olas_subscription_balance
         balance1 = self.nvm_balance
-        if balance0 and balance1:
+        if balance0 is not None and balance1 is not None:
             return balance0 + balance1
         return None
 
