@@ -325,6 +325,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             EXPIRATION_BLOCK,
         )
 
+    @property
     def fulfill_params(self) -> Tuple[List[int], List[str], str, str, str, str, str]:
         """Get the fulfill parameters."""
         return (
