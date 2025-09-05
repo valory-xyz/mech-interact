@@ -27,16 +27,19 @@ from typing import Any, Generator, List, Optional, cast
 
 import multibase
 import multicodec
+from aea.configurations.data_types import PublicId
 from aea.exceptions import AEAEnforceError
 from aea.helpers.cid import to_v1
 from hexbytes import HexBytes
 
 from packages.valory.contracts.erc20.contract import ERC20
-from packages.valory.contracts.gnosis_safe.contract import (
-    GnosisSafeContract,
-    SafeOperation,
+from packages.valory.contracts.ierc1155.contract import IERC1155
+from packages.valory.contracts.nvm_balance_tracker_native.contract import (
+    BalanceTrackerNvmSubscriptionNative,
 )
-from packages.valory.contracts.multisend.contract import MultiSendContract
+from packages.valory.contracts.nvm_balance_tracker_token.contract import (
+    BalanceTrackerNvmSubscriptionToken,
+)
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.abstract_round_abci.base import get_name
@@ -46,17 +49,17 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
-from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
+from packages.valory.skills.mech_interact_abci.payloads import (
+    MechRequestPayload,
+    PrepareTxPayload,
+)
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
     MechMetadata,
+    SERIALIZED_EMPTY_LIST,
 )
 from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
 from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
-from packages.valory.skills.transaction_settlement_abci.payload_tools import (
-    hash_payload_to_hex,
-)
-from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
 
 
 METADATA_FILENAME = "metadata.json"
@@ -64,10 +67,17 @@ V1_HEX_PREFIX = "f01"
 Ox = "0x"
 EMPTY_PAYMENT_DATA_HEX = Ox
 
-# setting the safe gas to 0 means that all available gas will be used
-# which is what we want in most cases
-# more info here: https://safe-docs.dev.gnosisdev.com/safe/docs/contracts_tx_execution/
-SAFE_GAS = 0
+NATIVE_PAYMENT_TYPE = (
+    "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
+)
+TOKEN_PAYMENT_TYPE = (
+    "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"  # nosec
+)
+NEVERMINED_PAYMENT_TYPES = frozenset({NATIVE_PAYMENT_TYPE, TOKEN_PAYMENT_TYPE})
+PAYMENT_TYPE_TO_NVM_CONTRACT = {
+    NATIVE_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionNative.contract_id,
+    TOKEN_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionToken.contract_id,
+}
 
 
 class MechRequestBehaviour(MechInteractBaseBehaviour):
@@ -86,6 +96,10 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         # Initialize private attributes for properties
         self._mech_payment_type: Optional[str] = None
         self._mech_max_delivery_rate: Optional[int] = None
+        self._olas_subscription_balance: Optional[int] = None
+        self._nvm_balance: Optional[int] = None
+        self._olas_subscription_address: Optional[str] = None
+        self._subscription_id: Optional[int] = None
 
     @property
     def metadata_filepath(self) -> str:
@@ -113,50 +127,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price = price
 
     @property
-    def safe_tx_hash(self) -> str:
-        """Get the safe_tx_hash."""
-        return self._safe_tx_hash
-
-    @safe_tx_hash.setter
-    def safe_tx_hash(self, safe_hash: str) -> None:
-        """Set the safe_tx_hash."""
-        length = len(safe_hash)
-        if length != TX_HASH_LENGTH:
-            raise ValueError(
-                f"Incorrect length {length} != {TX_HASH_LENGTH} detected "
-                f"when trying to assign a safe transaction hash: {safe_hash}"
-            )
-        self._safe_tx_hash = safe_hash[2:]
-
-    @property
-    def multi_send_txs(self) -> List[dict]:
-        """Get the multisend transactions as a list of dictionaries."""
-        return [asdict(batch) for batch in self.multisend_batches]
-
-    @property
-    def txs_value(self) -> int:
-        """Get the total value of the transactions."""
-        return sum(batch.value for batch in self.multisend_batches)
-
-    @property
-    def tx_hex(self) -> Optional[str]:
-        """Serialize the safe tx to a hex string."""
-        if self.safe_tx_hash == "":
-            raise ValueError(
-                "Cannot prepare a multisend transaction without a safe transaction hash."
-            )
-        return hash_payload_to_hex(
-            self.safe_tx_hash,
-            self.txs_value,
-            SAFE_GAS,
-            self.params.multisend_address,
-            self.multisend_data,
-            SafeOperation.DELEGATE_CALL.value,
-        )
-
-    @property
     def mech_payment_type(self) -> Optional[str]:
-        """Gets the fetched mech payment type."""
+        """Get the fetched mech payment type."""
         if self._mech_payment_type is None:
             self.context.logger.error(
                 "Accessing mech_payment_type before it has been fetched."
@@ -164,8 +136,67 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         return self._mech_payment_type
 
     @property
+    def using_nevermined(self) -> bool:
+        """Whether we are using a Nevermined mech."""
+        return self.mech_payment_type in NEVERMINED_PAYMENT_TYPES
+
+    @property
+    def nvm_balance_tracker_contract_id(self) -> PublicId:
+        """Get the NVM balance tracker contract id."""
+        contract_id = PAYMENT_TYPE_TO_NVM_CONTRACT.get(self.mech_payment_type, None)
+        if contract_id is None:
+            raise ValueError(f"Unknown {self.mech_payment_type=}!")
+
+        return contract_id
+
+    @property
+    def olas_subscription_balance(self) -> Optional[int]:
+        """Get the fetched olas subscription balance."""
+        if self._olas_subscription_balance is None:
+            self.context.logger.error(
+                "Accessing `olas_subscription_balance` before it has been fetched."
+            )
+        return self._olas_subscription_balance
+
+    @property
+    def nvm_balance(self) -> Optional[int]:
+        """Get the fetched NVM balance."""
+        if self._nvm_balance is None:
+            self.context.logger.error(
+                "Accessing `_nvm_balance` before it has been fetched."
+            )
+        return self._nvm_balance
+
+    @property
+    def total_nvm_balance(self) -> Optional[int]:
+        """Get the total NVM balance."""
+        balance0 = self.olas_subscription_balance
+        balance1 = self.nvm_balance
+        if balance0 is not None and balance1 is not None:
+            return balance0 + balance1
+        return None
+
+    @property
+    def olas_subscription_address(self) -> Optional[str]:
+        """Get the OLAS subscription address."""
+        if self._olas_subscription_address is None:
+            self.context.logger.error(
+                "Accessing `_olas_subscription_address` before it has been fetched."
+            )
+        return self._olas_subscription_address
+
+    @property
+    def subscription_id(self) -> Optional[str]:
+        """Get the subscription id."""
+        if self._subscription_id is None:
+            self.context.logger.error(
+                "Accessing `_subscription_id` before it has been fetched."
+            )
+        return self._subscription_id
+
+    @property
     def mech_max_delivery_rate(self) -> Optional[int]:
-        """Gets the fetched max delivery rate."""
+        """Get the fetched max delivery rate."""
         if self._mech_max_delivery_rate is None:
             self.context.logger.error(
                 "Accessing mech_max_delivery_rate before it has been fetched."
@@ -328,6 +359,88 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(f"Built transaction to unwrap {amount} tokens.")
         return True
 
+    def _nvm_balance_tracker_contract_interact(
+        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
+    ) -> WaitableConditionType:
+        """Interact with the NVM balance tracker contract."""
+        status = yield from self.contract_interact(
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
+            contract_address=self.params.nvm_config.balance_tracker_address,
+            contract_public_id=self.nvm_balance_tracker_contract_id,
+            contract_callable=contract_callable,
+            data_key=data_key,
+            placeholder=placeholder,
+            chain_id=self.params.mech_chain_id,
+            **kwargs,
+        )
+        return status
+
+    def get_nvm_balance(self) -> WaitableConditionType:
+        """Get the NVM balance."""
+        status = yield from self._nvm_balance_tracker_contract_interact(
+            contract_callable="get_balance",
+            data_key="balance",
+            placeholder="_nvm_balance",
+            address=self.synchronized_data.safe_contract_address,
+        )
+        return status
+
+    def get_subscription_nft(self) -> WaitableConditionType:
+        """Get the subscription NFT."""
+        status = yield from self._nvm_balance_tracker_contract_interact(
+            contract_callable="get_subscription_nft",
+            data_key="address",
+            placeholder="_olas_subscription_address",
+        )
+        return status
+
+    def get_subscription_token_id(self) -> WaitableConditionType:
+        """Get the subscription NFT."""
+        status = yield from self._nvm_balance_tracker_contract_interact(
+            contract_callable="get_subscription_token_id",
+            data_key="id",
+            placeholder="_subscription_id",
+        )
+        return status
+
+    def _olas_subscription_contract_interact(
+        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
+    ) -> WaitableConditionType:
+        """Interact with the OLAS subscription contract."""
+        status = yield from self.contract_interact(
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
+            contract_address=self.olas_subscription_address,
+            contract_public_id=IERC1155.contract_id,
+            contract_callable=contract_callable,
+            data_key=data_key,
+            placeholder=placeholder,
+            chain_id=self.params.mech_chain_id,
+            **kwargs,
+        )
+        return status
+
+    def get_olas_subscription_balance(self) -> WaitableConditionType:
+        """Get the OLAS subscription's balance."""
+        status = yield from self._olas_subscription_contract_interact(
+            contract_callable="get_balance",
+            data_key="balance",
+            placeholder="_olas_subscription_balance",
+            account=self.synchronized_data.safe_contract_address,
+            subscription_id=self.subscription_id,
+        )
+        return status
+
+    def set_total_nvm_balance(self) -> Generator:
+        """Get teh total NVM balance."""
+        steps = [
+            self.get_nvm_balance,
+            self.get_subscription_nft,
+            self.get_subscription_token_id,
+            self.get_olas_subscription_balance,
+        ]
+        for step in steps:
+            yield from self.wait_for_condition_with_sleep(step)
+
     def _ensure_available_balance(self) -> WaitableConditionType:
         """Ensures available payment for the mech request and unwraps tokens if needed."""
         yield from self.wait_for_condition_with_sleep(self.update_safe_balances)
@@ -350,80 +463,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.warning(balance_info + " " + refill_info)
         self.sleep(self.params.sleep_time)
         return False
-
-    def _build_multisend_data(
-        self,
-    ) -> WaitableConditionType:
-        """Get the multisend tx."""
-        response_msg = yield from self.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.multisend_address,
-            contract_id=str(MultiSendContract.contract_id),
-            contract_callable="get_tx_data",
-            multi_send_txs=self.multi_send_txs,
-            chain_id=self.params.mech_chain_id,
-        )
-        expected_performative = ContractApiMessage.Performative.RAW_TRANSACTION
-        if response_msg.performative != expected_performative:
-            self.context.logger.error(
-                f"Couldn't compile the multisend tx. "
-                f"Expected response performative {expected_performative.value}, "  # type: ignore
-                f"received {response_msg.performative.value}: {response_msg}"
-            )
-            return False
-
-        multisend_data_str = response_msg.raw_transaction.body.get("data", None)
-        if multisend_data_str is None:
-            self.context.logger.error(
-                f"Something went wrong while trying to prepare the multisend data: {response_msg}"
-            )
-            return False
-
-        # strip "0x" from the response
-        multisend_data_str = str(response_msg.raw_transaction.body["data"])[2:]
-        self.multisend_data = bytes.fromhex(multisend_data_str)
-        return True
-
-    def _build_multisend_safe_tx_hash(self) -> WaitableConditionType:
-        """Prepares and returns the safe tx hash for a multisend tx."""
-        self.context.logger.info(
-            f"Building multisend safe tx hash: safe={self.synchronized_data.safe_contract_address}"
-        )
-        response_msg = yield from self.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
-            contract_address=self.synchronized_data.safe_contract_address,
-            contract_id=str(GnosisSafeContract.contract_id),
-            contract_callable="get_raw_safe_transaction_hash",
-            to_address=self.params.multisend_address,
-            value=self.txs_value,
-            data=self.multisend_data,
-            safe_tx_gas=SAFE_GAS,
-            operation=SafeOperation.DELEGATE_CALL.value,
-            chain_id=self.params.mech_chain_id,
-        )
-
-        if response_msg.performative != ContractApiMessage.Performative.STATE:
-            self.context.logger.error(
-                "Couldn't get safe tx hash. Expected response performative "
-                f"{ContractApiMessage.Performative.STATE.value}, "  # type: ignore
-                f"received {response_msg.performative.value}: {response_msg}."
-            )
-            return False
-
-        tx_hash = response_msg.state.body.get("tx_hash", None)
-        if (
-            tx_hash is None
-            or not isinstance(tx_hash, str)
-            or len(tx_hash) != TX_HASH_LENGTH
-        ):
-            self.context.logger.error(
-                "Something went wrong while trying to get the buy transaction's hash. "
-                f"Invalid hash {tx_hash!r} was returned."
-            )
-            return False
-
-        self.safe_tx_hash = str(tx_hash)
-        return True
 
     def setup(self) -> None:
         """Set up the `MechRequest` behaviour."""
@@ -520,15 +559,20 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def _fetch_and_validate_payment_type(self) -> WaitableConditionType:
         """Fetch and validate the payment type from the contract."""
+        if not self.should_use_marketplace_v2():
+            return True
+
         self.context.logger.info("Getting payment type")
         if not (yield from self._get_payment_type()):
             self.context.logger.error("Failed step: Could not get payment type.")
             return False
+
         if self.mech_payment_type is None:
             self.context.logger.error(
                 "Payment type was not successfully fetched or is unexpectedly None."
             )
             return False
+
         return True
 
     def _fetch_and_validate_max_delivery_rate(self) -> WaitableConditionType:
@@ -563,14 +607,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         if request_data_bytes is None:
             return False
 
-        if not (yield from self._fetch_and_validate_payment_type()):
-            return False
-        payment_type = self.mech_payment_type  # Already validated not None
-
-        if not (yield from self._fetch_and_validate_max_delivery_rate()):
-            return False
-        max_delivery_rate = self.mech_max_delivery_rate  # Already validated not None
-
         payment_data_bytes = self._decode_hex_to_bytes(
             EMPTY_PAYMENT_DATA_HEX, "payment_data"
         )
@@ -585,10 +621,10 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             request_data=request_data_bytes,
             priority_mech=self.mech_marketplace_config.priority_mech_address,
             payment_data=payment_data_bytes,
-            payment_type=payment_type,
+            payment_type=self.mech_payment_type,
             response_timeout=self.mech_marketplace_config.response_timeout,
             chain_id=self.params.mech_chain_id,
-            max_delivery_rate=max_delivery_rate,
+            max_delivery_rate=self.mech_max_delivery_rate,
         )
         return status
 
@@ -626,7 +662,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def _get_target_contract_address(self) -> str:
         """Get the target contract address based on the flow being used."""
-        if self.params.use_mech_marketplace and self.should_use_marketplace_v2():
+        if self.should_use_marketplace_v2():
             return self.mech_marketplace_config.mech_marketplace_address
         if self.params.use_mech_marketplace:
             # Legacy marketplace - might still use marketplace contract but with different flow
@@ -639,10 +675,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         # Perform compatibility check if marketplace is enabled
         if self.params.use_mech_marketplace:
-            yield from self.wait_for_condition_with_sleep(
-                self._detect_marketplace_compatibility
-            )
-
             # Use detected compatibility instead of static flag
             if self.should_use_marketplace_v2():
                 self.context.logger.info("Using detected marketplace v2 flow")
@@ -672,16 +704,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def _get_price(self) -> WaitableConditionType:
         """Get the price of the mech request."""
-        # If the optional parameter 'mech_request_price' is set, then
-        # use that price (wei). Otherwise, determine the request price
-        # by calling the contract.
-        # This parameter is useful to set 'mech_request_price=0' when the
-        # agent is using a Nevermined subscription.
-        price = self.params.mech_request_price
-
-        if price is not None:
-            self.price = price
-            return True
+        if self.should_use_marketplace_v2():
+            return (yield from self._fetch_and_validate_max_delivery_rate())
 
         result = yield from self._mech_contract_interact(
             "get_price",
@@ -691,22 +715,44 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return result
 
-    def _prepare_safe_tx(self) -> Generator:
+    def _prepare_safe_tx(self) -> Generator[None, None, bool]:
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
         n_iters = min(self.params.multisend_batch_size, len(self._mech_requests))
-        steps = [self._get_price]
-        steps.append(self._ensure_available_balance)
-        steps.extend((self._send_metadata_to_ipfs, self._build_request_data) * n_iters)
-        steps.extend([self._build_multisend_data, self._build_multisend_safe_tx_hash])
-
+        steps = (
+            [self._detect_marketplace_compatibility]
+            if self.params.use_mech_marketplace
+            else []
+        )
+        steps.extend(
+            (
+                self._get_price,
+                self._fetch_and_validate_payment_type,
+            )
+        )
         for step in steps:
             yield from self.wait_for_condition_with_sleep(step)
+
+        steps = []
+        if self.using_nevermined:
+            yield from self.set_total_nvm_balance()
+            if self.total_nvm_balance < self.mech_max_delivery_rate:
+                # if the total nvm balance is not enough, we should stop and return to buy a subscription first
+                return True
+        else:
+            steps.append(self._ensure_available_balance)
+
+        steps.extend((self._send_metadata_to_ipfs, self._build_request_data) * n_iters)
+        steps.extend((self._build_multisend_data, self._build_multisend_safe_tx_hash))
+        for step in steps:
+            yield from self.wait_for_condition_with_sleep(step)
+
+        return False
 
     def async_act(self) -> Generator:
         """Do the action."""
 
-        with self.context.benchmark_tool.measure(self.behaviour_id).local():
-            if not self._mech_requests:
+        if not self._mech_requests:
+            with self.context.benchmark_tool.measure(self.behaviour_id).local():
                 payload = MechRequestPayload(
                     self.context.agent_address,
                     self.matching_round.auto_round_id(),
@@ -714,34 +760,48 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                     None,
                     self.params.mech_chain_id,
                     self.synchronized_data.safe_contract_address,
-                    None,
-                    None,
-                    None,
-                )
-            else:
-                self.context.logger.info(
-                    f"Preparing mech requests: {self._mech_requests}"
-                )
-                yield from self._prepare_safe_tx()
-                serialized_requests = json.dumps(
-                    self._mech_requests, cls=DataclassEncoder
-                )
-                serialized_responses = json.dumps(
-                    self._pending_responses, cls=DataclassEncoder
-                )
-
-                self.context.logger.info(
-                    f"Preparing mech request:\ntx_hex: {self.tx_hex}\nprice: {self.price}\nserialized_requests: {serialized_requests}\nserialized_responses: {serialized_responses}\n"
-                )
-                payload = MechRequestPayload(
-                    self.context.agent_address,
-                    self.matching_round.auto_round_id(),
-                    self.tx_hex,
-                    self.price,
-                    self.params.mech_chain_id,
-                    self.synchronized_data.safe_contract_address,
-                    serialized_requests,
-                    serialized_responses,
+                    SERIALIZED_EMPTY_LIST,
+                    SERIALIZED_EMPTY_LIST,
                     self.get_updated_compatibility_cache(),
                 )
+            yield from self.finish_behaviour(payload)
+            return
+
+        with self.context.benchmark_tool.measure(self.behaviour_id).local():
+            self.context.logger.info(f"Preparing mech requests: {self._mech_requests}")
+            should_buy_subscription = yield from self._prepare_safe_tx()
+
+        if should_buy_subscription:
+            payload = MechRequestPayload(
+                self.context.agent_address,
+                *(None,)
+                * (
+                    len(MechRequestPayload.__annotations__)
+                    + len(PrepareTxPayload.__annotations__)
+                ),
+            )
+            yield from self.finish_behaviour(payload)
+            return
+
+        with self.context.benchmark_tool.measure(self.behaviour_id).local():
+            serialized_requests = json.dumps(self._mech_requests, cls=DataclassEncoder)
+            serialized_responses = json.dumps(
+                self._pending_responses, cls=DataclassEncoder
+            )
+
+            self.context.logger.info(
+                f"Preparing mech request:\ntx_hex: {self.tx_hex}\nprice: {self.price}\n"
+                f"serialized_requests: {serialized_requests}\nserialized_responses: {serialized_responses}\n"
+            )
+            payload = MechRequestPayload(
+                self.context.agent_address,
+                self.matching_round.auto_round_id(),
+                self.tx_hex,
+                self.price,
+                self.params.mech_chain_id,
+                self.synchronized_data.safe_contract_address,
+                serialized_requests,
+                serialized_responses,
+                self.get_updated_compatibility_cache(),
+            )
         yield from self.finish_behaviour(payload)

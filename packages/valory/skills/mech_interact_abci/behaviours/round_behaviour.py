@@ -23,6 +23,9 @@ from typing import Set, Type
 
 from packages.valory.skills.abstract_round_abci.behaviour_utils import BaseBehaviour
 from packages.valory.skills.abstract_round_abci.behaviours import AbstractRoundBehaviour
+from packages.valory.skills.mech_interact_abci.behaviours.purchase_subcription import (
+    MechPurchaseSubscriptionBehaviour,
+)
 from packages.valory.skills.mech_interact_abci.behaviours.request import (
     MechRequestBehaviour,
 )
@@ -37,4 +40,8 @@ class MechInteractRoundBehaviour(AbstractRoundBehaviour):
 
     initial_behaviour_cls = MechRequestBehaviour
     abci_app_cls = MechInteractAbciApp  # type: ignore
-    behaviours: Set[Type[BaseBehaviour]] = {MechRequestBehaviour, MechResponseBehaviour}
+    behaviours: Set[Type[BaseBehaviour]] = {
+        MechRequestBehaviour,
+        MechPurchaseSubscriptionBehaviour,
+        MechResponseBehaviour,
+    }

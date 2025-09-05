@@ -26,17 +26,23 @@ from packages.valory.skills.abstract_round_abci.base import BaseTxPayload
 
 
 @dataclass(frozen=True)
-class MechRequestPayload(BaseTxPayload):
-    """Represent a transaction payload for the MechRequestRound."""
+class PrepareTxPayload(BaseTxPayload):
+    """Represent a transaction payload for a prepared transaction."""
 
     tx_submitter: Optional[str]
     tx_hash: Optional[str]
+
+
+@dataclass(frozen=True)
+class MechRequestPayload(PrepareTxPayload):
+    """Represent a transaction payload for the MechRequestRound."""
+
     price: Optional[int]
     chain_id: Optional[str]
     safe_contract_address: Optional[str]
     mech_requests: Optional[str]
     mech_responses: Optional[str]
-    marketplace_compatibility_cache: Optional[str]  # ToDO
+    marketplace_compatibility_cache: Optional[str]
 
 
 @dataclass(frozen=True)

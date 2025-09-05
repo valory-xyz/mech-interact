@@ -19,7 +19,13 @@
 
 """This module contains the request state of the mech interaction abci app."""
 
-from packages.valory.skills.abstract_round_abci.base import get_name
+from enum import Enum
+from typing import Optional, Tuple, cast
+
+from packages.valory.skills.abstract_round_abci.base import (
+    BaseSynchronizedData,
+    get_name,
+)
 from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
@@ -44,4 +50,21 @@ class MechRequestRound(MechInteractionRound):
         get_name(SynchronizedData.marketplace_compatibility_cache),
     )
     collection_key = get_name(SynchronizedData.participant_to_requests)
-    none_event = Event.SKIP_REQUEST
+    none_event = Event.BUY_SUBSCRIPTION
+
+    def end_block(self) -> Optional[Tuple[BaseSynchronizedData, Enum]]:
+        """Process the end of the block."""
+        res = super().end_block()
+
+        if res is None:
+            return None
+
+        synced_data, event = cast(Tuple[SynchronizedData, Enum], res)
+
+        if event != Event.DONE:
+            return res
+
+        if not (synced_data.mech_requests or synced_data.mech_responses):
+            return synced_data, Event.SKIP_REQUEST
+
+        return res

@@ -32,19 +32,25 @@ from packages.valory.skills.abstract_round_abci.base import (
 from packages.valory.skills.mech_interact_abci.payloads import (
     MechRequestPayload,
     MechResponsePayload,
+    PrepareTxPayload,
 )
 from packages.valory.skills.transaction_settlement_abci.rounds import (
     SynchronizedData as TxSynchronizedData,
 )
 
 
+SERIALIZED_EMPTY_LIST = "[]"
+
+
 class Event(Enum):
     """MechInteractAbciApp Events"""
 
     DONE = "done"
+    NONE = "none"
     NO_MAJORITY = "no_majority"
     ROUND_TIMEOUT = "round_timeout"
     SKIP_REQUEST = "skip_request"
+    BUY_SUBSCRIPTION = "buy_subscription"
 
 
 @dataclass
@@ -103,7 +109,7 @@ class SynchronizedData(TxSynchronizedData):
     @property
     def mech_requests(self) -> List[MechMetadata]:
         """Get the mech requests."""
-        requests = self.db.get("mech_requests", "[]")
+        requests = self.db.get("mech_requests", SERIALIZED_EMPTY_LIST)
         if isinstance(requests, str):
             requests = json.loads(requests)
         return [MechMetadata(**metadata_item) for metadata_item in requests]
@@ -111,7 +117,7 @@ class SynchronizedData(TxSynchronizedData):
     @property
     def mech_responses(self) -> List[MechInteractionResponse]:
         """Get the mech responses."""
-        responses = self.db.get("mech_responses", "[]")
+        responses = self.db.get("mech_responses", SERIALIZED_EMPTY_LIST)
         if isinstance(responses, str):
             responses = json.loads(responses)
         return [MechInteractionResponse(**response_item) for response_item in responses]
@@ -129,6 +135,13 @@ class SynchronizedData(TxSynchronizedData):
         serialized = self.db.get_strict("participant_to_responses")
         deserialized = CollectionRound.deserialize_collection(serialized)
         return cast(Mapping[str, MechResponsePayload], deserialized)
+
+    @property
+    def participant_to_purchase(self) -> Mapping[str, PrepareTxPayload]:
+        """Get the `participant_to_purchase`."""
+        serialized = self.db.get_strict("participant_to_purchase")
+        deserialized = CollectionRound.deserialize_collection(serialized)
+        return cast(Mapping[str, PrepareTxPayload], deserialized)
 
     @property
     def final_tx_hash(self) -> Optional[str]:

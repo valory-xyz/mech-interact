@@ -1,10 +1,13 @@
 alphabet_in:
+- BUY_SUBSCRIPTION
 - DONE
+- NONE
 - NO_MAJORITY
 - ROUND_TIMEOUT
 - SKIP_REQUEST
 default_start_state: MechRequestRound
 final_states:
+- FinishedMechPurchaseSubscriptionRound
 - FinishedMechRequestRound
 - FinishedMechRequestSkipRound
 - FinishedMechResponseRound
@@ -14,13 +17,20 @@ start_states:
 - MechRequestRound
 - MechResponseRound
 states:
+- FinishedMechPurchaseSubscriptionRound
 - FinishedMechRequestRound
 - FinishedMechRequestSkipRound
 - FinishedMechResponseRound
 - FinishedMechResponseTimeoutRound
+- MechPurchaseSubscriptionRound
 - MechRequestRound
 - MechResponseRound
 transition_func:
+    (MechPurchaseSubscriptionRound, DONE): FinishedMechPurchaseSubscriptionRound
+    (MechPurchaseSubscriptionRound, NONE): MechPurchaseSubscriptionRound
+    (MechPurchaseSubscriptionRound, NO_MAJORITY): MechPurchaseSubscriptionRound
+    (MechPurchaseSubscriptionRound, ROUND_TIMEOUT): MechPurchaseSubscriptionRound
+    (MechRequestRound, BUY_SUBSCRIPTION): MechPurchaseSubscriptionRound
     (MechRequestRound, DONE): FinishedMechRequestRound
     (MechRequestRound, NO_MAJORITY): MechRequestRound
     (MechRequestRound, ROUND_TIMEOUT): MechRequestRound

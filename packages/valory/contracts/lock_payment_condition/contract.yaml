@@ -1,0 +1,20 @@
+name: lock_payment_condition
+author: valory
+version: 0.1.0
+type: contract
+description: Lock Payment Condition contract
+license: Apache-2.0
+aea_version: '>=1.0.0, <2.0.0'
+fingerprint:
+  README.md: bafybeicxemyhwf5ntz5elcmio3k66dukzcsrryovnl2k7xq4amxlptlwwa
+  __init__.py: bafybeiejkhqbscng3twa2bzwvaxkr35kempm2y6w77sxx2hl3vlqkmchhm
+  build/lock_payment_condition.json: bafybeigdenibhodkl3azqestxnn3dubb6kkobvo45afcajmyqf4e4rj5t4
+  contract.py: bafybeig3qw4tg5zjsa454katkmefxzugihtcazglr2y4up5niddrerw77a
+fingerprint_ignore_patterns: []
+contracts: []
+class_name: LockPaymentCondition
+contract_interface_paths:
+  ethereum: build/lock_payment_condition.json
+dependencies:
+  open-aea-ledger-ethereum:
+    version: ==1.65.0

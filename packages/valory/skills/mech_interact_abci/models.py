@@ -25,6 +25,9 @@ from typing import Any, Dict, Optional
 from aea.exceptions import enforce
 from hexbytes import HexBytes
 
+from autonomy.chain.config import ChainType
+from autonomy.chain.service import NULL_ADDRESS
+
 from packages.valory.contracts.multisend.contract import MultiSendOperation
 from packages.valory.skills.abstract_round_abci.models import ApiSpecs, BaseParams
 from packages.valory.skills.abstract_round_abci.models import (
@@ -39,6 +42,74 @@ from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
 
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
+
+
+PLAN_DID_PREFIX = "did:nv:"
+Ox = "0x"
+
+
+@dataclass
+class NVMConfig:
+    """NVM configuration."""
+
+    balance_tracker_address: str
+    did_registry_address: str
+    agreement_store_manager_address: str
+    lock_payment_condition_address: str
+    transfer_nft_condition_address: str
+    escrow_payment_condition_address: str
+    plan_fee_nvm: int
+    plan_price_mech: int
+    subscription_nft_address: str
+    nft_sales_address: str
+    subscription_token_address: str
+    subscription_provider_address: str
+    plan_did: str
+    subscription_credits: int = int(1e6)
+    subscription_cost: int = 0
+    agreement_cost: int = 0
+
+    @property
+    def did(self) -> str:
+        """Get the did."""
+        return self.plan_did.replace(PLAN_DID_PREFIX, Ox)
+
+
+# false positives for [B105:hardcoded_password_string] Possible hardcoded password
+CHAIN_TO_NVM_CONFIG = {
+    ChainType.GNOSIS: NVMConfig(  # nosec
+        balance_tracker_address="0x7D686bD1fD3CFF6E45a40165154D61043af7D67c",
+        did_registry_address="0xCB0A331cB1F57E01FF0FA2d664f2F100081cbc3b",
+        agreement_store_manager_address="0x4Cd9b03bEB7D68bC397B64521DF0A272bE94a4Df",
+        lock_payment_condition_address="0x2749DDEd394196835199471027713773736bffF2",
+        transfer_nft_condition_address="0x659fCA7436936e9fe8383831b65B8B442eFc8Ea8",
+        escrow_payment_condition_address="0x31B2D187d674C9ACBD2b25f6EDce3d2Db2B7f446",
+        plan_fee_nvm=10000000000000000,
+        plan_price_mech=990000000000000000,
+        subscription_nft_address="0x1b5DeaD7309b56ca7663b3301A503e077Be18cba",
+        nft_sales_address="0x72201948087aE83f8Eac22cf7A9f2139e4cFA829",
+        subscription_token_address="0x0000000000000000000000000000000000000000",
+        subscription_provider_address="0x4a2f40E14309c20c0C3803c3CcCd5E9B5F2D4eCA",
+        plan_did="did:nv:b0b28402e5a7229804579d4ac55b98a1dd94660d7a7eb4add78e5ca856f2aab7",
+        agreement_cost=10**18,
+    ),
+    ChainType.BASE: NVMConfig(  # nosec
+        balance_tracker_address="0xaaFBeef195BDAb1Bb6f3Dc9cEbA875Cd72499230",
+        did_registry_address="0x5FD091093152403BEE33a5c4Db60721Fc513985D",
+        agreement_store_manager_address="0x173CFb11baa0Cf18FDA698cF82AEf6181D84B845",
+        lock_payment_condition_address="0x7d1b782A347234d1442e57721444B778D5B2E6B7",
+        transfer_nft_condition_address="0x17a49d0942b987ebDE9D6400A045159bd3936541",
+        escrow_payment_condition_address="0xA33f6149563CfEC51C9e7961A3FB5DdF5F9D5B68",
+        plan_fee_nvm=10000,
+        plan_price_mech=990000,
+        subscription_nft_address="0xd5318d1A17819F65771B6c9277534C08Dd765498",
+        nft_sales_address="0x468dC6d758129c4563005B49aC58DfF2e6f7F08e",
+        subscription_token_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        subscription_provider_address="0x5050c577583D25Ff9C9492A39e8D1B94028ffA55",
+        plan_did="did:nv:6f74c18fae7e5c3589b99d7cd0ba317593f00dee53c81a2ba4ac2244232f99da",
+        subscription_cost=10**6,
+    ),
+}
 
 
 class MechResponseSpecs(ApiSpecs):
@@ -66,14 +137,10 @@ class MechMarketplaceConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "MechMarketplaceConfig":
         """Create an instance from a dictionary."""
         if not data["priority_mech_staking_instance_address"]:
-            data[
-                "priority_mech_staking_instance_address"
-            ] = "0x0000000000000000000000000000000000000000"
+            data["priority_mech_staking_instance_address"] = NULL_ADDRESS
 
         if not data["requester_staking_instance_address"]:
-            data[
-                "requester_staking_instance_address"
-            ] = "0x0000000000000000000000000000000000000000"
+            data["requester_staking_instance_address"] = NULL_ADDRESS
 
         if not data["priority_mech_service_id"]:
             data["priority_mech_service_id"] = 975
@@ -129,25 +196,28 @@ class MechParams(BaseParams):
         self.mech_contract_address: str = self._ensure(
             "mech_contract_address", kwargs, str
         )
-        self.mech_request_price: Optional[int] = kwargs.get("mech_request_price")
         self._ipfs_address: str = self._ensure("ipfs_address", kwargs, str)
-        self.mech_chain_id: Optional[str] = kwargs.get("mech_chain_id", "gnosis")
+        self.mech_chain_id: str = kwargs.get("mech_chain_id", "gnosis")
         self.mech_wrapped_native_token_address: Optional[str] = kwargs.get(
             "mech_wrapped_native_token_address"
         )
         self.mech_interaction_sleep_time: int = self._ensure(
             "mech_interaction_sleep_time", kwargs, int
         )
-        self.use_mech_marketplace = self._ensure("use_mech_marketplace", kwargs, bool)
+        self.use_mech_marketplace: bool = self._ensure(
+            "use_mech_marketplace", kwargs, bool
+        )
         self.mech_marketplace_config: MechMarketplaceConfig = (
             MechMarketplaceConfig.from_dict(kwargs["mech_marketplace_config"])
         )
-        self.agent_registry_address = kwargs.get("agent_registry_address")
+        self.agent_registry_address: str = kwargs.get("agent_registry_address")
         enforce(
             self.agent_registry_address is not None,
             "Agent registry address not specified!",
         )
-        self.use_acn_for_delivers = self._ensure("use_acn_for_delivers", kwargs, bool)
+        self.use_acn_for_delivers: bool = self._ensure(
+            "use_acn_for_delivers", kwargs, bool
+        )
 
         enforce(
             not self.use_mech_marketplace
@@ -165,6 +235,11 @@ class MechParams(BaseParams):
         if self._ipfs_address.endswith("/"):
             return self._ipfs_address
         return f"{self._ipfs_address}/"
+
+    @property
+    def nvm_config(self) -> NVMConfig:
+        """Return the NVM configuration for the specified mech chain id."""
+        return CHAIN_TO_NVM_CONFIG[ChainType(self.mech_chain_id)]
 
     def validate_configuration(self) -> None:
         """Validate the entire configuration for consistency."""
@@ -223,16 +298,3 @@ class MultisendBatch:
             raise ValueError("Value must be non-negative")
         if not isinstance(self.data, HexBytes):
             raise ValueError("Data must be HexBytes instance")
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert the batch to a dictionary representation.
-
-        Returns:
-            Dictionary containing batch parameters
-        """
-        return {
-            "to": self.to,
-            "data": self.data.hex(),
-            "value": self.value,
-            "operation": self.operation.value,
-        }

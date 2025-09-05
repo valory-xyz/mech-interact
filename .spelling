@@ -3,6 +3,19 @@
 # global dictionary is at the start, file overrides afterwards
 # one word per line, to define a file override use ' - filename'
 # where filename is relative to this configuration file
+AgreementStorageManager
+DIDRegistry
+EscrowPaymentConditionContract
+LockPaymentCondition
+NFTSalesTemplate
+SubscriptionProvider
+TransferNFTCondition
+mech
+BalanceTrackerNvmSubscriptionNative
+BalanceTrackerNvmSubscriptionToken
+mechs
+mech-interact
+overridable
 Mech
 Farcaster
 farcaster
@@ -114,7 +127,6 @@ Karrenbelt
 Viraj
 angrybayblade
 common-checks-1
-common-checks-2
 ropsten
 aea
 Dockerfile

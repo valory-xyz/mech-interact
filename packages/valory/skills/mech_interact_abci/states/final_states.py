@@ -30,6 +30,10 @@ class FinishedMechRequestSkipRound(DegenerateRound):
     """FinishedMechRequestSkipRound"""
 
 
+class FinishedMechPurchaseSubscriptionRound(DegenerateRound):
+    """FinishedMechPurchaseSubscriptionRound"""
+
+
 class FinishedMechResponseRound(DegenerateRound):
     """FinishedMechResponseRound"""
 
