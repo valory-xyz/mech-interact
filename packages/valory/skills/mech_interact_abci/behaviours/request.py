@@ -49,7 +49,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
-from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
+from packages.valory.skills.mech_interact_abci.payloads import (
+    MechRequestPayload,
+    PrepareTxPayload,
+)
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
     MechMetadata,
@@ -771,7 +774,11 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         if should_buy_subscription:
             payload = MechRequestPayload(
                 self.context.agent_address,
-                *(None,) * len(MechRequestPayload.__annotations__),
+                *(None,)
+                * (
+                    len(MechRequestPayload.__annotations__)
+                    + len(PrepareTxPayload.__annotations__)
+                ),
             )
             yield from self.finish_behaviour(payload)
             return
