@@ -43,9 +43,7 @@ class BalanceTrackerNvmSubscriptionNative(Contract):
         """Get the balance of a requester."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
-        balance = ledger_api.contract_method_call(
-            contract_instance, "mapRequesterBalances", address=address
-        )
+        balance = contract_instance.functions.mapRequesterBalances(address).call()
         return dict(balance=balance)
 
     @classmethod
