@@ -634,7 +634,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             contract_public_id=SubscriptionProvider.contract_id,
             contract_callable="build_create_fulfill_tx",
             data_key="data",
-            placeholder="_create_fulfill_tx_data",
+            placeholder="_fulfill_tx_data",
             agreement_id_seed=self.agreement_id_seed,
             did=self.nvm_config.did,
             fulfill_for_delegate_params=self.fulfill_for_delegate_params,
