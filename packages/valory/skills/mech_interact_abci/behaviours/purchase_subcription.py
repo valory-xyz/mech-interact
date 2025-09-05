@@ -459,7 +459,6 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             token_address=self.nvm_config.subscription_token_address,
             amounts=self.amounts,
             receivers=self.receivers,
-            chain_id=self.params.mech_chain_id,
         )
         return status
 
