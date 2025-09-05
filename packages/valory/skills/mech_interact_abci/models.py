@@ -65,7 +65,7 @@ class NVMConfig:
     subscription_token_address: str
     subscription_provider_address: str
     plan_did: str
-    subscription_credits: int = 1e6
+    subscription_credits: int = int(1e6)
     subscription_cost: int = 0
     agreement_cost: int = 0
 
