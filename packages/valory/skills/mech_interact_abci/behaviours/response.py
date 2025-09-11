@@ -25,7 +25,6 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 from web3.constants import ADDRESS_ZERO
 
 from packages.valory.contracts.mech.contract import Mech
-from packages.valory.contracts.mech_marketplace import MechMarketplace
 from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.skills.abstract_round_abci.base import get_name
@@ -51,6 +50,7 @@ BYTES32_LENGTH = 32
 BYTES32_PADDING_BYTE = b"\x00"
 BYTES32_HEX_FORMAT_SPEC = "064x"
 HEX_BASE = 16
+DELIVERY_MECH_INDEX = 1
 
 
 class MechResponseBehaviour(MechInteractBaseBehaviour):
@@ -71,6 +71,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self.current_mech_response: MechInteractionResponse = MechInteractionResponse(
             error="The mech's response has not been set!"
         )
+        self._request_info: Dict[str, Any] = None
         self._is_valid_acn_sender: bool = False
 
     @property
@@ -103,6 +104,16 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
     def requests(self, requests: List[Dict]) -> None:
         """Set the requests."""
         self._requests = [MechRequest(**request) for request in requests]
+
+    @property
+    def request_info(self):
+        """Get the request_info from marketplace."""
+        return self._request_info
+
+    @request_info.setter
+    def request_info(self, value):
+        """Set the request info."""
+        self._request_info = value
 
     @property
     def response_hex(self) -> str:
@@ -270,17 +281,15 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             self.context.logger.info(
                 f"Using Mech Marketplace flow: Preparing get_response call with bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'} using MechMM ABI."
             )
-            request_id_info = yield from self.contract_interact(
-                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                contract_address=self.mech_marketplace_config.mech_marketplace_address,
-                contract_public_id=MechMarketplace.contract_id,
+            result = yield from self._mech_marketplace_contract_interact(
                 contract_callable="map_request_id_info",
                 data_key="data",
-                placeholder="",
+                placeholder=get_name(MechResponseBehaviour.request_info),
                 request_id=request_id_bytes,
-                chain_id=self.params.mech_chain_id,
             )
-            priority_mech = request_id_info["data"]["deliveryMech"]
+            priority_mech = ADDRESS_ZERO
+            if result and self.request_info:
+                priority_mech = self.request_info["data"][DELIVERY_MECH_INDEX]
             if priority_mech == ADDRESS_ZERO:
                 priority_mech = self.params.mech_contract_address
 
