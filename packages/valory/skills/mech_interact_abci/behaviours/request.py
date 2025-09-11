@@ -595,6 +595,10 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 "Max delivery rate is required for marketplace request but is None. Cannot build request data."
             )
             return False
+
+        if not self.using_nevermined:
+            self.price = self.mech_max_delivery_rate
+
         return True
 
     def _build_marketplace_v2_request_data(self) -> WaitableConditionType:
@@ -725,8 +729,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         steps.extend(
             (
-                self._get_price,
                 self._fetch_and_validate_payment_type,
+                self._get_price,
             )
         )
         for step in steps:
