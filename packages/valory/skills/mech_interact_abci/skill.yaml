@@ -13,8 +13,8 @@ fingerprint:
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
   behaviours/base.py: bafybeia2yprsficwgk652ld3dlg5ch4it2spgipjwo2fnb54eltdurqhl4
   behaviours/purchase_subcription.py: bafybeie55mtc7qhe56fb2p7qowaswybdczegvelj7cn4gqyezhrfgwkpaa
-  behaviours/request.py: bafybeiexghlgfyer4jhrimp4r66pkm56efiv5agpb5w4trpnxtillmibqy
-  behaviours/response.py: bafybeihnqd2ss3gfoil2wt3s2gpxdowvyyobfgtik7ifkedhbfcip56wga
+  behaviours/request.py: bafybeihywvk77bg3ukjng4nkobbzfnau77c3x7pnx5tyv44isqcgdlqcsu
+  behaviours/response.py: bafybeia5iyzgghunmfbm4vyis5z4hqyxfzfvwqds2jdoily4vaixgy6ng4
   behaviours/round_behaviour.py: bafybeiexxe4kbpq46wo7jlehhelyemmawopt4zuzmcahihn7czx3yz4d3m
   dialogues.py: bafybeib3o7nigjgi4tpkux6ypjftvqfwodv2vx4dljfwwo4h2qplpkxxoa
   fsm_specification.yaml: bafybeictxdgdnhd7dd7r562hmpb7a53pmu2qdgwxdensrwykdguy74wkaa

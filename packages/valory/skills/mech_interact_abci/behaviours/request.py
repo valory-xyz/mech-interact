@@ -67,16 +67,16 @@ V1_HEX_PREFIX = "f01"
 Ox = "0x"
 EMPTY_PAYMENT_DATA_HEX = Ox
 
-NATIVE_PAYMENT_TYPE = (
+NATIVE_NVM_PAYMENT_TYPE = (
     "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
 )
-TOKEN_PAYMENT_TYPE = (
+TOKEN_NVM_PAYMENT_TYPE = (
     "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"  # nosec
 )
-NEVERMINED_PAYMENT_TYPES = frozenset({NATIVE_PAYMENT_TYPE, TOKEN_PAYMENT_TYPE})
+NVM_PAYMENT_TYPES = frozenset({NATIVE_NVM_PAYMENT_TYPE, TOKEN_NVM_PAYMENT_TYPE})
 PAYMENT_TYPE_TO_NVM_CONTRACT = {
-    NATIVE_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionNative.contract_id,
-    TOKEN_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionToken.contract_id,
+    NATIVE_NVM_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionNative.contract_id,
+    TOKEN_NVM_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionToken.contract_id,
 }
 
 
@@ -138,7 +138,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     @property
     def using_nevermined(self) -> bool:
         """Whether we are using a Nevermined mech."""
-        return self.mech_payment_type in NEVERMINED_PAYMENT_TYPES
+        return self.mech_payment_type in NVM_PAYMENT_TYPES
 
     @property
     def nvm_balance_tracker_contract_id(self) -> PublicId:
@@ -595,6 +595,10 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 "Max delivery rate is required for marketplace request but is None. Cannot build request data."
             )
             return False
+
+        if not self.using_nevermined:
+            self.price = self.mech_max_delivery_rate
+
         return True
 
     def _build_marketplace_v2_request_data(self) -> WaitableConditionType:
@@ -725,8 +729,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         steps.extend(
             (
-                self._get_price,
                 self._fetch_and_validate_payment_type,
+                self._get_price,
             )
         )
         for step in steps:
