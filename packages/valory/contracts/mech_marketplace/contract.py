@@ -231,3 +231,19 @@ class MechMarketplace(Contract):
 
         # Ensure the count is returned as an integer within the dict
         return dict(requests_count=int(count))
+
+
+    @classmethod
+    def map_request_id_info(
+        cls,
+        ledger_api:LedgerApi,
+        contract_address: str,
+        request_id: bytes,
+    ) -> JSONLike:
+        """Fetch the info for a given request id."""
+        ledger_api = cast(EthereumApi, ledger_api)
+        contract_instance = cls.get_instance(ledger_api, contract_address)
+        request_id_info = contract_instance.functions.mapRequestIdInfos(
+            request_id
+        ).call()
+        return dict(data=request_id_info)

@@ -26,6 +26,7 @@ from web3.constants import ADDRESS_ZERO
 
 from packages.valory.contracts.mech.contract import Mech
 from packages.valory.contracts.mech_mm.contract import MechMM
+from packages.valory.contracts.mech_marketplace import MechMarketplace
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.skills.abstract_round_abci.base import get_name
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
@@ -269,9 +270,23 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             self.context.logger.info(
                 f"Using Mech Marketplace flow: Preparing get_response call with bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'} using MechMM ABI."
             )
+            request_id_info = yield from self.contract_interact(
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+                contract_address=self.mech_marketplace_config.mech_marketplace_address,
+                contract_public_id=MechMarketplace.contract_id,
+                contract_callable="map_request_id_info",
+                data_key="data",
+                placeholder="",
+                request_id = request_id_bytes,
+                chain_id=self.params.mech_chain_id,
+            )
+            priority_mech = request_id_info["data"]["deliveryMech"]
+            if priority_mech == ADDRESS_ZERO:
+                priority_mech = self.params.mech_contract_address
+
             return self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                contract_address=self.params.mech_contract_address,  # Target the mech_mm contract address
+                contract_address=priority_mech,  # Target the mech_mm contract address
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
                 contract_callable="get_response",
                 data_key="data",
