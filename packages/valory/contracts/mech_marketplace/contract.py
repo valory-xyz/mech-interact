@@ -232,11 +232,10 @@ class MechMarketplace(Contract):
         # Ensure the count is returned as an integer within the dict
         return dict(requests_count=int(count))
 
-
     @classmethod
     def map_request_id_info(
         cls,
-        ledger_api:LedgerApi,
+        ledger_api: LedgerApi,
         contract_address: str,
         request_id: bytes,
     ) -> JSONLike:

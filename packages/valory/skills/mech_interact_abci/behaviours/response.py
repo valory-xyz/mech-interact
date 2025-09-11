@@ -25,8 +25,8 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 from web3.constants import ADDRESS_ZERO
 
 from packages.valory.contracts.mech.contract import Mech
-from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.contracts.mech_marketplace import MechMarketplace
+from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.skills.abstract_round_abci.base import get_name
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
@@ -277,7 +277,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 contract_callable="map_request_id_info",
                 data_key="data",
                 placeholder="",
-                request_id = request_id_bytes,
+                request_id=request_id_bytes,
                 chain_id=self.params.mech_chain_id,
             )
             priority_mech = request_id_info["data"]["deliveryMech"]
