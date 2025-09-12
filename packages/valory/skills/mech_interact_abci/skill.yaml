@@ -14,7 +14,7 @@ fingerprint:
   behaviours/base.py: bafybeia2yprsficwgk652ld3dlg5ch4it2spgipjwo2fnb54eltdurqhl4
   behaviours/purchase_subcription.py: bafybeie55mtc7qhe56fb2p7qowaswybdczegvelj7cn4gqyezhrfgwkpaa
   behaviours/request.py: bafybeihywvk77bg3ukjng4nkobbzfnau77c3x7pnx5tyv44isqcgdlqcsu
-  behaviours/response.py: bafybeiebhudxf272tjazc64f7fjgeywzgax64fwkp3pf53flmpcci562x4
+  behaviours/response.py: bafybeig6thw4yefb2tkbflfgqhmxjupqbf6lrntwz4xa22wzgkphpt44re
   behaviours/round_behaviour.py: bafybeiexxe4kbpq46wo7jlehhelyemmawopt4zuzmcahihn7czx3yz4d3m
   dialogues.py: bafybeib3o7nigjgi4tpkux6ypjftvqfwodv2vx4dljfwwo4h2qplpkxxoa
   fsm_specification.yaml: bafybeictxdgdnhd7dd7r562hmpb7a53pmu2qdgwxdensrwykdguy74wkaa
