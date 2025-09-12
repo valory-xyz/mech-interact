@@ -113,12 +113,16 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
     @request_info.setter
     def request_info(self, request_info: Dict[str, Any]) -> None:
         """Set the request info."""
-        self._request_info = value
+        self._request_info = request_info
 
     @property
     def delivery_mech(self) -> Optional[str]:
         """Get the delivery mech from the fetched request info."""
-        return self.request_info.get(DELIVERY_MECH_FIELD, None)
+        delivery_mech = self.request_info[DELIVERY_MECH_INDEX]
+        if delivery_mech == ADDRESS_ZERO:
+            return self.params.mech_contract_address
+        return delivery_mech
+
     @property
     def response_hex(self) -> str:
         """Get the hash of the response data."""
@@ -295,7 +299,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
             return self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                contract_address=self.delivery_mech or self.params.mech_contract_address
+                contract_address=self.delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
                 contract_callable="get_response",
                 data_key="data",
