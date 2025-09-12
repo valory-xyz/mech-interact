@@ -116,7 +116,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self._request_info = request_info
 
     @property
-    def delivery_mech(self) -> Optional[str]:
+    def delivery_mech(self) -> str:
         """Get the delivery mech from the fetched request info."""
         try:
             delivery_mech = self.request_info[DELIVERY_MECH_INDEX]
