@@ -71,7 +71,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self.current_mech_response: MechInteractionResponse = MechInteractionResponse(
             error="The mech's response has not been set!"
         )
-        self._request_info: Dict[str, Any] = None
+        self._request_info: List[Any] = []
         self._is_valid_acn_sender: bool = False
 
     @property
@@ -106,12 +106,12 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self._requests = [MechRequest(**request) for request in requests]
 
     @property
-    def request_info(self) -> Dict[str, Any]:
+    def request_info(self) -> List[Any]:
         """Get the request info that were fetched from the marketplace."""
         return self._request_info
 
     @request_info.setter
-    def request_info(self, request_info: Dict[str, Any]) -> None:
+    def request_info(self, request_info: List[Any]) -> None:
         """Set the request info."""
         self._request_info = request_info
 
