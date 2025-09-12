@@ -106,15 +106,19 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self._requests = [MechRequest(**request) for request in requests]
 
     @property
-    def request_info(self):
-        """Get the request_info from marketplace."""
+    def request_info(self) -> Dict[str, Any]:
+        """Get the request info that were fetched from the marketplace."""
         return self._request_info
 
     @request_info.setter
-    def request_info(self, value):
+    def request_info(self, request_info: Dict[str, Any]) -> None:
         """Set the request info."""
         self._request_info = value
 
+    @property
+    def delivery_mech(self) -> Optional[str]:
+        """Get the delivery mech from the fetched request info."""
+        return self.request_info.get(DELIVERY_MECH_FIELD, None)
     @property
     def response_hex(self) -> str:
         """Get the hash of the response data."""
