@@ -118,10 +118,16 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
     @property
     def delivery_mech(self) -> Optional[str]:
         """Get the delivery mech from the fetched request info."""
-        if self.request_info:
+        try:
             delivery_mech = self.request_info[DELIVERY_MECH_INDEX]
-            if delivery_mech != ADDRESS_ZERO:
-                return delivery_mech
+        except (IndexError, TypeError) as exc:
+            self.context.logger.warning(
+                f"Issue when accessing request info for delivery mech: {exc}. "
+                "Returning default mech contract address."
+            )
+            return self.params.mech_contract_address
+        if delivery_mech != ADDRESS_ZERO:
+            return delivery_mech
         return self.params.mech_contract_address
 
     @property
