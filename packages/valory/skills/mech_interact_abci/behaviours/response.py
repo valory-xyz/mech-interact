@@ -118,10 +118,11 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
     @property
     def delivery_mech(self) -> Optional[str]:
         """Get the delivery mech from the fetched request info."""
-        delivery_mech = self.request_info[DELIVERY_MECH_INDEX]
-        if delivery_mech == ADDRESS_ZERO:
-            return self.params.mech_contract_address
-        return delivery_mech
+        if self.request_info:
+            delivery_mech = self.request_info[DELIVERY_MECH_INDEX]
+            if delivery_mech != ADDRESS_ZERO:
+                return delivery_mech
+        return self.params.mech_contract_address
 
     @property
     def response_hex(self) -> str:
