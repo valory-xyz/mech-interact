@@ -285,21 +285,17 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             self.context.logger.info(
                 f"Using Mech Marketplace flow: Preparing get_response call with bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'} using MechMM ABI."
             )
-            result = yield from self._mech_marketplace_contract_interact(
+            _ = yield from self._mech_marketplace_contract_interact(
                 contract_callable="map_request_id_info",
                 data_key="data",
                 placeholder=get_name(MechResponseBehaviour.request_info),
                 request_id=request_id_bytes,
+                chain_id=self.params.mech_chain_id,
             )
-            priority_mech = ADDRESS_ZERO
-            if result and self.request_info:
-                priority_mech = self.request_info["data"][DELIVERY_MECH_INDEX]
-            if priority_mech == ADDRESS_ZERO:
-                priority_mech = self.params.mech_contract_address
 
             return self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                contract_address=priority_mech,  # Target the mech_mm contract address
+                contract_address=self.delivery_mech or self.params.mech_contract_address
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
                 contract_callable="get_response",
                 data_key="data",
