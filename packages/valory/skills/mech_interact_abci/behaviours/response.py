@@ -296,6 +296,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             self.context.logger.info(
                 f"Using Mech Marketplace flow: Preparing get_response call with bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'} using MechMM ABI."
             )
+            self.get_requestinfo(request=request_id_bytes)
             _ = yield from self._mech_marketplace_contract_interact(
                 contract_callable="map_request_id_info",
                 data_key="data",
@@ -304,7 +305,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            return self.contract_interact(
+            _ = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
                 contract_address=self.delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
@@ -315,6 +316,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 from_block=self.from_block,
                 chain_id=self.params.mech_chain_id,
             )
+
+            return None
         if self.params.use_mech_marketplace:
             self.context.logger.info(
                 f"Using Mech Marketplace Legacy flow: Preparing get_response call with int request ID {request_id_for_specs} using Mech Marketplace ABI."
