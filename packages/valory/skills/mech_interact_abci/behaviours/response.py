@@ -296,7 +296,6 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             self.context.logger.info(
                 f"Using Mech Marketplace flow: Preparing get_response call with bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'} using MechMM ABI."
             )
-            self.get_requestinfo(request=request_id_bytes)
             _ = yield from self._mech_marketplace_contract_interact(
                 contract_callable="map_request_id_info",
                 data_key="data",
