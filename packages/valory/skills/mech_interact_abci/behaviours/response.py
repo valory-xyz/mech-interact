@@ -304,7 +304,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            _ = yield from self.contract_interact(
+            status = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
                 contract_address=self.delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
@@ -316,7 +316,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            return None
+            return status
         if self.params.use_mech_marketplace:
             self.context.logger.info(
                 f"Using Mech Marketplace Legacy flow: Preparing get_response call with int request ID {request_id_for_specs} using Mech Marketplace ABI."
@@ -386,10 +386,10 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         )
 
         # Use compatibility-aware response retrieval
-        response_generator = self._prepare_get_response_call(
-            request_id_bytes, request_id_for_specs
-        )
-        result = yield from response_generator
+        result = self._prepare_get_response_call(request_id_bytes, request_id_for_specs)
+        if not isinstance(result, bool):
+            self.context.logger.info("Result is not a bool, yield the result.")
+            result = yield from result
 
         if result:
             self.set_mech_response_specs(request_id_for_specs)
