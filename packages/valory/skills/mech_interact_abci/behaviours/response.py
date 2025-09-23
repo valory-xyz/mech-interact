@@ -122,13 +122,16 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             delivery_mech = self.request_info[DELIVERY_MECH_INDEX]
         except (IndexError, TypeError) as exc:
             self.context.logger.warning(
-                f"Issue when accessing request info for delivery mech: {exc}. "
+                f"Issue when accessing request info for delivery mech: {str(exc)}. "
                 "Returning default mech contract address."
             )
             return self.params.mech_contract_address
-        if delivery_mech != ADDRESS_ZERO:
-            return delivery_mech
-        return self.params.mech_contract_address
+
+        return (
+            delivery_mech
+            if delivery_mech != ADDRESS_ZERO
+            else self.params.mech_contract_address
+        )
 
     @property
     def response_hex(self) -> str:
@@ -296,7 +299,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             self.context.logger.info(
                 f"Using Mech Marketplace flow: Preparing get_response call with bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'} using MechMM ABI."
             )
-            _ = yield from self._mech_marketplace_contract_interact(
+            yield from self._mech_marketplace_contract_interact(
                 contract_callable="map_request_id_info",
                 data_key="data",
                 placeholder=get_name(MechResponseBehaviour.request_info),
