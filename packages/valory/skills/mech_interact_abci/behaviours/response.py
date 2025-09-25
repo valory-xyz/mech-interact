@@ -172,9 +172,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
     def setup(self) -> None:
         """Set up the `MechResponse` behaviour."""
-        self._mech_responses: List[
-            MechInteractionResponse
-        ] = self.synchronized_data.mech_responses
+        self._mech_responses: List[MechInteractionResponse] = (
+            self.synchronized_data.mech_responses
+        )
 
     def set_mech_response_specs(self, request_id: int) -> None:
         """Set the mech's response specs."""
@@ -307,7 +307,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            return self.contract_interact(
+            result = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
                 contract_address=self.delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
@@ -318,13 +318,14 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 from_block=self.from_block,
                 chain_id=self.params.mech_chain_id,
             )
+            return result
 
         if self.params.use_mech_marketplace:
             self.context.logger.info(
                 f"Using Mech Marketplace Legacy flow: Preparing get_response call with int request ID {request_id_for_specs} using Mech Marketplace ABI."
             )
             # Note: We rely on _mech_contract_interact using the correct Mech Marketplace ABI via self.params.mech_contract_id
-            return self._mech_marketplace_legacy_contract_interact(
+            result = yield from self._mech_marketplace_legacy_contract_interact(
                 contract_callable="get_response",
                 data_key="data",
                 placeholder=get_name(MechResponseBehaviour.response_hex),
@@ -333,13 +334,14 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 from_block=self.from_block,
                 chain_id=self.params.mech_chain_id,
             )
+            return result
 
         # Use legacy mech ABI (self.params.mech_contract_id) and int request ID
         self.context.logger.info(
             f"Using legacy Mech flow: Preparing get_response call with int request ID {request_id_for_specs} using legacy Mech ABI."
         )
         # Note: We rely on _mech_contract_interact using the correct legacy mech ABI via self.params.mech_contract_id
-        return self._mech_contract_interact(
+        result = yield from self._mech_contract_interact(
             contract_callable="get_response",
             data_key="data",
             placeholder=get_name(MechResponseBehaviour.response_hex),
@@ -347,6 +349,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             from_block=self.from_block,
             chain_id=self.params.mech_chain_id,
         )
+        return result
 
     def _get_response_data(self) -> WaitableConditionType:
         """Get the response data from contract with compatibility detection."""
