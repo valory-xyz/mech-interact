@@ -319,7 +319,6 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            return status
         if self.params.use_mech_marketplace:
             self.context.logger.info(
                 f"Using Mech Marketplace Legacy flow: Preparing get_response call with int request ID {request_id_for_specs} using Mech Marketplace ABI."
