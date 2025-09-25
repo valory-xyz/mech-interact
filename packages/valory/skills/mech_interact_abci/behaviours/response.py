@@ -307,9 +307,6 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            self.context.logger.info(
-                f"Detected delivery mech {self.delivery_mech} for bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'}"
-            )
             result = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
                 contract_address=self.delivery_mech,
@@ -397,6 +394,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             request_id_bytes, request_id_for_specs
         )
         if result:
+            self.context.logger.info(
+                f"The response was detected by delivery mech {self.delivery_mech} for bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'}"
+            )
             self.set_mech_response_specs(request_id_for_specs)
 
         return result
