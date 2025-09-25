@@ -172,9 +172,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
     def setup(self) -> None:
         """Set up the `MechResponse` behaviour."""
-        self._mech_responses: List[
-            MechInteractionResponse
-        ] = self.synchronized_data.mech_responses
+        self._mech_responses: List[MechInteractionResponse] = (
+            self.synchronized_data.mech_responses
+        )
 
     def set_mech_response_specs(self, request_id: int) -> None:
         """Set the mech's response specs."""
@@ -307,7 +307,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            status = yield from self.contract_interact(
+            return self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
                 contract_address=self.delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
@@ -388,12 +388,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             f"for a response to request with id (bytes32) 0x{request_id_bytes.hex() if request_id_bytes else 'None'} or (int) {request_id_for_specs}"
         )
 
-        # Use compatibility-aware response retrieval
-        result = self._prepare_get_response_call(request_id_bytes, request_id_for_specs)
-        if not isinstance(result, bool):
-            self.context.logger.info("Result is not a bool, yield the result.")
-            result = yield from result
-
+        result = yield from self._prepare_get_response_call(
+            request_id_bytes, request_id_for_specs
+        )
         if result:
             self.set_mech_response_specs(request_id_for_specs)
 
