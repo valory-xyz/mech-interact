@@ -395,7 +395,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         )
         if result:
             self.context.logger.info(
-                f"The response was detected by delivery mech {self.delivery_mech} for bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'}"
+                f"The response was served by delivery mech {self.delivery_mech} for bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'}"
             )
             self.set_mech_response_specs(request_id_for_specs)
 
