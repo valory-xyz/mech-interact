@@ -2,7 +2,7 @@
     "dev": {
         "contract/valory/agent_registry/0.1.0": "bafybeiepkbcx5jrcvoc5nfarw6gt4so4izqxuiliu7gukdvmjiodynecvy",
         "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeiafwem7v7po7xb7rag4zfdqe2uoaqki3xybviciypxr5w6zkoxgse",
-        "contract/valory/mech_marketplace/0.1.0": "bafybeibigvscbk5tbfgwlnu6bpnng7yiahyqoholepj7q6sy53gl7w4nbi",
+        "contract/valory/mech_marketplace/0.1.0": "bafybeiaqye6khcinjf73kyil5jepjet57fb3a2ets7vn2ozdp7iknhtenq",
         "contract/valory/mech/0.1.0": "bafybeifthpyd2oq5izworldr755sigefinki7caath4aao3hrajpjbhbxe",
         "contract/valory/mech_mm/0.1.0": "bafybeibbz2hlyvtg6yfojzdnou2xqbpu32a4mjvn2xidfypvwy5oj6gx4u",
         "contract/valory/erc20/0.1.0": "bafybeif2ad3gsp7zhmw55rpfy7kiooqjswanyvjisdu43kqaoycspfrbui",
@@ -16,7 +16,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeib4arfjefyephkdoovgtqsafgzdxpvtcqjdjlhvcq5m3wtkdqdfem",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeibvcrlgfuy5wt2xolzqsywbzfaquwfdvqn44ppcdka2ymk3e5kxm4",
         "contract/valory/subscription_provider/0.1.0": "bafybeic4udkvbsajuwscnqsm7tf6monwqyos4qvgbako6lch3zhtfxrc7q",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeig2i5kjddtyhljxl7buaptnnj44ijf4hblmf34lceqkg6mg3bmk3u"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeif5qpxsvwmxtywrwfj27gkhrwtq7gyzb63cohv7345zoh4p34jh2m"
     },
     "third_party": {
         "protocol/open_aea/signing/1.0.0": "bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm",
