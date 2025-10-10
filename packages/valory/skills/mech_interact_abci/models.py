@@ -111,6 +111,15 @@ CHAIN_TO_NVM_CONFIG = {
     ),
 }
 
+CHAIN_TO_PRICE_TOKEN = {
+    ChainType.ETHEREUM: "0x0001A500A6B18995B03f44bb040A5fFc28E45CB0",
+    ChainType.OPTIMISTIC: "0xFC2E6e6BCbd49ccf3A5f029c79984372DcBFE527",
+    ChainType.GNOSIS: "0xcE11e14225575945b8E6Dc0D4F2dD4C570f79d9f",
+    ChainType.POLYGON: "0xFEF5d947472e72Efbb2E388c730B7428406F2F95",
+    ChainType.BASE: "0x54330d28ca3357F294334BDC454a032e7f353416",
+    ChainType.CELO: "0xFEF5d947472e72Efbb2E388c730B7428406F2F95",
+}
+
 
 class MechResponseSpecs(ApiSpecs):
     """A model that wraps ApiSpecs for the Mech's response specifications."""
@@ -201,6 +210,12 @@ class MechParams(BaseParams):
         self.mech_wrapped_native_token_address: Optional[str] = kwargs.get(
             "mech_wrapped_native_token_address"
         )
+        if not self.mech_wrapped_native_token_address:
+            self.context.logger.info(
+                "Please configure 'mech_wrapped_native_token_address', "
+                "if you want to use wrapped native tokens for mech requests."
+            )
+
         self.mech_interaction_sleep_time: int = self._ensure(
             "mech_interaction_sleep_time", kwargs, int
         )
@@ -240,6 +255,11 @@ class MechParams(BaseParams):
     def nvm_config(self) -> NVMConfig:
         """Return the NVM configuration for the specified mech chain id."""
         return CHAIN_TO_NVM_CONFIG[ChainType(self.mech_chain_id)]
+
+    @property
+    def price_token(self) -> str:
+        """Return the price token for the specified mech chain id."""
+        return CHAIN_TO_PRICE_TOKEN[ChainType(self.mech_chain_id)]
 
     def validate_configuration(self) -> None:
         """Validate the entire configuration for consistency."""

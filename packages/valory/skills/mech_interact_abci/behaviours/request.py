@@ -100,6 +100,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._pending_responses: List[MechInteractionResponse] = []
 
         # Initialize internal attributes that will hold on-chain values once fetched
+        self.token_balance: int = 0
+        self.wallet_balance: int = 0
         self._mech_payment_type: Optional[PaymentType] = None
         self._mech_max_delivery_rate: Optional[int] = None
         self._subscription_balance: Optional[int] = None
@@ -267,51 +269,45 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return balance
 
-    def _get_wrapped_native_balance(
-        self, account: str
-    ) -> Generator[None, None, Optional[int]]:
-        """Get wrapped native balance for account."""
+    def _get_token_balance(self, account: str) -> Generator[None, None, Optional[int]]:
+        """Get the balance of an account for the given token."""
 
-        error_message = f"Failed to get the wrapped native balance for account {account} (mech_wrapped_native_token_address={self.params.mech_wrapped_native_token_address})."
-        config_message = "Please configure 'mech_wrapped_native_token_address' appropriately if you want to use wrapped native tokens for mech requests."
-        if not self.params.mech_wrapped_native_token_address:
-            self.context.logger.info(
-                f"Wrapped native token address has not been configured. Assumed wrapped native token = 0. {config_message}"
-            )
-            return 0
-
+        token_address = (
+            self.params.price_token
+            if self.using_token
+            else self.params.mech_wrapped_native_token_address
+        )
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.mech_wrapped_native_token_address,
+            contract_address=token_address,
             contract_id=str(ERC20.contract_id),
             contract_callable="check_balance",
             account=account,
             chain_id=self.params.mech_chain_id,
         )
+        message = (
+            f"Failed to get the {token_address} token's balance for account {account}."
+        )
         if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(
-                f"{error_message} {config_message} {response_msg}"
-            )
+            self.context.logger.warning(f"{message} {response_msg}")
             return None
 
         token = response_msg.raw_transaction.body.get("token", None)
         wallet = response_msg.raw_transaction.body.get("wallet", None)
         if token is None or wallet is None:
-            self.context.logger.error(
-                f"{error_message} {config_message} {response_msg}"
-            )
+            self.context.logger.warning(f"{message} {response_msg}")
             return None
 
         try:
             if isinstance(token, (int, str)):
                 token_int = int(token)
             else:
-                self.context.logger.error(
+                self.context.logger.warning(
                     f"Invalid token value type: {type(token)}. Expected int or str."
                 )
                 return None
         except (ValueError, TypeError):
-            self.context.logger.error(
+            self.context.logger.warning(
                 f"Invalid token value: {token}. Expected integer."
             )
             return None
@@ -324,16 +320,18 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     def update_safe_balances(self) -> WaitableConditionType:
         """Check the safe's balance."""
         account = self.synchronized_data.safe_contract_address
-        wallet = yield from self._get_native_balance(account)
-        if wallet is None:
-            return False
 
-        token = yield from self._get_wrapped_native_balance(account)
+        if self.using_native:
+            wallet = yield from self._get_native_balance(account)
+            if wallet is None:
+                return False
+            self.wallet_balance = int(wallet)
+
+        token = yield from self._get_token_balance(account)
         if token is None:
             return False
 
         self.token_balance = int(token)
-        self.wallet_balance = int(wallet)
         return True
 
     def _build_unwrap_tokens_tx(self) -> WaitableConditionType:
@@ -480,22 +478,36 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """
         yield from self.wait_for_condition_with_sleep(self.update_safe_balances)
 
+        price = self.price if self.using_native else self.mech_max_delivery_rate
+
         # There is enough balance using native tokens
-        if self.price <= self.wallet_balance:
+        if self.using_native and price <= self.wallet_balance:
             return True
 
         # There is enough balance using native and wrapped tokens
-        if self.price <= self.wallet_balance + self.token_balance:
+        if self.using_native and price <= self.wallet_balance + self.token_balance:
             yield from self.wait_for_condition_with_sleep(self._build_unwrap_tokens_tx)
             return True
 
-        shortage = self.price - self.wallet_balance - self.token_balance
-        balance_info = "The balance is not enough to pay for the mech's price."
-        refill_info = f"Please refill the safe with at least {self.wei_to_unit(shortage)} native tokens."
-        if self.params.mech_wrapped_native_token_address:
-            refill_info = f"Please refill the safe with at least {self.wei_to_unit(shortage)} native tokens or wrapped native tokens."
+        # There is enough balance using token payment method
+        if price <= self.token_balance:
+            return True
 
-        self.context.logger.warning(balance_info + " " + refill_info)
+        # the wallet balance will be 0 if using token payment method,
+        # therefore the following calculation stands for both cases
+        shortage = price - self.wallet_balance - self.token_balance
+
+        if self.using_native and self.params.mech_wrapped_native_token_address:
+            missing_tokens = "native or wrapped native"
+        elif self.using_native:
+            missing_tokens = "native"
+        else:
+            missing_tokens = self.params.price_token
+
+        self.context.logger.warning(
+            "The balance is not enough to pay for the mech's price. "
+            f"Please refill the safe with at least {self.wei_to_unit(shortage)} {missing_tokens} tokens."
+        )
         self.sleep(self.params.sleep_time)
         return False
 
