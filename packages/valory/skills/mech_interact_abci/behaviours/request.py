@@ -108,6 +108,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._nvm_balance: Optional[int] = None
         self._subscription_address: Optional[str] = None
         self._subscription_id: Optional[int] = None
+        self._balance_tracker: Optional[str] = None
+        self._approval_data: Optional[str] = None
 
     @property
     def metadata_filepath(self) -> str:
@@ -228,6 +230,24 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 "Accessing mech_max_delivery_rate before it has been fetched."
             )
         return self._mech_max_delivery_rate
+
+    @property
+    def balance_tracker(self) -> Optional[str]:
+        """Get the balance tracker."""
+        if self._balance_tracker is None:
+            self.context.logger.warning(
+                "Accessing balance_tracker before it has been fetched."
+            )
+        return self._balance_tracker
+
+    @property
+    def approval_data(self) -> Optional[str]:
+        """Get the approval data."""
+        if self._approval_data is None:
+            self.context.logger.warning(
+                "Accessing approval_data before they have been built."
+            )
+        return self._approval_data
 
     @staticmethod
     def wei_to_unit(wei: int) -> float:
@@ -648,8 +668,66 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return True
 
+    def _get_balance_tracker(self) -> WaitableConditionType:
+        """Get the balance tracker for the mech."""
+        self.context.logger.info("Getting balance tracker...")
+
+        return (
+            yield from self._mech_marketplace_contract_interact(
+                "get_balance_tracker",
+                "balance_tracker",
+                "_balance_tracker",
+                payment_type=self.mech_payment_type.value,
+                chain_id=self.params.mech_chain_id,
+            )
+        )
+
+    def _approve_balance_tracker(self) -> WaitableConditionType:
+        """Build approval for the balance tracker."""
+        self.context.logger.info("Building approval for token payment.")
+
+        return (
+            yield from self.contract_interact(
+                performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
+                contract_address=self.params.price_token,
+                contract_public_id=ERC20.contract_id,
+                contract_callable="approve",
+                data_key="data",
+                placeholder="_approval_data",
+                spender=self.balance_tracker,
+                amount=self.mech_max_delivery_rate,
+                chain_id=self.params.mech_chain_id,
+            )
+        )
+
+    def _build_token_approval(self) -> WaitableConditionType:
+        """Get the balance tracker, build approval for the token payment and add it to the multisend batch."""
+        if not self._balance_tracker:
+            status = yield from self._get_balance_tracker()
+            if not status:
+                self.context.logger.warning("Failed to get balance tracker.")
+                return False
+
+        status = yield from self._approve_balance_tracker()
+        if not status:
+            self.context.logger.error("Failed to build approval data.")
+            return False
+
+        batch = MultisendBatch(
+            to=self.params.price_token,
+            data=HexBytes(self.approval_data),
+        )
+        self.multisend_batches.append(batch)
+        self.context.logger.info("Successfully built approval data.")
+        return True
+
     def _build_marketplace_v2_request_data(self) -> WaitableConditionType:
         """Build the request data for the Mech Marketplace v2 flow using helper methods."""
+        if self.using_token:
+            status = yield from self._build_token_approval()
+            if not status:
+                return False
+
         self.context.logger.info("Building request data for Mech Marketplace v2 flow.")
 
         request_data_bytes = self._decode_hex_to_bytes(
