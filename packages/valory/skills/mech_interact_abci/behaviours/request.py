@@ -96,9 +96,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         # Initialize private attributes for properties
         self._mech_payment_type: Optional[str] = None
         self._mech_max_delivery_rate: Optional[int] = None
-        self._olas_subscription_balance: Optional[int] = None
+        self._subscription_balance: Optional[int] = None
         self._nvm_balance: Optional[int] = None
-        self._olas_subscription_address: Optional[str] = None
+        self._subscription_address: Optional[str] = None
         self._subscription_id: Optional[int] = None
 
     @property
@@ -150,13 +150,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         return contract_id
 
     @property
-    def olas_subscription_balance(self) -> Optional[int]:
-        """Get the fetched olas subscription balance."""
-        if self._olas_subscription_balance is None:
+    def subscription_balance(self) -> Optional[int]:
+        """Get the fetched token subscription balance."""
+        if self._subscription_balance is None:
             self.context.logger.error(
-                "Accessing `olas_subscription_balance` before it has been fetched."
+                "Accessing `subscription_balance` before it has been fetched."
             )
-        return self._olas_subscription_balance
+        return self._subscription_balance
 
     @property
     def nvm_balance(self) -> Optional[int]:
@@ -170,20 +170,20 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     @property
     def total_nvm_balance(self) -> Optional[int]:
         """Get the total NVM balance."""
-        balance0 = self.olas_subscription_balance
+        balance0 = self.subscription_balance
         balance1 = self.nvm_balance
         if balance0 is not None and balance1 is not None:
             return balance0 + balance1
         return None
 
     @property
-    def olas_subscription_address(self) -> Optional[str]:
-        """Get the OLAS subscription address."""
-        if self._olas_subscription_address is None:
+    def subscription_address(self) -> Optional[str]:
+        """Get the token subscription address."""
+        if self._subscription_address is None:
             self.context.logger.error(
-                "Accessing `_olas_subscription_address` before it has been fetched."
+                "Accessing `_subscription_address` before it has been fetched."
             )
-        return self._olas_subscription_address
+        return self._subscription_address
 
     @property
     def subscription_id(self) -> Optional[str]:
@@ -390,7 +390,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_subscription_nft",
             data_key="address",
-            placeholder="_olas_subscription_address",
+            placeholder="_subscription_address",
         )
         return status
 
@@ -403,13 +403,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _olas_subscription_contract_interact(
+    def _subscription_contract_interact(
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
-        """Interact with the OLAS subscription contract."""
+        """Interact with the subscription contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.olas_subscription_address,
+            contract_address=self.subscription_address,
             contract_public_id=IERC1155.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -419,12 +419,12 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_olas_subscription_balance(self) -> WaitableConditionType:
-        """Get the OLAS subscription's balance."""
-        status = yield from self._olas_subscription_contract_interact(
+    def get_subscription_balance(self) -> WaitableConditionType:
+        """Get the subscription's balance."""
+        status = yield from self._subscription_contract_interact(
             contract_callable="get_balance",
             data_key="balance",
-            placeholder="_olas_subscription_balance",
+            placeholder="_subscription_balance",
             account=self.synchronized_data.safe_contract_address,
             subscription_id=self.subscription_id,
         )
@@ -436,7 +436,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             self.get_nvm_balance,
             self.get_subscription_nft,
             self.get_subscription_token_id,
-            self.get_olas_subscription_balance,
+            self.get_subscription_balance,
         ]
         for step in steps:
             yield from self.wait_for_condition_with_sleep(step)
