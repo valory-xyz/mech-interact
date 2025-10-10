@@ -4,7 +4,7 @@ version: 0.1.0
 type: contract
 description: IERC1155 contract
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   README.md: bafybeicpbv673pqvstddnphn6zk24tpi6rjdtcx6zk6ax5tsen2e4hja74
   __init__.py: bafybeidx57lm6uzxxvnbhsuedadi3f6w36e6xhc2po64a5zojaqqaotmoy
@@ -17,4 +17,4 @@ contract_interface_paths:
   ethereum: build/IERC1155.json
 dependencies:
   open-aea-ledger-ethereum:
-    version: ==1.65.0
+    version: ==2.0.6

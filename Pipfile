@@ -8,29 +8,27 @@ name = "pypi"
 # aea/autonomy package dependencies are specified in their respective configuration yaml files and as dev dependencies below
 
 [dev-packages]
-# we fix exact versions as it's sufficient to have at least one set of compatible dependencies for development
 aiohttp = "<4.0.0,>=3.8.5"
 asn1crypto = "==1.5.1"
 grpcio = "==1.53.0"
 jsonschema = "<4.4.0,>=4.3.0"
 hypothesis = "==6.21.6"
 pre-commit = "==3.0.1"
-py-ecc = "==6.0.0"
 pytz = "==2022.2.1"
-pytest = "==7.2.1"
+pytest = "==7.4.4"
 pytest-asyncio = ">=0.21.0,<0.22.0"
-pytest-cov = "==4.0.0"
-pytest-randomly = "==3.12.0"
+pytest-cov = "==6.2.1"
+pytest-randomly = "==3.16.0"
 openapi-core = "==0.15.0"
 openapi-spec-validator = "<0.5.0,>=0.4.0"
-open-aea = "==1.65.0"
-open-aea-ledger-ethereum = "==1.65.0"
-open-aea-ledger-cosmos = "==1.65.0"
-open-aea-cli-ipfs = "==1.65.0"
-open-aea-test-autonomy = "==0.19.11"
-open-autonomy = {version = "==0.19.11", extras = ["all"]}
-tomte = {version = "==0.2.17", extras = ["cli", "tests"]}
-requests = ">=2.28.1,<2.31.2"
+open-aea = "==2.0.6"
+open-aea-ledger-ethereum = "==2.0.6"
+open-aea-ledger-cosmos = "==2.0.6"
+open-aea-cli-ipfs = "==2.0.6"
+open-aea-test-autonomy = "==0.21.2"
+open-autonomy = {version = "==0.21.2", extras = ["all"]}
+tomte = {version = "==0.4.0", extras = ["cli", "tests"]}
+requests = ">=2.28.1,<=2.32.5"
 bases = "==0.3.0"
 typing_validation = "==1.1.0"
 typing_extensions = "==4.11.0"

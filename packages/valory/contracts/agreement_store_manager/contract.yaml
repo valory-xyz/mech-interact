@@ -4,7 +4,7 @@ version: 0.1.0
 type: contract
 description: Agreement Storage Manager contract
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   README.md: bafybeihvrenqqs5unsroous4q7i64dzxzr3yhuseb3iwsmaigizlfcyhey
   __init__.py: bafybeihqqe5vid3jswhksrf4r2hk4buj3zl7env5crbk4rb45h5kvltmei
@@ -17,4 +17,4 @@ contract_interface_paths:
   ethereum: build/agreement_store_manager.json
 dependencies:
   open-aea-ledger-ethereum:
-    version: ==1.65.0
+    version: ==2.0.6
