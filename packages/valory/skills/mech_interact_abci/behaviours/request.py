@@ -620,7 +620,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
             return False
 
-        if not self.using_nevermined:
+        if self.using_native:
             self.price = self.mech_max_delivery_rate
 
         return True
