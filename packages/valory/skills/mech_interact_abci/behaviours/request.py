@@ -21,6 +21,7 @@
 
 import json
 from dataclasses import asdict
+from enum import Enum
 from pathlib import Path
 from tempfile import mkdtemp
 from typing import Any, Generator, List, Optional, cast
@@ -67,16 +68,20 @@ V1_HEX_PREFIX = "f01"
 Ox = "0x"
 EMPTY_PAYMENT_DATA_HEX = Ox
 
-NATIVE_NVM_PAYMENT_TYPE = (
-    "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
-)
-TOKEN_NVM_PAYMENT_TYPE = (
-    "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"  # nosec
-)
-NVM_PAYMENT_TYPES = frozenset({NATIVE_NVM_PAYMENT_TYPE, TOKEN_NVM_PAYMENT_TYPE})
+
+class PaymentType(str, Enum):
+    """Mech payment types."""
+
+    NATIVE = "0xba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
+    TOKEN = "0x3679d66ef546e66ce9057c4a052f317b135bc8e8c509638f7966edfd4fcf45e9"
+    NATIVE_NVM = "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
+    TOKEN_NVM = "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"
+
+
+NVM_PAYMENT_TYPES = frozenset({PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM})
 PAYMENT_TYPE_TO_NVM_CONTRACT = {
-    NATIVE_NVM_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionNative.contract_id,
-    TOKEN_NVM_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionToken.contract_id,
+    PaymentType.NATIVE_NVM: BalanceTrackerNvmSubscriptionNative.contract_id,
+    PaymentType.TOKEN_NVM: BalanceTrackerNvmSubscriptionToken.contract_id,
 }
 
 
@@ -93,8 +98,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price: int = 0
         self._mech_requests: List[MechMetadata] = []
         self._pending_responses: List[MechInteractionResponse] = []
-        # Initialize private attributes for properties
-        self._mech_payment_type: Optional[str] = None
+
+        # Initialize internal attributes that will hold on-chain values once fetched
+        self._mech_payment_type: Optional[PaymentType] = None
         self._mech_max_delivery_rate: Optional[int] = None
         self._subscription_balance: Optional[int] = None
         self._nvm_balance: Optional[int] = None
@@ -127,13 +133,31 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price = price
 
     @property
-    def mech_payment_type(self) -> Optional[str]:
+    def mech_payment_type(self) -> Optional[PaymentType]:
         """Get the fetched mech payment type."""
         if self._mech_payment_type is None:
             self.context.logger.error(
                 "Accessing mech_payment_type before it has been fetched."
             )
         return self._mech_payment_type
+
+    @mech_payment_type.setter
+    def mech_payment_type(self, payment_type: str) -> None:
+        """Set the fetched mech payment type."""
+        try:
+            self._mech_payment_type = PaymentType(payment_type)
+        except ValueError:
+            self.context.logger.warning(f"Unknown {payment_type=}.")
+
+    @property
+    def using_native(self) -> bool:
+        """Whether we are using a native mech."""
+        return self.mech_payment_type == PaymentType.NATIVE
+
+    @property
+    def using_token(self) -> bool:
+        """Whether we are using a token mech."""
+        return self.mech_payment_type == PaymentType.TOKEN
 
     @property
     def using_nevermined(self) -> bool:
@@ -499,7 +523,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         status = yield from self._mech_mm_contract_interact(
             contract_callable="get_payment_type",
             data_key="payment_type",
-            placeholder="_mech_payment_type",  # Store in private attribute
+            placeholder=get_name(MechRequestBehaviour.mech_payment_type),
             chain_id=self.params.mech_chain_id,
         )
         if not status:
@@ -625,7 +649,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             request_data=request_data_bytes,
             priority_mech=self.mech_marketplace_config.priority_mech_address,
             payment_data=payment_data_bytes,
-            payment_type=self.mech_payment_type,
+            payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
             chain_id=self.params.mech_chain_id,
             max_delivery_rate=self.mech_max_delivery_rate,
