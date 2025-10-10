@@ -7,7 +7,7 @@ description: "The mech interact skill provides comprehensive interaction capabil
   \ \ntransactions. It includes dynamic compatibility detection, intelligent caching,\
   \ \nand automatic fallback mechanisms for robust cross-version contract support.\n"
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   __init__.py: bafybeifvvp5bbbzd3dfo5mf66tijiuylahhuugwlsha22xkqg33epqtbku
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
@@ -216,7 +216,7 @@ models:
     class_name: TendermintDialogues
 dependencies:
   web3:
-    version: <7,>=6.0.0
+    version: <8,>=7.0.0
   hexbytes: {}
   py-multicodec: {}
   py-multibase: {}
