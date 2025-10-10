@@ -745,7 +745,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def _prepare_safe_tx(self) -> Generator[None, None, bool]:
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
-        n_iters = min(self.params.multisend_batch_size, len(self._mech_requests))
         steps = (
             [self._detect_marketplace_compatibility]
             if self.params.use_mech_marketplace
@@ -769,6 +768,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         else:
             steps.append(self._ensure_available_balance)
 
+        n_iters = min(self.params.multisend_batch_size, len(self._mech_requests))
         steps.extend((self._send_metadata_to_ipfs, self._build_request_data) * n_iters)
         steps.extend((self._build_multisend_data, self._build_multisend_safe_tx_hash))
         for step in steps:
