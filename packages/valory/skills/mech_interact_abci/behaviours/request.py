@@ -466,7 +466,18 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             yield from self.wait_for_condition_with_sleep(step)
 
     def _ensure_available_balance(self) -> WaitableConditionType:
-        """Ensures available payment for the mech request and unwraps tokens if needed."""
+        """
+        Ensures available payment for the mech request and unwraps tokens if needed.
+
+        This method does not check the balance tracker as for native payments the agent will never send a surplus.
+        The balance tracker is considered for NVM payments only.
+
+        Assuming that no one sends money outside the mech-interact logic,
+        the balance tracker will always return zero.
+        The assumption is sensible,
+        since mech-interact always sends the value corresponding to the mech's delivery rate.
+        Therefore, we agreed on this simplified path to reduce contract calls.
+        """
         yield from self.wait_for_condition_with_sleep(self.update_safe_balances)
 
         # There is enough balance using native tokens
