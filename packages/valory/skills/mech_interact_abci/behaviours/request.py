@@ -819,6 +819,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
             self.context.logger.info(
                 f"Preparing mech request:\ntx_hex: {self.tx_hex}\nprice: {self.price}\n"
+                f"delivery rate: {self.mech_max_delivery_rate}\n"
                 f"serialized_requests: {serialized_requests}\nserialized_responses: {serialized_responses}\n"
             )
             payload = MechRequestPayload(
