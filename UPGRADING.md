@@ -2,16 +2,10 @@
 
 Below, we describe the additional manual steps required to upgrade between different versions:
 
-## `v0.20.0` to `v0.21.0` (built with `open-aea@1.65.0` and `open-autonomy@0.19.9`)
+## `v0.21.0` to `v0.21.1` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 - No backwards incompatible changes.
-- ```json
-  {
-    "contract/valory/mech_marketplace/0.1.0": "bafybeiaqye6khcinjf73kyil5jepjet57fb3a2ets7vn2ozdp7iknhtenq",
-    "skill/valory/mech_interact_abci/0.1.0": "bafybeif5qpxsvwmxtywrwfj27gkhrwtq7gyzb63cohv7345zoh4p34jh2m"
-  }
-  ```
 
-## `v0.20.0` to `v0.20.1` (built with `open-aea@1.65.0` and `open-autonomy@0.19.9`)
+## `v0.20.0` to `v0.21.0` (built with `open-aea@1.65.0` and `open-autonomy@0.19.9`)
 - No backwards incompatible changes.
 
 ## `v0.19.10` to `v0.20.0` (built with `open-aea@1.65.0` and `open-autonomy@0.19.9`)
