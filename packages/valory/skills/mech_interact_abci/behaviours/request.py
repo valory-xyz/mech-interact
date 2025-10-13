@@ -674,9 +674,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return (
             yield from self._mech_marketplace_contract_interact(
-                "get_balance_tracker",
-                "balance_tracker",
-                "_balance_tracker",
+                contract_callable="get_balance_tracker",
+                data_key="balance_tracker",
+                placeholder="_balance_tracker",
                 payment_type=self.mech_payment_type.value,
                 chain_id=self.params.mech_chain_id,
             )
@@ -744,9 +744,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         # Call the contract to get the encoded request data
         status = yield from self._mech_marketplace_contract_interact(
-            "get_request_data",
-            "data",
-            get_name(MechRequestBehaviour.request_data),
+            contract_callable="get_request_data",
+            data_key="data",
+            placeholder=get_name(MechRequestBehaviour.request_data),
             request_data=request_data_bytes,
             priority_mech=self.mech_marketplace_config.priority_mech_address,
             payment_data=payment_data_bytes,
