@@ -73,9 +73,9 @@ class PaymentType(str, Enum):
     """Mech payment types."""
 
     NATIVE = "0xba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
-    TOKEN = "0x3679d66ef546e66ce9057c4a052f317b135bc8e8c509638f7966edfd4fcf45e9"
+    TOKEN = "0x3679d66ef546e66ce9057c4a052f317b135bc8e8c509638f7966edfd4fcf45e9"  # nosec B105
     NATIVE_NVM = "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
-    TOKEN_NVM = "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"
+    TOKEN_NVM = "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"  # nosec B105
 
 
 NVM_PAYMENT_TYPES = frozenset({PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM})
