@@ -73,15 +73,15 @@ class PaymentType(str, Enum):
     """Mech payment types."""
 
     NATIVE = "0xba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
-    TOKEN = "0x3679d66ef546e66ce9057c4a052f317b135bc8e8c509638f7966edfd4fcf45e9"
+    TOKEN = "0x3679d66ef546e66ce9057c4a052f317b135bc8e8c509638f7966edfd4fcf45e9"  # nosec B105
     NATIVE_NVM = "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
-    TOKEN_NVM = "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"
+    TOKEN_NVM_USDC = "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"  # nosec B105
 
 
-NVM_PAYMENT_TYPES = frozenset({PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM})
+NVM_PAYMENT_TYPES = frozenset({PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM_USDC})
 PAYMENT_TYPE_TO_NVM_CONTRACT = {
     PaymentType.NATIVE_NVM: BalanceTrackerNvmSubscriptionNative.contract_id,
-    PaymentType.TOKEN_NVM: BalanceTrackerNvmSubscriptionToken.contract_id,
+    PaymentType.TOKEN_NVM_USDC: BalanceTrackerNvmSubscriptionToken.contract_id,
 }
 
 
@@ -332,8 +332,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
             return None
 
+        tokens_type = " wrapped native" if self.using_native else ""
         self.context.logger.info(
-            f"Account {account} has {self.wei_to_unit(token_int)} wrapped native tokens."
+            f"Account {account} has {self.wei_to_unit(token_int)}{tokens_type} tokens."
         )
         return token_int
 
@@ -674,9 +675,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return (
             yield from self._mech_marketplace_contract_interact(
-                "get_balance_tracker",
-                "balance_tracker",
-                "_balance_tracker",
+                contract_callable="get_balance_tracker",
+                data_key="balance_tracker",
+                placeholder="_balance_tracker",
                 payment_type=self.mech_payment_type.value,
                 chain_id=self.params.mech_chain_id,
             )
@@ -688,10 +689,10 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return (
             yield from self.contract_interact(
-                performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
                 contract_address=self.params.price_token,
                 contract_public_id=ERC20.contract_id,
-                contract_callable="approve",
+                contract_callable="build_approval_tx",
                 data_key="data",
                 placeholder="_approval_data",
                 spender=self.balance_tracker,
@@ -744,9 +745,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         # Call the contract to get the encoded request data
         status = yield from self._mech_marketplace_contract_interact(
-            "get_request_data",
-            "data",
-            get_name(MechRequestBehaviour.request_data),
+            contract_callable="get_request_data",
+            data_key="data",
+            placeholder=get_name(MechRequestBehaviour.request_data),
             request_data=request_data_bytes,
             priority_mech=self.mech_marketplace_config.priority_mech_address,
             payment_data=payment_data_bytes,
