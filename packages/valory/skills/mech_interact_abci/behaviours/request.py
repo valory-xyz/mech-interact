@@ -688,7 +688,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return (
             yield from self.contract_interact(
-                performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
                 contract_address=self.params.price_token,
                 contract_public_id=ERC20.contract_id,
                 contract_callable="build_approval_tx",
