@@ -691,7 +691,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
                 contract_address=self.params.price_token,
                 contract_public_id=ERC20.contract_id,
-                contract_callable="approve",
+                contract_callable="build_approval_tx",
                 data_key="data",
                 placeholder="_approval_data",
                 spender=self.balance_tracker,
