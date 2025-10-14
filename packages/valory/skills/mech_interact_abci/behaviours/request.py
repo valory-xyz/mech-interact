@@ -332,8 +332,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
             return None
 
+        tokens_type = " wrapped native" if self.using_native else ""
         self.context.logger.info(
-            f"Account {account} has {self.wei_to_unit(token_int)} wrapped native tokens."
+            f"Account {account} has {self.wei_to_unit(token_int)}{tokens_type} tokens."
         )
         return token_int
 
