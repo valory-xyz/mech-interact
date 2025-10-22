@@ -119,19 +119,13 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
     def delivery_mech(self) -> str:
         """Get the delivery mech from the fetched request info."""
         try:
-            delivery_mech = self.request_info[DELIVERY_MECH_INDEX]
+            return self.request_info[DELIVERY_MECH_INDEX]
         except (IndexError, TypeError) as exc:
             self.context.logger.warning(
                 f"Issue when accessing request info for delivery mech: {str(exc)}. "
                 "Returning default mech contract address."
             )
             return self.params.mech_contract_address
-
-        return (
-            delivery_mech
-            if delivery_mech != ADDRESS_ZERO
-            else self.params.mech_contract_address
-        )
 
     @property
     def response_hex(self) -> str:
@@ -307,9 +301,13 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
+            delivery_mech = self.delivery_mech
+            if delivery_mech == ADDRESS_ZERO:
+                return False
+
             result = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                contract_address=self.delivery_mech,
+                contract_address=delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
                 contract_callable="get_response",
                 data_key="data",
