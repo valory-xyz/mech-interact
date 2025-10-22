@@ -301,13 +301,12 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            delivery_mech = self.delivery_mech
-            if delivery_mech == ADDRESS_ZERO:
+            if self.delivery_mech == ADDRESS_ZERO:
                 return False
 
             result = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                contract_address=delivery_mech,
+                contract_address = self.delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
                 contract_callable="get_response",
                 data_key="data",
