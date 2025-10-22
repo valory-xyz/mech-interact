@@ -306,7 +306,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
             result = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                contract_address = self.delivery_mech,
+                contract_address=self.delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
                 contract_callable="get_response",
                 data_key="data",
