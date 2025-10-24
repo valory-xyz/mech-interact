@@ -21,6 +21,7 @@
 
 import json
 from dataclasses import asdict
+from enum import Enum
 from pathlib import Path
 from tempfile import mkdtemp
 from typing import Any, Generator, List, Optional, cast
@@ -67,16 +68,20 @@ V1_HEX_PREFIX = "f01"
 Ox = "0x"
 EMPTY_PAYMENT_DATA_HEX = Ox
 
-NATIVE_NVM_PAYMENT_TYPE = (
-    "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
-)
-TOKEN_NVM_PAYMENT_TYPE = (
-    "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"  # nosec
-)
-NVM_PAYMENT_TYPES = frozenset({NATIVE_NVM_PAYMENT_TYPE, TOKEN_NVM_PAYMENT_TYPE})
+
+class PaymentType(str, Enum):
+    """Mech payment types."""
+
+    NATIVE = "0xba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
+    TOKEN = "0x3679d66ef546e66ce9057c4a052f317b135bc8e8c509638f7966edfd4fcf45e9"  # nosec B105
+    NATIVE_NVM = "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
+    TOKEN_NVM_USDC = "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"  # nosec B105
+
+
+NVM_PAYMENT_TYPES = frozenset({PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM_USDC})
 PAYMENT_TYPE_TO_NVM_CONTRACT = {
-    NATIVE_NVM_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionNative.contract_id,
-    TOKEN_NVM_PAYMENT_TYPE: BalanceTrackerNvmSubscriptionToken.contract_id,
+    PaymentType.NATIVE_NVM: BalanceTrackerNvmSubscriptionNative.contract_id,
+    PaymentType.TOKEN_NVM_USDC: BalanceTrackerNvmSubscriptionToken.contract_id,
 }
 
 
@@ -93,13 +98,18 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price: int = 0
         self._mech_requests: List[MechMetadata] = []
         self._pending_responses: List[MechInteractionResponse] = []
-        # Initialize private attributes for properties
-        self._mech_payment_type: Optional[str] = None
+
+        # Initialize internal attributes that will hold on-chain values once fetched
+        self.token_balance: int = 0
+        self.wallet_balance: int = 0
+        self._mech_payment_type: Optional[PaymentType] = None
         self._mech_max_delivery_rate: Optional[int] = None
-        self._olas_subscription_balance: Optional[int] = None
+        self._subscription_balance: Optional[int] = None
         self._nvm_balance: Optional[int] = None
-        self._olas_subscription_address: Optional[str] = None
+        self._subscription_address: Optional[str] = None
         self._subscription_id: Optional[int] = None
+        self._balance_tracker: Optional[str] = None
+        self._approval_data: Optional[str] = None
 
     @property
     def metadata_filepath(self) -> str:
@@ -127,13 +137,31 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price = price
 
     @property
-    def mech_payment_type(self) -> Optional[str]:
+    def mech_payment_type(self) -> Optional[PaymentType]:
         """Get the fetched mech payment type."""
         if self._mech_payment_type is None:
             self.context.logger.error(
                 "Accessing mech_payment_type before it has been fetched."
             )
         return self._mech_payment_type
+
+    @mech_payment_type.setter
+    def mech_payment_type(self, payment_type: str) -> None:
+        """Set the fetched mech payment type."""
+        try:
+            self._mech_payment_type = PaymentType(payment_type)
+        except ValueError:
+            self.context.logger.warning(f"Unknown {payment_type=}.")
+
+    @property
+    def using_native(self) -> bool:
+        """Whether we are using a native mech."""
+        return self.mech_payment_type == PaymentType.NATIVE
+
+    @property
+    def using_token(self) -> bool:
+        """Whether we are using a token mech."""
+        return self.mech_payment_type == PaymentType.TOKEN
 
     @property
     def using_nevermined(self) -> bool:
@@ -150,13 +178,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         return contract_id
 
     @property
-    def olas_subscription_balance(self) -> Optional[int]:
-        """Get the fetched olas subscription balance."""
-        if self._olas_subscription_balance is None:
+    def subscription_balance(self) -> Optional[int]:
+        """Get the fetched token subscription balance."""
+        if self._subscription_balance is None:
             self.context.logger.error(
-                "Accessing `olas_subscription_balance` before it has been fetched."
+                "Accessing `subscription_balance` before it has been fetched."
             )
-        return self._olas_subscription_balance
+        return self._subscription_balance
 
     @property
     def nvm_balance(self) -> Optional[int]:
@@ -170,20 +198,20 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     @property
     def total_nvm_balance(self) -> Optional[int]:
         """Get the total NVM balance."""
-        balance0 = self.olas_subscription_balance
+        balance0 = self.subscription_balance
         balance1 = self.nvm_balance
         if balance0 is not None and balance1 is not None:
             return balance0 + balance1
         return None
 
     @property
-    def olas_subscription_address(self) -> Optional[str]:
-        """Get the OLAS subscription address."""
-        if self._olas_subscription_address is None:
+    def subscription_address(self) -> Optional[str]:
+        """Get the token subscription address."""
+        if self._subscription_address is None:
             self.context.logger.error(
-                "Accessing `_olas_subscription_address` before it has been fetched."
+                "Accessing `_subscription_address` before it has been fetched."
             )
-        return self._olas_subscription_address
+        return self._subscription_address
 
     @property
     def subscription_id(self) -> Optional[str]:
@@ -202,6 +230,24 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 "Accessing mech_max_delivery_rate before it has been fetched."
             )
         return self._mech_max_delivery_rate
+
+    @property
+    def balance_tracker(self) -> Optional[str]:
+        """Get the balance tracker."""
+        if self._balance_tracker is None:
+            self.context.logger.warning(
+                "Accessing balance_tracker before it has been fetched."
+            )
+        return self._balance_tracker
+
+    @property
+    def approval_data(self) -> Optional[str]:
+        """Get the approval data."""
+        if self._approval_data is None:
+            self.context.logger.warning(
+                "Accessing approval_data before they have been built."
+            )
+        return self._approval_data
 
     @staticmethod
     def wei_to_unit(wei: int) -> float:
@@ -243,73 +289,70 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return balance
 
-    def _get_wrapped_native_balance(
-        self, account: str
-    ) -> Generator[None, None, Optional[int]]:
-        """Get wrapped native balance for account."""
+    def _get_token_balance(self, account: str) -> Generator[None, None, Optional[int]]:
+        """Get the balance of an account for the given token."""
 
-        error_message = f"Failed to get the wrapped native balance for account {account} (mech_wrapped_native_token_address={self.params.mech_wrapped_native_token_address})."
-        config_message = "Please configure 'mech_wrapped_native_token_address' appropriately if you want to use wrapped native tokens for mech requests."
-        if not self.params.mech_wrapped_native_token_address:
-            self.context.logger.info(
-                f"Wrapped native token address has not been configured. Assumed wrapped native token = 0. {config_message}"
-            )
-            return 0
-
+        token_address = (
+            self.params.price_token
+            if self.using_token
+            else self.params.mech_wrapped_native_token_address
+        )
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.mech_wrapped_native_token_address,
+            contract_address=token_address,
             contract_id=str(ERC20.contract_id),
             contract_callable="check_balance",
             account=account,
             chain_id=self.params.mech_chain_id,
         )
+        message = (
+            f"Failed to get the {token_address} token's balance for account {account}."
+        )
         if response_msg.performative != ContractApiMessage.Performative.RAW_TRANSACTION:
-            self.context.logger.error(
-                f"{error_message} {config_message} {response_msg}"
-            )
+            self.context.logger.warning(f"{message} {response_msg}")
             return None
 
         token = response_msg.raw_transaction.body.get("token", None)
         wallet = response_msg.raw_transaction.body.get("wallet", None)
         if token is None or wallet is None:
-            self.context.logger.error(
-                f"{error_message} {config_message} {response_msg}"
-            )
+            self.context.logger.warning(f"{message} {response_msg}")
             return None
 
         try:
             if isinstance(token, (int, str)):
                 token_int = int(token)
             else:
-                self.context.logger.error(
+                self.context.logger.warning(
                     f"Invalid token value type: {type(token)}. Expected int or str."
                 )
                 return None
         except (ValueError, TypeError):
-            self.context.logger.error(
+            self.context.logger.warning(
                 f"Invalid token value: {token}. Expected integer."
             )
             return None
 
+        tokens_type = " wrapped native" if self.using_native else ""
         self.context.logger.info(
-            f"Account {account} has {self.wei_to_unit(token_int)} wrapped native tokens."
+            f"Account {account} has {self.wei_to_unit(token_int)}{tokens_type} tokens."
         )
         return token_int
 
     def update_safe_balances(self) -> WaitableConditionType:
         """Check the safe's balance."""
         account = self.synchronized_data.safe_contract_address
-        wallet = yield from self._get_native_balance(account)
-        if wallet is None:
-            return False
 
-        token = yield from self._get_wrapped_native_balance(account)
+        if self.using_native:
+            wallet = yield from self._get_native_balance(account)
+            if wallet is None:
+                return False
+            self.wallet_balance = int(wallet)
+
+        token = yield from self._get_token_balance(account)
         if token is None:
             return False
 
         self.token_balance = int(token)
-        self.wallet_balance = int(wallet)
         return True
 
     def _build_unwrap_tokens_tx(self) -> WaitableConditionType:
@@ -390,7 +433,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_subscription_nft",
             data_key="address",
-            placeholder="_olas_subscription_address",
+            placeholder="_subscription_address",
         )
         return status
 
@@ -403,13 +446,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _olas_subscription_contract_interact(
+    def _subscription_contract_interact(
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
-        """Interact with the OLAS subscription contract."""
+        """Interact with the subscription contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.olas_subscription_address,
+            contract_address=self.subscription_address,
             contract_public_id=IERC1155.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -419,12 +462,12 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_olas_subscription_balance(self) -> WaitableConditionType:
-        """Get the OLAS subscription's balance."""
-        status = yield from self._olas_subscription_contract_interact(
+    def get_subscription_balance(self) -> WaitableConditionType:
+        """Get the subscription's balance."""
+        status = yield from self._subscription_contract_interact(
             contract_callable="get_balance",
             data_key="balance",
-            placeholder="_olas_subscription_balance",
+            placeholder="_subscription_balance",
             account=self.synchronized_data.safe_contract_address,
             subscription_id=self.subscription_id,
         )
@@ -436,31 +479,56 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             self.get_nvm_balance,
             self.get_subscription_nft,
             self.get_subscription_token_id,
-            self.get_olas_subscription_balance,
+            self.get_subscription_balance,
         ]
         for step in steps:
             yield from self.wait_for_condition_with_sleep(step)
 
     def _ensure_available_balance(self) -> WaitableConditionType:
-        """Ensures available payment for the mech request and unwraps tokens if needed."""
+        """
+        Ensures available payment for the mech request and unwraps tokens if needed.
+
+        This method does not check the balance tracker as for native payments the agent will never send a surplus.
+        The balance tracker is considered for NVM payments only.
+
+        Assuming that no one sends money outside the mech-interact logic,
+        the balance tracker will always return zero.
+        The assumption is sensible,
+        since mech-interact always sends the value corresponding to the mech's delivery rate.
+        Therefore, we agreed on this simplified path to reduce contract calls.
+        """
         yield from self.wait_for_condition_with_sleep(self.update_safe_balances)
 
+        price = self.price if self.using_native else self.mech_max_delivery_rate
+
         # There is enough balance using native tokens
-        if self.price <= self.wallet_balance:
+        if self.using_native and price <= self.wallet_balance:
             return True
 
         # There is enough balance using native and wrapped tokens
-        if self.price <= self.wallet_balance + self.token_balance:
+        if self.using_native and price <= self.wallet_balance + self.token_balance:
             yield from self.wait_for_condition_with_sleep(self._build_unwrap_tokens_tx)
             return True
 
-        shortage = self.price - self.wallet_balance - self.token_balance
-        balance_info = "The balance is not enough to pay for the mech's price."
-        refill_info = f"Please refill the safe with at least {self.wei_to_unit(shortage)} native tokens."
-        if self.params.mech_wrapped_native_token_address:
-            refill_info = f"Please refill the safe with at least {self.wei_to_unit(shortage)} native tokens or wrapped native tokens."
+        # There is enough balance using token payment method
+        if price <= self.token_balance:
+            return True
 
-        self.context.logger.warning(balance_info + " " + refill_info)
+        # the wallet balance will be 0 if using token payment method,
+        # therefore the following calculation stands for both cases
+        shortage = price - self.wallet_balance - self.token_balance
+
+        if self.using_native and self.params.mech_wrapped_native_token_address:
+            missing_tokens = "native or wrapped native"
+        elif self.using_native:
+            missing_tokens = "native"
+        else:
+            missing_tokens = self.params.price_token
+
+        self.context.logger.warning(
+            "The balance is not enough to pay for the mech's price. "
+            f"Please refill the safe with at least {self.wei_to_unit(shortage)} {missing_tokens} tokens."
+        )
         self.sleep(self.params.sleep_time)
         return False
 
@@ -499,7 +567,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         status = yield from self._mech_mm_contract_interact(
             contract_callable="get_payment_type",
             data_key="payment_type",
-            placeholder="_mech_payment_type",  # Store in private attribute
+            placeholder=get_name(MechRequestBehaviour.mech_payment_type),
             chain_id=self.params.mech_chain_id,
         )
         if not status:
@@ -596,13 +664,71 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
             return False
 
-        if not self.using_nevermined:
+        if self.using_native:
             self.price = self.mech_max_delivery_rate
 
         return True
 
+    def _get_balance_tracker(self) -> WaitableConditionType:
+        """Get the balance tracker for the mech."""
+        self.context.logger.info("Getting balance tracker...")
+
+        return (
+            yield from self._mech_marketplace_contract_interact(
+                contract_callable="get_balance_tracker",
+                data_key="balance_tracker",
+                placeholder="_balance_tracker",
+                payment_type=self.mech_payment_type.value,
+                chain_id=self.params.mech_chain_id,
+            )
+        )
+
+    def _approve_balance_tracker(self) -> WaitableConditionType:
+        """Build approval for the balance tracker."""
+        self.context.logger.info("Building approval for token payment.")
+
+        return (
+            yield from self.contract_interact(
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
+                contract_address=self.params.price_token,
+                contract_public_id=ERC20.contract_id,
+                contract_callable="build_approval_tx",
+                data_key="data",
+                placeholder="_approval_data",
+                spender=self.balance_tracker,
+                amount=self.mech_max_delivery_rate,
+                chain_id=self.params.mech_chain_id,
+            )
+        )
+
+    def _build_token_approval(self) -> WaitableConditionType:
+        """Get the balance tracker, build approval for the token payment and add it to the multisend batch."""
+        if not self._balance_tracker:
+            status = yield from self._get_balance_tracker()
+            if not status:
+                self.context.logger.warning("Failed to get balance tracker.")
+                return False
+
+        status = yield from self._approve_balance_tracker()
+        if not status:
+            self.context.logger.error("Failed to build approval data.")
+            return False
+
+        batch = MultisendBatch(
+            to=self.params.price_token,
+            data=HexBytes(self.approval_data),
+        )
+        self.multisend_batches.append(batch)
+        self.context.logger.info("Successfully built approval data.")
+        return True
+
     def _build_marketplace_v2_request_data(self) -> WaitableConditionType:
         """Build the request data for the Mech Marketplace v2 flow using helper methods."""
+        if self.using_token:
+            status = yield from self._build_token_approval()
+            if not status:
+                return False
+
         self.context.logger.info("Building request data for Mech Marketplace v2 flow.")
 
         request_data_bytes = self._decode_hex_to_bytes(
@@ -619,13 +745,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         # Call the contract to get the encoded request data
         status = yield from self._mech_marketplace_contract_interact(
-            "get_request_data",
-            "data",
-            get_name(MechRequestBehaviour.request_data),
+            contract_callable="get_request_data",
+            data_key="data",
+            placeholder=get_name(MechRequestBehaviour.request_data),
             request_data=request_data_bytes,
             priority_mech=self.mech_marketplace_config.priority_mech_address,
             payment_data=payment_data_bytes,
-            payment_type=self.mech_payment_type,
+            payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
             chain_id=self.params.mech_chain_id,
             max_delivery_rate=self.mech_max_delivery_rate,
@@ -721,7 +847,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def _prepare_safe_tx(self) -> Generator[None, None, bool]:
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
-        n_iters = min(self.params.multisend_batch_size, len(self._mech_requests))
         steps = (
             [self._detect_marketplace_compatibility]
             if self.params.use_mech_marketplace
@@ -745,6 +870,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         else:
             steps.append(self._ensure_available_balance)
 
+        n_iters = min(self.params.multisend_batch_size, len(self._mech_requests))
         steps.extend((self._send_metadata_to_ipfs, self._build_request_data) * n_iters)
         steps.extend((self._build_multisend_data, self._build_multisend_safe_tx_hash))
         for step in steps:
@@ -795,6 +921,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
             self.context.logger.info(
                 f"Preparing mech request:\ntx_hex: {self.tx_hex}\nprice: {self.price}\n"
+                f"delivery rate: {self.mech_max_delivery_rate}\n"
                 f"serialized_requests: {serialized_requests}\nserialized_responses: {serialized_responses}\n"
             )
             payload = MechRequestPayload(
