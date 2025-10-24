@@ -33,7 +33,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import V1_HEX_PREFIX
-from packages.valory.skills.mech_interact_abci.models import MechResponseSpecs
+from packages.valory.skills.mech_interact_abci.models import MechResponseSpecs, Ox
 from packages.valory.skills.mech_interact_abci.payloads import MechResponsePayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     MECH_RESPONSE,
@@ -119,19 +119,13 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
     def delivery_mech(self) -> str:
         """Get the delivery mech from the fetched request info."""
         try:
-            delivery_mech = self.request_info[DELIVERY_MECH_INDEX]
+            return self.request_info[DELIVERY_MECH_INDEX]
         except (IndexError, TypeError) as exc:
             self.context.logger.warning(
                 f"Issue when accessing request info for delivery mech: {str(exc)}. "
                 "Returning default mech contract address."
             )
             return self.params.mech_contract_address
-
-        return (
-            delivery_mech
-            if delivery_mech != ADDRESS_ZERO
-            else self.params.mech_contract_address
-        )
 
     @property
     def response_hex(self) -> str:
@@ -244,7 +238,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             return None, None
 
         hex_request_id = request_ids[0]
-        if not isinstance(hex_request_id, str) or not hex_request_id.startswith("0x"):
+        if not isinstance(hex_request_id, str) or not hex_request_id.startswith(Ox):
             self.context.logger.error(
                 f"Invalid hex request ID format: {hex_request_id}"
             )
@@ -264,7 +258,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             )
             return None, None
         self.context.logger.info(
-            f"Converted marketplace request ID from hex {hex_request_id} to bytes32: 0x{request_id_bytes.hex()}"
+            f"Converted marketplace request ID from hex {hex_request_id} to bytes32: {Ox}{request_id_bytes.hex()}"
         )
         return request_id_bytes, request_id_for_specs
 
@@ -284,7 +278,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             )
             return None, None
         self.context.logger.info(
-            f"Converted direct mech request ID from int {request_id} to bytes32: 0x{request_id_bytes.hex()}"
+            f"Converted direct mech request ID from int {request_id} to bytes32: {Ox}{request_id_bytes.hex()}"
         )
         return request_id_bytes, request_id_for_specs
 
@@ -297,7 +291,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         if self.params.use_mech_marketplace and self.should_use_marketplace_v2():
             # Use mech_mm ABI (MechMM.contract_id) and bytes32 request ID
             self.context.logger.info(
-                f"Using Mech Marketplace flow: Preparing get_response call with bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'} using MechMM ABI."
+                "Using Mech Marketplace flow: Preparing get_response call with bytes32 request ID "
+                f"{Ox}{request_id_bytes.hex() if request_id_bytes else 'None'} using MechMM ABI."
             )
             yield from self._mech_marketplace_contract_interact(
                 contract_callable="map_request_id_info",
@@ -306,6 +301,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 request_id=request_id_bytes,
                 chain_id=self.params.mech_chain_id,
             )
+
+            if self.delivery_mech == ADDRESS_ZERO:
+                return False
 
             result = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
@@ -322,9 +320,10 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         if self.params.use_mech_marketplace:
             self.context.logger.info(
-                f"Using Mech Marketplace Legacy flow: Preparing get_response call with int request ID {request_id_for_specs} using Mech Marketplace ABI."
+                "Using Mech Marketplace Legacy flow: "
+                f"Preparing get_response call with int request ID {request_id_for_specs} using Mech Marketplace ABI."
             )
-            # Note: We rely on _mech_contract_interact using the correct Mech Marketplace ABI via self.params.mech_contract_id
+
             result = yield from self._mech_marketplace_legacy_contract_interact(
                 contract_callable="get_response",
                 data_key="data",
@@ -338,7 +337,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         # Use legacy mech ABI (self.params.mech_contract_id) and int request ID
         self.context.logger.info(
-            f"Using legacy Mech flow: Preparing get_response call with int request ID {request_id_for_specs} using legacy Mech ABI."
+            "Using legacy Mech flow: "
+            f"Preparing get_response call with int request ID {request_id_for_specs} using legacy Mech ABI."
         )
         # Note: We rely on _mech_contract_interact using the correct legacy mech ABI via self.params.mech_contract_id
         result = yield from self._mech_contract_interact(
@@ -387,7 +387,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         self.context.logger.info(
             f"Filtering the Mech's Deliver events from block {self.from_block} "
-            f"for a response to request with id (bytes32) 0x{request_id_bytes.hex() if request_id_bytes else 'None'} or (int) {request_id_for_specs}"
+            f"for a response to request with id (bytes32) {Ox}{request_id_bytes.hex() if request_id_bytes else 'None'} "
+            f"or (int) {request_id_for_specs}."
         )
 
         result = yield from self._prepare_get_response_call(
@@ -395,7 +396,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         )
         if result:
             self.context.logger.info(
-                f"The response was served by delivery mech {self.delivery_mech} for bytes32 request ID 0x{request_id_bytes.hex() if request_id_bytes else 'None'}"
+                f"The response was served by {self.delivery_mech=} "
+                f"for bytes32 request ID {Ox}{request_id_bytes.hex() if request_id_bytes else 'None'}"
             )
             self.set_mech_response_specs(request_id_for_specs)
 
@@ -530,7 +532,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         is_first_pending: bool,
     ) -> bool:
         """Check if a marketplace pending response matches the request (TEMPORARY LOGIC)."""
-        # NOTE: Replace this temporary logic with robust matching for multiple concurrent marketplace requests. if in future we need to support multiple concurrent requests.
+        # NOTE: Replace this temporary logic with robust matching for multiple concurrent marketplace requests if,
+        # in the future, we need to support multiple concurrent requests.
         # This currently assumes the first pending response corresponds to the first event.
         if not is_first_pending:
             # Current temporary logic only attempts to match the first pending response.
@@ -538,7 +541,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         if not hasattr(request, "requestIds") or not request.requestIds:
             self.context.logger.warning(
-                f"Marketplace flow active for first pending response, but parsed request lacks 'requestIds' or list is empty: {request}"
+                "Marketplace flow active for first pending response, "
+                f"but parsed request lacks 'requestIds' or list is empty: {request}"
             )
             return False
 
