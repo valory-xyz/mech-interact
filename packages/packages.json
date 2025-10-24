@@ -1,11 +1,11 @@
 {
     "dev": {
-        "contract/valory/agent_registry/0.1.0": "bafybeigoffynvq7gy7yymwdlhu7zcqxvjgs575vutpbfafpppda6yjgome",
+        "contract/valory/agent_registry/0.1.0": "bafybeibnbbsesuvwp2qnvpsguze3nziyjfkrzkmqq5wk3yh47p6xe2swty",
         "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeieuypdkhxjwo7mj2dm6j3hbojgu7gv7t6kg2hzc5ytlm3ap6xbylq",
-        "contract/valory/mech_marketplace/0.1.0": "bafybeidnldvmalvqr2pui2hga3ydmp7nnlb4rtvtstuo5y3py6tuewv43e",
+        "contract/valory/mech_marketplace/0.1.0": "bafybeifbipo6tpbyzm3sydkk3so6wyflnhy2xbiiomsz7pfriimyrdmcqi",
         "contract/valory/mech/0.1.0": "bafybeifwg3m375sv6i4grdj676qyaqw4hbwzblstahbepia27wwu6pu574",
         "contract/valory/mech_mm/0.1.0": "bafybeigr2sf6zd4oxxkgkezowleso63prda4ofzn2uxcz2izpiyoa7ziq4",
-        "contract/valory/erc20/0.1.0": "bafybeih5frhi4gmjga7tc3qautqxbdxfmkwcxyrhev4gzxcjrkeilcnu7q",
+        "contract/valory/erc20/0.1.0": "bafybeifm3nnmehkhgmwycj7ckqcayomfxnnurd4osjltbtyd2klgtwzize",
         "contract/valory/ierc1155/0.1.0": "bafybeibl6fadczofbzdwtu6gq4yx3rqzbqwhdx6bsar5dpz7m5xsksi7ee",
         "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeiddfqbwfrf53j52pepselgbzv2pawkqdfxgyi6tdb7ewonzpzx3ue",
         "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeihu7upet7aqz4wi4l5zdkfjvkjqtjmckscmnfgzyrguagxm3mziby",
@@ -16,7 +16,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeidxlt74p62dg64qxtjitlqv242h3ei6vbvuixr5su7wijl3cj2fai",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeig6yxeacd6pd3h5oogveh6reemyehrr4bpismlgtfkirxs6wyjt7y",
         "contract/valory/subscription_provider/0.1.0": "bafybeiar63hsdrug6ml64mmkybiszeqaw2qfxugvat3irkdlmwthsmohb4",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeifobdhv43h2qabmlkinsl4gcai62cxti5zsnt2jgnyvr4gcdwrk7e"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeih4b26ocyl2a23rbufzirubhgu67kxpls7kjwbtt4ets2piqxv3zm"
     },
     "third_party": {
         "protocol/open_aea/signing/1.0.0": "bafybeib7p5as3obcdzseiwg5umj2piiqaodkxkto7qh7b552l5emwsmdzm",
