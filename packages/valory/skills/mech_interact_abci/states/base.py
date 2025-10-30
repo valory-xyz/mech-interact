@@ -159,12 +159,14 @@ class SynchronizedData(TxSynchronizedData):
         return str(self.db.get_strict("tx_submitter"))
 
     @property
-    def marketplace_compatibility_cache(self) -> Mapping[str, str]:
-        """Get the marketplace compatibility cache. Format: {mech_address: "v1"|"v2"}"""
-        cache_data = self.db.get("marketplace_compatibility_cache", "{}")
-        if isinstance(cache_data, str):
-            cache_data = json.loads(cache_data)
-        return cast(Mapping[str, str], cache_data)
+    def versioning_check_performed(self) -> bool:
+        """Whether the marketplace versioning check has been performed."""
+        return bool(self.db.get("is_marketplace_v2", None) is not None)
+
+    @property
+    def is_marketplace_v2(self) -> Optional[bool]:
+        """Whether a marketplace V2 is used. True if v2, False if v1, None if no marketplace is used."""
+        return self.db.get_strict("is_marketplace_v2")
 
 
 class MechInteractionRound(CollectSameUntilThresholdRound):
