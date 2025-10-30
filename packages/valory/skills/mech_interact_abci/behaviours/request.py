@@ -848,15 +848,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     def _prepare_safe_tx(self) -> Generator[None, None, bool]:
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
         steps = (
-            [self._detect_marketplace_compatibility]
-            if self.params.use_mech_marketplace
-            else []
-        )
-        steps.extend(
-            (
-                self._fetch_and_validate_payment_type,
-                self._get_price,
-            )
+            self._fetch_and_validate_payment_type,
+            self._get_price,
         )
         for step in steps:
             yield from self.wait_for_condition_with_sleep(step)
@@ -892,7 +885,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                     self.synchronized_data.safe_contract_address,
                     SERIALIZED_EMPTY_LIST,
                     SERIALIZED_EMPTY_LIST,
-                    self.get_updated_compatibility_cache(),
                 )
             yield from self.finish_behaviour(payload)
             return
@@ -933,6 +925,5 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 self.synchronized_data.safe_contract_address,
                 serialized_requests,
                 serialized_responses,
-                self.get_updated_compatibility_cache(),
             )
         yield from self.finish_behaviour(payload)

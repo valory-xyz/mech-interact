@@ -353,13 +353,6 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
     def _get_response_data(self) -> WaitableConditionType:
         """Get the response data from contract with compatibility detection."""
-
-        # Perform compatibility check if not already done
-        if self.params.use_mech_marketplace and not self._compatibility_check_performed:
-            yield from self.wait_for_condition_with_sleep(
-                self._detect_marketplace_compatibility
-            )
-
         if (
             self.params.use_acn_for_delivers
             and self.current_mech_response.response_data is not None
@@ -579,12 +572,6 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self,
     ) -> Generator:
         """Get the response."""
-
-        if self.params.use_mech_marketplace:
-            yield from self.wait_for_condition_with_sleep(
-                self._detect_marketplace_compatibility
-            )
-
         for step in (
             self._get_block_number,
             self._process_request_event,
