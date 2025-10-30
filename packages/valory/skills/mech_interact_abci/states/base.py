@@ -19,10 +19,11 @@
 
 """This module contains the base functionality for the rounds of the mech interact abci app."""
 
+import dataclasses
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Mapping, Optional, Type, cast
+from typing import Any, Dict, List, Mapping, Optional, Set, Type, cast
 
 from packages.valory.skills.abstract_round_abci.base import (
     BaseTxPayload,
@@ -40,6 +41,9 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
 
 
 SERIALIZED_EMPTY_LIST = "[]"
+REQUESTS_FIELD = "totalRequests"
+DELIVERIES_FIELD = "totalDeliveries"
+METADATA_FIELD = "metadata"
 
 
 class Event(Enum):
@@ -95,6 +99,69 @@ class MechInteractionResponse(MechRequest):
     def incorrect_format(self, res: Any) -> None:
         """Set an incorrect format response."""
         self.error = f"The response's format was unexpected: {res}"
+
+
+@dataclasses.dataclass
+class Service:
+    """Structure for a Service."""
+
+    total_requests: int
+    total_deliveries: int
+    metadata: Optional[Dict[str, str]]
+
+    def __post_init__(self):
+        """Handle camelCase fields."""
+        if hasattr(self, REQUESTS_FIELD):
+            self.total_requests = getattr(self, REQUESTS_FIELD)
+            delattr(self, REQUESTS_FIELD)
+        if hasattr(self, DELIVERIES_FIELD):
+            self.total_deliveries = getattr(self, DELIVERIES_FIELD)
+            delattr(self, DELIVERIES_FIELD)
+
+    @property
+    def delivered_ratio(self) -> float:
+        """Return the ratio of the delivered vs total requests."""
+        return self.total_deliveries / self.total_requests
+
+    @property
+    def metadata_str(self) -> Optional[str]:
+        """Return un-nested metadata string."""
+        if self.metadata is None:
+            return None
+        return self.metadata.get(METADATA_FIELD, None)
+
+
+@dataclasses.dataclass
+class MechInfo:
+    """Structure for the Mech information."""
+
+    id: int
+    address: str
+    service: Service
+    # TODO karma and max delivery rate non-optional when implemented on the subgraph
+    karma: int = 0
+    max_delivery_rate: int = 0
+    relevant_tools: Set[str] = field(default_factory=set)
+
+    def __lt__(self, other: "MechInfo") -> bool:
+        """Compare two `MechInfo` objects."""
+        if self.max_delivery_rate != other.max_delivery_rate:
+            return self.max_delivery_rate > other.max_delivery_rate
+
+        delivered_ratio = self.service.delivered_ratio
+        other_delivered_ratio = other.service.delivered_ratio
+        if delivered_ratio != other_delivered_ratio:
+            return delivered_ratio < other_delivered_ratio
+
+        return self.karma < other.karma
+
+    @property
+    def empty_metadata(self) -> bool:
+        """Return whether the metadata is empty."""
+        return self.service.metadata_str is None
+
+
+MechsInfo = List[MechInfo]
 
 
 class SynchronizedData(TxSynchronizedData):
