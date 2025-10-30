@@ -49,4 +49,9 @@ class MechRequestPayload(PrepareTxPayload):
 class MechResponsePayload(BaseTxPayload):
     """Represent a transaction payload for the MechResponseRound."""
 
-    mech_responses: str
+
+@dataclass(frozen=True)
+class VotingPayload(BaseTxPayload):
+    """Represent a transaction payload for voting."""
+
+    vote: Optional[bool]
