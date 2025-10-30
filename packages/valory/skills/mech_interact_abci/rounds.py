@@ -33,11 +33,16 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     SynchronizedData,
 )
 from packages.valory.skills.mech_interact_abci.states.final_states import (
+    FinishedMarketplaceLegacyDetectedRound,
+    FinishedMechLegacyDetectedRound,
     FinishedMechPurchaseSubscriptionRound,
     FinishedMechRequestRound,
     FinishedMechRequestSkipRound,
     FinishedMechResponseRound,
     FinishedMechResponseTimeoutRound,
+)
+from packages.valory.skills.mech_interact_abci.states.mech_version import (
+    MechVersionDetectionRound,
 )
 from packages.valory.skills.mech_interact_abci.states.purchase_subscription import (
     MechPurchaseSubscriptionRound,
@@ -81,9 +86,20 @@ class MechInteractAbciApp(AbciApp[Event]):
         round timeout: 30.0
     """
 
-    initial_round_cls: AppState = MechRequestRound
-    initial_states: Set[AppState] = {MechRequestRound, MechResponseRound}
+    initial_round_cls: AppState = MechVersionDetectionRound
+    initial_states: Set[AppState] = {
+        MechVersionDetectionRound,
+        MechRequestRound,
+        MechResponseRound,
+    }
     transition_function: AbciAppTransitionFunction = {
+        MechVersionDetectionRound: {
+            Event.V2: MechRequestRound,
+            Event.V1: FinishedMarketplaceLegacyDetectedRound,
+            Event.NO_MARKETPLACE: FinishedMechLegacyDetectedRound,
+            Event.NO_MAJORITY: MechVersionDetectionRound,
+            Event.ROUND_TIMEOUT: MechVersionDetectionRound,
+        },
         MechRequestRound: {
             Event.DONE: FinishedMechRequestRound,
             Event.SKIP_REQUEST: FinishedMechRequestSkipRound,
@@ -102,6 +118,8 @@ class MechInteractAbciApp(AbciApp[Event]):
             Event.NO_MAJORITY: MechResponseRound,
             Event.ROUND_TIMEOUT: FinishedMechResponseTimeoutRound,
         },
+        FinishedMarketplaceLegacyDetectedRound: {},
+        FinishedMechLegacyDetectedRound: {},
         FinishedMechRequestRound: {},
         FinishedMechResponseRound: {},
         FinishedMechResponseTimeoutRound: {},
@@ -109,6 +127,8 @@ class MechInteractAbciApp(AbciApp[Event]):
         FinishedMechPurchaseSubscriptionRound: {},
     }
     final_states: Set[AppState] = {
+        FinishedMarketplaceLegacyDetectedRound,
+        FinishedMechLegacyDetectedRound,
         FinishedMechRequestRound,
         FinishedMechResponseRound,
         FinishedMechResponseTimeoutRound,
@@ -120,6 +140,7 @@ class MechInteractAbciApp(AbciApp[Event]):
     }
     cross_period_persisted_keys: Set[str] = {get_name(SynchronizedData.mech_responses)}
     db_pre_conditions: Dict[AppState, Set[str]] = {
+        MechVersionDetectionRound: set(),
         # using `set(get_name(SynchronizedData.mech_requests))`
         # makes the checks complain that "db pre and post conditions intersect"
         MechRequestRound: set(),
@@ -128,6 +149,12 @@ class MechInteractAbciApp(AbciApp[Event]):
         MechResponseRound: set(),
     }
     db_post_conditions: Dict[AppState, Set[str]] = {
+        FinishedMarketplaceLegacyDetectedRound: {
+            get_name(SynchronizedData.is_marketplace_v2),
+        },
+        FinishedMechLegacyDetectedRound: {
+            get_name(SynchronizedData.is_marketplace_v2),
+        },
         FinishedMechRequestRound: {
             get_name(SynchronizedData.tx_submitter),
             get_name(SynchronizedData.most_voted_tx_hash),

@@ -47,6 +47,9 @@ class Event(Enum):
 
     DONE = "done"
     NONE = "none"
+    V1 = "v1"
+    V2 = "v2"
+    NO_MARKETPLACE = "no_marketplace"
     NO_MAJORITY = "no_majority"
     ROUND_TIMEOUT = "round_timeout"
     SKIP_REQUEST = "skip_request"
