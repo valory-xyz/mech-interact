@@ -34,7 +34,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import V1_HEX_PREFIX
 from packages.valory.skills.mech_interact_abci.models import MechResponseSpecs, Ox
-from packages.valory.skills.mech_interact_abci.payloads import MechResponsePayload
+from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     MECH_RESPONSE,
     MechInteractionResponse,
@@ -603,7 +603,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 f"Received mech responses: {self.serialized_responses}"
             )
 
-            payload = MechResponsePayload(
+            payload = JSONPayload(
                 self.context.agent_address,
                 self.serialized_responses,
             )

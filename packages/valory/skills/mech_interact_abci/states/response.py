@@ -20,7 +20,7 @@
 """This module contains the response state of the mech interaction abci app."""
 
 from packages.valory.skills.abstract_round_abci.base import get_name
-from packages.valory.skills.mech_interact_abci.payloads import MechResponsePayload
+from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionRound,
     SynchronizedData,
@@ -30,6 +30,6 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 class MechResponseRound(MechInteractionRound):
     """A round for collecting the responses from a Mech."""
 
-    payload_class = MechResponsePayload
+    payload_class = JSONPayload
     selection_key = get_name(SynchronizedData.mech_responses)
     collection_key = get_name(SynchronizedData.participant_to_responses)

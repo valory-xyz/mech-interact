@@ -200,11 +200,11 @@ class SynchronizedData(TxSynchronizedData):
         return cast(Mapping[str, MechRequestPayload], deserialized)
 
     @property
-    def participant_to_responses(self) -> Mapping[str, MechResponsePayload]:
+    def participant_to_responses(self) -> Mapping[str, JSONPayload]:
         """Get the `participant_to_responses`."""
         serialized = self.db.get_strict("participant_to_responses")
         deserialized = CollectionRound.deserialize_collection(serialized)
-        return cast(Mapping[str, MechResponsePayload], deserialized)
+        return cast(Mapping[str, JSONPayload], deserialized)
 
     @property
     def participant_to_purchase(self) -> Mapping[str, PrepareTxPayload]:
