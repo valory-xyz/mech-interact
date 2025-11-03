@@ -19,8 +19,9 @@
 
 """This module contains the models for the abci skill of MechInteractAbciApp."""
 
+import builtins
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from aea.exceptions import enforce
 from hexbytes import HexBytes
@@ -29,6 +30,7 @@ from autonomy.chain.config import ChainType
 from autonomy.chain.service import NULL_ADDRESS
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
+from packages.valory.protocols.http import HttpMessage
 from packages.valory.skills.abstract_round_abci.models import ApiSpecs, BaseParams
 from packages.valory.skills.abstract_round_abci.models import (
     BenchmarkTool as BaseBenchmarkTool,
@@ -38,14 +40,55 @@ from packages.valory.skills.abstract_round_abci.models import (
     SharedState as BaseSharedState,
 )
 from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
+from packages.valory.skills.mech_interact_abci.states.base import MechInfo, MechsInfo
 
 
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
+MechsSubgraphResponseType = Optional[MechsInfo]
 
 
 PLAN_DID_PREFIX = "did:nv:"
 Ox = "0x"
+
+
+class MechToolsSpecs(ApiSpecs):
+    """A model that wraps ApiSpecs for the Mech agent's tools specifications."""
+
+
+class MechsSubgraph(ApiSpecs):
+    """Specifies `ApiSpecs` with common functionality for the Mechs' subgraph."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize MechsSubgraph."""
+        self.delivery_rate_cap: int = self._ensure("delivery_rate_cap", kwargs, int)
+        super().__init__(*args, **kwargs)
+        self._frozen = True
+
+    def filter_info(self, unfiltered: List[Dict[str, str]]) -> MechsInfo:
+        """Filter the information based on the metadata."""
+        return [
+            mech_info
+            for info in unfiltered
+            if not (mech_info := MechInfo(**info)).empty_metadata
+            and mech_info.max_delivery_rate <= self.delivery_rate_cap
+        ]
+
+    def process_response(self, response: HttpMessage) -> MechsSubgraphResponseType:
+        """Process the response."""
+        res = super().process_response(response)
+        if res is not None:
+            return self.filter_info(res)
+
+        error_data = self.response_info.error_data
+        expected_error_type = getattr(builtins, self.response_info.error_type)
+        if isinstance(error_data, expected_error_type):
+            error_message_key = self.context.params.the_graph_error_message_key
+            error_message = error_data.get(error_message_key, None)
+            if self.context.params.the_graph_payment_required_error in error_message:
+                err = "Payment required for subsequent requests for the current 'The Graph' API key!"
+                self.context.logger.error(err)
+        return None
 
 
 @dataclass

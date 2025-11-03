@@ -190,6 +190,34 @@ models:
         priority_mech_address: '0x0000000000000000000000000000000000000000'
         response_timeout: 300
     class_name: Params
+  mech_tools:
+    args:
+      api_id: mech_tools
+      headers:
+        Content-Type: application/json
+      method: GET
+      parameters: {}
+      response_key: tools
+      response_type: list
+      retries: 5
+      url: ''
+    class_name: MechToolsSpecs
+  mechs_subgraph:
+    args:
+      api_id: mechs
+      headers:
+        Content-Type: application/json
+      method: POST
+      parameters: {}
+      response_key: data:meches
+      response_type: list
+      error_key: errors
+      error_index: 0
+      error_type: dict
+      retries: 5
+      url: https://api.studio.thegraph.com/query/89372/olas-gnosis-mech-marketplace/v0.0.2
+      delivery_rate_cap: 100000000000000
+    class_name: MechsSubgraph
   mech_response:
     args:
       api_id: mech_response
