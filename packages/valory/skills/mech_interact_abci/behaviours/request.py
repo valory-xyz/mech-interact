@@ -749,7 +749,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             data_key="data",
             placeholder=get_name(MechRequestBehaviour.request_data),
             request_data=request_data_bytes,
-            priority_mech=self.mech_marketplace_config.priority_mech_address,
+            priority_mech=self.priority_mech_address,
             payment_data=payment_data_bytes,
             payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
@@ -767,7 +767,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             "data",
             get_name(MechRequestBehaviour.request_data),
             request_data=self._v1_hex_truncated,
-            priority_mech=self.mech_marketplace_config.priority_mech_address,
+            priority_mech=self.priority_mech_address,
             priority_mech_staking_instance=self.mech_marketplace_config.priority_mech_staking_instance_address,
             priority_mech_service_id=self.mech_marketplace_config.priority_mech_service_id,
             requester_staking_instance=self.mech_marketplace_config.requester_staking_instance_address,
@@ -790,15 +790,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_target_contract_address(self) -> str:
-        """Get the target contract address based on the flow being used."""
-        if self.should_use_marketplace_v2():
-            return self.mech_marketplace_config.mech_marketplace_address
-        if self.params.use_mech_marketplace:
-            # Legacy marketplace - might still use marketplace contract but with different flow
-            return self.mech_marketplace_config.mech_marketplace_address
-        return self.params.mech_contract_address
-
     def _build_request_data(self) -> WaitableConditionType:
         """Build the request data by dispatching to the appropriate method."""
         self.context.logger.info("Building request data")
@@ -817,7 +808,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             status = yield from self._build_legacy_request_data()
 
         if status:
-            to = self._get_target_contract_address()
+            to = self.priority_mech_address
             batch = MultisendBatch(
                 to=to,
                 data=HexBytes(self.request_data),
