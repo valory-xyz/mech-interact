@@ -33,13 +33,18 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     SynchronizedData,
 )
 from packages.valory.skills.mech_interact_abci.states.final_states import (
+    FailedMechInformationRound,
     FinishedMarketplaceLegacyDetectedRound,
+    FinishedMechInformationRound,
     FinishedMechLegacyDetectedRound,
     FinishedMechPurchaseSubscriptionRound,
     FinishedMechRequestRound,
     FinishedMechRequestSkipRound,
     FinishedMechResponseRound,
     FinishedMechResponseTimeoutRound,
+)
+from packages.valory.skills.mech_interact_abci.states.mech_info import (
+    MechInformationRound,
 )
 from packages.valory.skills.mech_interact_abci.states.mech_version import (
     MechVersionDetectionRound,
@@ -94,11 +99,17 @@ class MechInteractAbciApp(AbciApp[Event]):
     }
     transition_function: AbciAppTransitionFunction = {
         MechVersionDetectionRound: {
-            Event.V2: MechRequestRound,
+            Event.V2: MechInformationRound,
             Event.V1: FinishedMarketplaceLegacyDetectedRound,
             Event.NO_MARKETPLACE: FinishedMechLegacyDetectedRound,
             Event.NO_MAJORITY: MechVersionDetectionRound,
             Event.ROUND_TIMEOUT: MechVersionDetectionRound,
+        },
+        MechInformationRound: {
+            Event.DONE: FinishedMechInformationRound,
+            Event.NONE: FailedMechInformationRound,
+            Event.NO_MAJORITY: MechInformationRound,
+            Event.ROUND_TIMEOUT: MechInformationRound,
         },
         MechRequestRound: {
             Event.DONE: FinishedMechRequestRound,
@@ -120,6 +131,8 @@ class MechInteractAbciApp(AbciApp[Event]):
         },
         FinishedMarketplaceLegacyDetectedRound: {},
         FinishedMechLegacyDetectedRound: {},
+        FinishedMechInformationRound: {},
+        FailedMechInformationRound: {},
         FinishedMechRequestRound: {},
         FinishedMechResponseRound: {},
         FinishedMechResponseTimeoutRound: {},
@@ -129,6 +142,8 @@ class MechInteractAbciApp(AbciApp[Event]):
     final_states: Set[AppState] = {
         FinishedMarketplaceLegacyDetectedRound,
         FinishedMechLegacyDetectedRound,
+        FinishedMechInformationRound,
+        FailedMechInformationRound,
         FinishedMechRequestRound,
         FinishedMechResponseRound,
         FinishedMechResponseTimeoutRound,
@@ -155,6 +170,14 @@ class MechInteractAbciApp(AbciApp[Event]):
         FinishedMechLegacyDetectedRound: {
             get_name(SynchronizedData.is_marketplace_v2),
         },
+        FinishedMechInformationRound: {
+            get_name(SynchronizedData.is_marketplace_v2),
+            get_name(SynchronizedData.mechs_info),
+            get_name(SynchronizedData.relevant_mechs_info),
+            get_name(SynchronizedData.mech_tools),
+            get_name(SynchronizedData.priority_mech),
+        },
+        FailedMechInformationRound: set(),
         FinishedMechRequestRound: {
             get_name(SynchronizedData.tx_submitter),
             get_name(SynchronizedData.most_voted_tx_hash),
