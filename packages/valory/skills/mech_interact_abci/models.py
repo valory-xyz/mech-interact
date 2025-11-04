@@ -278,12 +278,14 @@ class MechParams(BaseParams):
         )
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
 
-        enforce(
-            not self.use_mech_marketplace
-            or self.mech_contract_address
-            == self.mech_marketplace_config.priority_mech_address,
-            "The mech contract address must be the same as the priority mech address when using the marketplace.",
-        )
+        if self.use_mech_marketplace:
+            self.context.logger.info(
+                "Using mech marketplace for mech interactions. "
+                "The `mech_contract_address` will be ignored. "
+                "The `mech_marketplace_config.priority_mech_address` will be used for V1, "
+                "otherwise, the priority mech will be auto-selected for V2."
+            )
+
         super().__init__(*args, **kwargs)
         # Validate configuration after initialization
         self.validate_configuration()
