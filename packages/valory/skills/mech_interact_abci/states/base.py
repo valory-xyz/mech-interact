@@ -31,8 +31,8 @@ from packages.valory.skills.abstract_round_abci.base import (
     CollectionRound,
 )
 from packages.valory.skills.mech_interact_abci.payloads import (
+    JSONPayload,
     MechRequestPayload,
-    MechResponsePayload,
     PrepareTxPayload,
 )
 from packages.valory.skills.transaction_settlement_abci.rounds import (
@@ -172,6 +172,35 @@ class SynchronizedData(TxSynchronizedData):
     """
 
     @property
+    def mechs_info(self) -> MechsInfo:
+        """Get the mechs' information."""
+        mech_info = self.db.get("mech_info", SERIALIZED_EMPTY_LIST)
+        if isinstance(mech_info, str):
+            mech_info = json.loads(mech_info)
+        return [MechInfo(**item) for item in mech_info]
+
+    @property
+    def relevant_mechs_info(self) -> MechsInfo:
+        """Get the relevant mechs' information."""
+        return [info for info in self.mechs_info if info.relevant_tools]
+
+    @property
+    def mech_tools(self) -> Set[str]:
+        """Get the mechs' tools."""
+        return {
+            tool for mech_info in self.mechs_info for tool in mech_info.relevant_tools
+        }
+
+    @property
+    def priority_mech(
+        self,
+    ) -> Optional[str]:
+        """Get the priority mech."""
+        if self.relevant_mechs_info:
+            return max(self.relevant_mechs_info).address
+        return None
+
+    @property
     def mech_price(self) -> int:
         """Get the mech's request price."""
         return int(self.db.get_strict("mech_price"))
@@ -191,6 +220,13 @@ class SynchronizedData(TxSynchronizedData):
         if isinstance(responses, str):
             responses = json.loads(responses)
         return [MechInteractionResponse(**response_item) for response_item in responses]
+
+    @property
+    def participant_to_info(self) -> Mapping[str, JSONPayload]:
+        """Get the `participant_to_info`."""
+        serialized = self.db.get_strict("participant_to_info")
+        deserialized = CollectionRound.deserialize_collection(serialized)
+        return cast(Mapping[str, JSONPayload], deserialized)
 
     @property
     def participant_to_requests(self) -> Mapping[str, MechRequestPayload]:
