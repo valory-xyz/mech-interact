@@ -102,7 +102,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         # Initialize internal attributes that will hold on-chain values once fetched
         self.token_balance: int = 0
         self.wallet_balance: int = 0
-        self._mech_payment_type: Optional[PaymentType] = None
+        self._mech_payment_type: PaymentType = PaymentType.NATIVE
         self._mech_max_delivery_rate: Optional[int] = None
         self._subscription_balance: Optional[int] = None
         self._nvm_balance: Optional[int] = None
@@ -137,12 +137,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price = price
 
     @property
-    def mech_payment_type(self) -> Optional[PaymentType]:
+    def mech_payment_type(self) -> PaymentType:
         """Get the fetched mech payment type."""
-        if self._mech_payment_type is None:
-            self.context.logger.error(
-                "Accessing mech_payment_type before it has been fetched."
-            )
         return self._mech_payment_type
 
     @mech_payment_type.setter
@@ -574,13 +570,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             self.context.logger.error("Failed to get payment type from contract")
             return False
 
-        # Verify the attribute was set (optional, property handles None)
-        if self.mech_payment_type is None:
-            self.context.logger.error(
-                "Payment type attribute not set correctly after contract call."
-            )
-            return False
-
         self.context.logger.info(f"Payment type fetched: {self.mech_payment_type}")
         return True
 
@@ -633,12 +622,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Getting payment type")
         if not (yield from self._get_payment_type()):
             self.context.logger.error("Failed step: Could not get payment type.")
-            return False
-
-        if self.mech_payment_type is None:
-            self.context.logger.error(
-                "Payment type was not successfully fetched or is unexpectedly None."
-            )
             return False
 
         return True
