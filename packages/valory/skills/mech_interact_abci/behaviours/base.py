@@ -88,7 +88,12 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
     @property
     def mech_marketplace_config(self) -> MechMarketplaceConfig:
         """Return the mech marketplace config."""
-        return cast(MechMarketplaceConfig, self.context.params.mech_marketplace_config)
+        return self.params.mech_marketplace_config
+
+    @property
+    def marketplace_address(self) -> str:
+        """Get the mech marketplace address."""
+        return self.mech_marketplace_config.mech_marketplace_address
 
     @property
     def safe_tx_hash(self) -> str:
@@ -237,7 +242,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         """Interact with the mech marketplace contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.mech_marketplace_config.mech_marketplace_address,
+            contract_address=self.marketplace_address,
             contract_public_id=MechMarketplace.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -256,7 +261,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         """Interact with the mech marketplace contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.mech_marketplace_config.mech_marketplace_address,
+            contract_address=self.marketplace_address,
             contract_public_id=MechMarketplaceLegacy.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
