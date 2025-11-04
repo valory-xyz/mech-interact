@@ -276,6 +276,7 @@ class MechParams(BaseParams):
         self.use_acn_for_delivers: bool = self._ensure(
             "use_acn_for_delivers", kwargs, bool
         )
+        self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
 
         enforce(
             not self.use_mech_marketplace

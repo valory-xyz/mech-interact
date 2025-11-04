@@ -189,6 +189,15 @@ models:
         mech_marketplace_address: '0x0000000000000000000000000000000000000000'
         priority_mech_address: '0x0000000000000000000000000000000000000000'
         response_timeout: 300
+      irrelevant_tools:
+      - openai-text-davinci-002
+      - openai-text-davinci-003
+      - openai-gpt-3.5-turbo
+      - openai-gpt-4
+      - stabilityai-stable-diffusion-v1-5
+      - stabilityai-stable-diffusion-xl-beta-v2-2-2
+      - stabilityai-stable-diffusion-512-v2-1
+      - stabilityai-stable-diffusion-768-v2-1
     class_name: Params
   mech_tools:
     args:
