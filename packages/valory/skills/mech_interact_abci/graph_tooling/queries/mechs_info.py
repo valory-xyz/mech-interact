@@ -23,7 +23,6 @@
 from string import Template
 
 
-# TODO add karma and max delivery rate when implemented on the subgraph
 info = Template(
     """
         {
@@ -31,12 +30,17 @@ info = Template(
                 first: ${first},
                 orderBy: id,
                 orderDirection: asc,
-                where: {id_gt: "${mechs_id_gt}", service_: {totalDeliveries_gt: 0}}
+                where: {
+                    id_gt: "${mechs_id_gt}",
+                    service_: {totalDeliveries_gt: 0}
+                }
             ) {
                 address
+                maxDeliveryRate
+                karma
+                undeliveredRequests
                 service {
                     id
-                    totalRequests
                     totalDeliveries
                     metadata {
                         metadata

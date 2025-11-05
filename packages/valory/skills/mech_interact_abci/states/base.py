@@ -41,8 +41,6 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
 
 
 SERIALIZED_EMPTY_LIST = "[]"
-REQUESTS_FIELD = "totalRequests"
-DELIVERIES_FIELD = "totalDeliveries"
 METADATA_FIELD = "metadata"
 
 
@@ -105,23 +103,7 @@ class MechInteractionResponse(MechRequest):
 class Service:
     """Structure for a Service."""
 
-    total_requests: int
-    total_deliveries: int
     metadata: Optional[Dict[str, str]]
-
-    def __post_init__(self):
-        """Handle camelCase fields."""
-        if hasattr(self, REQUESTS_FIELD):
-            self.total_requests = getattr(self, REQUESTS_FIELD)
-            delattr(self, REQUESTS_FIELD)
-        if hasattr(self, DELIVERIES_FIELD):
-            self.total_deliveries = getattr(self, DELIVERIES_FIELD)
-            delattr(self, DELIVERIES_FIELD)
-
-    @property
-    def delivered_ratio(self) -> float:
-        """Return the ratio of the delivered vs total requests."""
-        return self.total_deliveries / self.total_requests
 
     @property
     def metadata_str(self) -> Optional[str]:
@@ -138,20 +120,27 @@ class MechInfo:
     id: int
     address: str
     service: Service
-    # TODO karma and max delivery rate non-optional when implemented on the subgraph
-    karma: int = 0
+    karma: int
+    undeliveredRequests: dataclasses.InitVar[int]
+    maxDeliveryRate: dataclasses.InitVar[int]
+    undelivered_requests: int = 0
     max_delivery_rate: int = 0
     relevant_tools: Set[str] = field(default_factory=set)
+
+    def __post_init__(self, undeliveredRequests: int, maxDeliveryRate: int) -> None:
+        """Handle camelCase fields and serialize service if passed as a dict."""
+        if isinstance(self.service, Dict):
+            self.service = Service(**self.service)
+        self.undelivered_requests = int(undeliveredRequests)
+        self.max_delivery_rate = int(maxDeliveryRate)
 
     def __lt__(self, other: "MechInfo") -> bool:
         """Compare two `MechInfo` objects."""
         if self.max_delivery_rate != other.max_delivery_rate:
             return self.max_delivery_rate > other.max_delivery_rate
 
-        delivered_ratio = self.service.delivered_ratio
-        other_delivered_ratio = other.service.delivered_ratio
-        if delivered_ratio != other_delivered_ratio:
-            return delivered_ratio < other_delivered_ratio
+        if self.undelivered_requests != other.undelivered_requests:
+            return self.undelivered_requests > other.undelivered_requests
 
         return self.karma < other.karma
 
