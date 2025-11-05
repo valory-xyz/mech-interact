@@ -179,43 +179,15 @@ class MechMarketplaceConfig:
     """The configuration for the Mech marketplace."""
 
     mech_marketplace_address: str
-    priority_mech_address: str
-    priority_mech_staking_instance_address: Optional[str]
-    priority_mech_service_id: Optional[int]
-    requester_staking_instance_address: Optional[str]
     response_timeout: int
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MechMarketplaceConfig":
-        """Create an instance from a dictionary."""
-        if not data["priority_mech_staking_instance_address"]:
-            data["priority_mech_staking_instance_address"] = NULL_ADDRESS
-
-        if not data["requester_staking_instance_address"]:
-            data["requester_staking_instance_address"] = NULL_ADDRESS
-
-        if not data["priority_mech_service_id"]:
-            data["priority_mech_service_id"] = 975
-
-        return cls(
-            mech_marketplace_address=data["mech_marketplace_address"],
-            priority_mech_address=data["priority_mech_address"],
-            priority_mech_staking_instance_address=data[
-                "priority_mech_staking_instance_address"
-            ],
-            priority_mech_service_id=data.get("priority_mech_service_id"),
-            requester_staking_instance_address=data[
-                "requester_staking_instance_address"
-            ],
-            response_timeout=data["response_timeout"],
-        )
+    priority_mech_address: Optional[str] = None
+    priority_mech_staking_instance_address: str = NULL_ADDRESS
+    priority_mech_service_id: int = 975
+    requester_staking_instance_address: Optional[str] = NULL_ADDRESS
+    use_dynamic_mech_selection: bool = True
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
-        if not self.mech_marketplace_address:
-            raise ValueError("mech_marketplace_address cannot be empty")
-        if not self.priority_mech_address:
-            raise ValueError("priority_mech_address cannot be empty")
         if self.response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
 
@@ -265,9 +237,19 @@ class MechParams(BaseParams):
         self.use_mech_marketplace: bool = self._ensure(
             "use_mech_marketplace", kwargs, bool
         )
-        self.mech_marketplace_config: MechMarketplaceConfig = (
-            MechMarketplaceConfig.from_dict(kwargs["mech_marketplace_config"])
+        self.mech_marketplace_config: MechMarketplaceConfig = MechMarketplaceConfig(
+            **kwargs["mech_marketplace_config"]
         )
+
+        if (
+            self.mech_marketplace_config.use_dynamic_mech_selection
+            and self.mech_marketplace_config.priority_mech_address
+        ):
+            self.context.logger.info(
+                "A priority mech has been set while dynamic mech selection is enabled. "
+                "The priority mech will be ignored."
+            )
+
         self.agent_registry_address: str = kwargs.get("agent_registry_address")
         enforce(
             self.agent_registry_address is not None,
@@ -316,9 +298,13 @@ class MechParams(BaseParams):
                     raise ValueError(
                         "mech_marketplace_address is required when use_mech_marketplace is True"
                     )
-                if not self.mech_marketplace_config.priority_mech_address:
+                if (
+                    not self.mech_marketplace_config.priority_mech_address
+                    and not self.mech_marketplace_config.use_dynamic_mech_selection
+                ):
                     raise ValueError(
-                        "priority_mech_address is required when use_mech_marketplace is True"
+                        "priority_mech_address is required "
+                        "when use_mech_marketplace is True and use_dynamic_mech_selection is False"
                     )
 
             # Validate sleep time
