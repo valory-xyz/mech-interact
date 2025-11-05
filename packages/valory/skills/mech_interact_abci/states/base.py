@@ -192,7 +192,7 @@ class SynchronizedData(TxSynchronizedData):
         }
 
     @property
-    def priority_mech(
+    def priority_mech_address(
         self,
     ) -> Optional[str]:
         """Get the priority mech."""

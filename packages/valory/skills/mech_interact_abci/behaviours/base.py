@@ -221,7 +221,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
     def priority_mech_address(self) -> str:
         """Get the priority mech's address."""
         if self.should_use_marketplace_v2():
-            return self.synchronized_data.priority_mech
+            return self.synchronized_data.priority_mech_address
         if self.params.use_mech_marketplace:
             return self.mech_marketplace_config.priority_mech_address
         return self.params.mech_contract_address
