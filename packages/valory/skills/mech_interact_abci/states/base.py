@@ -192,12 +192,21 @@ class SynchronizedData(TxSynchronizedData):
         }
 
     @property
+    def priority_mech(
+        self,
+    ) -> Optional[MechInfo]:
+        """Get the priority mech."""
+        if self.relevant_mechs_info:
+            return max(self.relevant_mechs_info)
+        return None
+
+    @property
     def priority_mech_address(
         self,
     ) -> Optional[str]:
-        """Get the priority mech."""
-        if self.relevant_mechs_info:
-            return max(self.relevant_mechs_info).address
+        """Get the priority mech's address."""
+        if self.priority_mech:
+            return self.priority_mech.address
         return None
 
     @property
