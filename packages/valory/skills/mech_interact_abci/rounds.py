@@ -59,33 +59,48 @@ from packages.valory.skills.mech_interact_abci.states.response import MechRespon
 class MechInteractAbciApp(AbciApp[Event]):
     """MechInteractAbciApp
 
-    Initial round: MechRequestRound
+    Initial round: MechVersionDetectionRound
 
-    Initial states: {MechRequestRound, MechResponseRound}
+    Initial states: {MechRequestRound, MechResponseRound, MechVersionDetectionRound}
 
     Transition states:
-        0. MechRequestRound
-            - done: 3.
-            - skip request: 6.
-            - buy subscription: 1.
+        0. MechVersionDetectionRound
+            - v2: 1.
+            - v1: 5.
+            - no marketplace: 6.
             - no majority: 0.
             - round timeout: 0.
-        1. MechPurchaseSubscriptionRound
+        1. MechInformationRound
             - done: 7.
-            - none: 1.
+            - none: 8.
             - no majority: 1.
             - round timeout: 1.
-        2. MechResponseRound
-            - done: 4.
+        2. MechRequestRound
+            - done: 9.
+            - skip request: 12.
+            - buy subscription: 3.
             - no majority: 2.
-            - round timeout: 5.
-        3. FinishedMechRequestRound
-        4. FinishedMechResponseRound
-        5. FinishedMechResponseTimeoutRound
-        6. FinishedMechRequestSkipRound
-        7. FinishedMechPurchaseSubscriptionRound
+            - round timeout: 2.
+        3. MechPurchaseSubscriptionRound
+            - done: 13.
+            - none: 3.
+            - no majority: 3.
+            - round timeout: 3.
+        4. MechResponseRound
+            - done: 10.
+            - no majority: 4.
+            - round timeout: 11.
+        5. FinishedMarketplaceLegacyDetectedRound
+        6. FinishedMechLegacyDetectedRound
+        7. FinishedMechInformationRound
+        8. FailedMechInformationRound
+        9. FinishedMechRequestRound
+        10. FinishedMechResponseRound
+        11. FinishedMechResponseTimeoutRound
+        12. FinishedMechRequestSkipRound
+        13. FinishedMechPurchaseSubscriptionRound
 
-    Final states: {FinishedMechPurchaseSubscriptionRound, FinishedMechRequestRound, FinishedMechRequestSkipRound, FinishedMechResponseRound, FinishedMechResponseTimeoutRound}
+    Final states: {FailedMechInformationRound, FinishedMarketplaceLegacyDetectedRound, FinishedMechInformationRound, FinishedMechLegacyDetectedRound, FinishedMechPurchaseSubscriptionRound, FinishedMechRequestRound, FinishedMechRequestSkipRound, FinishedMechResponseRound, FinishedMechResponseTimeoutRound}
 
     Timeouts:
         round timeout: 30.0
