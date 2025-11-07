@@ -3,10 +3,17 @@ alphabet_in:
 - DONE
 - NONE
 - NO_MAJORITY
+- NO_MARKETPLACE
 - ROUND_TIMEOUT
 - SKIP_REQUEST
-default_start_state: MechRequestRound
+- V1
+- V2
+default_start_state: MechVersionDetectionRound
 final_states:
+- FailedMechInformationRound
+- FinishedMarketplaceLegacyDetectedRound
+- FinishedMechInformationRound
+- FinishedMechLegacyDetectedRound
 - FinishedMechPurchaseSubscriptionRound
 - FinishedMechRequestRound
 - FinishedMechRequestSkipRound
@@ -16,16 +23,27 @@ label: MechInteractAbciApp
 start_states:
 - MechRequestRound
 - MechResponseRound
+- MechVersionDetectionRound
 states:
+- FailedMechInformationRound
+- FinishedMarketplaceLegacyDetectedRound
+- FinishedMechInformationRound
+- FinishedMechLegacyDetectedRound
 - FinishedMechPurchaseSubscriptionRound
 - FinishedMechRequestRound
 - FinishedMechRequestSkipRound
 - FinishedMechResponseRound
 - FinishedMechResponseTimeoutRound
+- MechInformationRound
 - MechPurchaseSubscriptionRound
 - MechRequestRound
 - MechResponseRound
+- MechVersionDetectionRound
 transition_func:
+    (MechInformationRound, DONE): FinishedMechInformationRound
+    (MechInformationRound, NONE): FailedMechInformationRound
+    (MechInformationRound, NO_MAJORITY): MechInformationRound
+    (MechInformationRound, ROUND_TIMEOUT): MechInformationRound
     (MechPurchaseSubscriptionRound, DONE): FinishedMechPurchaseSubscriptionRound
     (MechPurchaseSubscriptionRound, NONE): MechPurchaseSubscriptionRound
     (MechPurchaseSubscriptionRound, NO_MAJORITY): MechPurchaseSubscriptionRound
@@ -38,3 +56,8 @@ transition_func:
     (MechResponseRound, DONE): FinishedMechResponseRound
     (MechResponseRound, NO_MAJORITY): MechResponseRound
     (MechResponseRound, ROUND_TIMEOUT): FinishedMechResponseTimeoutRound
+    (MechVersionDetectionRound, NO_MAJORITY): MechVersionDetectionRound
+    (MechVersionDetectionRound, NO_MARKETPLACE): FinishedMechLegacyDetectedRound
+    (MechVersionDetectionRound, ROUND_TIMEOUT): MechVersionDetectionRound
+    (MechVersionDetectionRound, V1): FinishedMarketplaceLegacyDetectedRound
+    (MechVersionDetectionRound, V2): MechInformationRound
