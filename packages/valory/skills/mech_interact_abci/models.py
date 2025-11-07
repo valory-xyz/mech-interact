@@ -19,8 +19,9 @@
 
 """This module contains the models for the abci skill of MechInteractAbciApp."""
 
+import builtins
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from aea.exceptions import enforce
 from hexbytes import HexBytes
@@ -29,6 +30,7 @@ from autonomy.chain.config import ChainType
 from autonomy.chain.service import NULL_ADDRESS
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
+from packages.valory.protocols.http import HttpMessage
 from packages.valory.skills.abstract_round_abci.models import ApiSpecs, BaseParams
 from packages.valory.skills.abstract_round_abci.models import (
     BenchmarkTool as BaseBenchmarkTool,
@@ -38,14 +40,55 @@ from packages.valory.skills.abstract_round_abci.models import (
     SharedState as BaseSharedState,
 )
 from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
+from packages.valory.skills.mech_interact_abci.states.base import MechInfo, MechsInfo
 
 
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
+MechsSubgraphResponseType = Optional[MechsInfo]
 
 
 PLAN_DID_PREFIX = "did:nv:"
 Ox = "0x"
+
+
+class MechToolsSpecs(ApiSpecs):
+    """A model that wraps ApiSpecs for the Mech agent's tools specifications."""
+
+
+class MechsSubgraph(ApiSpecs):
+    """Specifies `ApiSpecs` with common functionality for the Mechs' subgraph."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize MechsSubgraph."""
+        self.delivery_rate_cap: int = self._ensure("delivery_rate_cap", kwargs, int)
+        super().__init__(*args, **kwargs)
+        self._frozen = True
+
+    def filter_info(self, unfiltered: List[Dict[str, str]]) -> MechsInfo:
+        """Filter the information based on the metadata."""
+        return [
+            mech_info
+            for info in unfiltered
+            if not (mech_info := MechInfo(**info)).empty_metadata
+            and mech_info.max_delivery_rate <= self.delivery_rate_cap
+        ]
+
+    def process_response(self, response: HttpMessage) -> MechsSubgraphResponseType:
+        """Process the response."""
+        res = super().process_response(response)
+        if res is not None:
+            return self.filter_info(res)
+
+        error_data = self.response_info.error_data
+        expected_error_type = getattr(builtins, self.response_info.error_type)
+        if isinstance(error_data, expected_error_type):
+            error_message_key = self.context.params.the_graph_error_message_key
+            error_message = error_data.get(error_message_key, None)
+            if self.context.params.the_graph_payment_required_error in error_message:
+                err = "Payment required for subsequent requests for the current 'The Graph' API key!"
+                self.context.logger.error(err)
+        return None
 
 
 @dataclass
@@ -136,43 +179,15 @@ class MechMarketplaceConfig:
     """The configuration for the Mech marketplace."""
 
     mech_marketplace_address: str
-    priority_mech_address: str
-    priority_mech_staking_instance_address: Optional[str]
-    priority_mech_service_id: Optional[int]
-    requester_staking_instance_address: Optional[str]
     response_timeout: int
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MechMarketplaceConfig":
-        """Create an instance from a dictionary."""
-        if not data["priority_mech_staking_instance_address"]:
-            data["priority_mech_staking_instance_address"] = NULL_ADDRESS
-
-        if not data["requester_staking_instance_address"]:
-            data["requester_staking_instance_address"] = NULL_ADDRESS
-
-        if not data["priority_mech_service_id"]:
-            data["priority_mech_service_id"] = 975
-
-        return cls(
-            mech_marketplace_address=data["mech_marketplace_address"],
-            priority_mech_address=data["priority_mech_address"],
-            priority_mech_staking_instance_address=data[
-                "priority_mech_staking_instance_address"
-            ],
-            priority_mech_service_id=data.get("priority_mech_service_id"),
-            requester_staking_instance_address=data[
-                "requester_staking_instance_address"
-            ],
-            response_timeout=data["response_timeout"],
-        )
+    priority_mech_address: Optional[str] = None
+    priority_mech_staking_instance_address: str = NULL_ADDRESS
+    priority_mech_service_id: int = 975
+    requester_staking_instance_address: Optional[str] = NULL_ADDRESS
+    use_dynamic_mech_selection: bool = True
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
-        if not self.mech_marketplace_address:
-            raise ValueError("mech_marketplace_address cannot be empty")
-        if not self.priority_mech_address:
-            raise ValueError("priority_mech_address cannot be empty")
         if self.response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
 
@@ -222,9 +237,19 @@ class MechParams(BaseParams):
         self.use_mech_marketplace: bool = self._ensure(
             "use_mech_marketplace", kwargs, bool
         )
-        self.mech_marketplace_config: MechMarketplaceConfig = (
-            MechMarketplaceConfig.from_dict(kwargs["mech_marketplace_config"])
+        self.mech_marketplace_config: MechMarketplaceConfig = MechMarketplaceConfig(
+            **kwargs["mech_marketplace_config"]
         )
+
+        if (
+            self.mech_marketplace_config.use_dynamic_mech_selection
+            and self.mech_marketplace_config.priority_mech_address
+        ):
+            self.context.logger.info(
+                "A priority mech has been set while dynamic mech selection is enabled. "
+                "The priority mech will be ignored."
+            )
+
         self.agent_registry_address: str = kwargs.get("agent_registry_address")
         enforce(
             self.agent_registry_address is not None,
@@ -233,13 +258,16 @@ class MechParams(BaseParams):
         self.use_acn_for_delivers: bool = self._ensure(
             "use_acn_for_delivers", kwargs, bool
         )
+        self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
 
-        enforce(
-            not self.use_mech_marketplace
-            or self.mech_contract_address
-            == self.mech_marketplace_config.priority_mech_address,
-            "The mech contract address must be the same as the priority mech address when using the marketplace.",
-        )
+        if self.use_mech_marketplace:
+            self.context.logger.info(
+                "Using mech marketplace for mech interactions. "
+                "The `mech_contract_address` will be ignored. "
+                "The `mech_marketplace_config.priority_mech_address` will be used for V1, "
+                "otherwise, the priority mech will be auto-selected for V2."
+            )
+
         super().__init__(*args, **kwargs)
         # Validate configuration after initialization
         self.validate_configuration()
@@ -270,9 +298,13 @@ class MechParams(BaseParams):
                     raise ValueError(
                         "mech_marketplace_address is required when use_mech_marketplace is True"
                     )
-                if not self.mech_marketplace_config.priority_mech_address:
+                if (
+                    not self.mech_marketplace_config.priority_mech_address
+                    and not self.mech_marketplace_config.use_dynamic_mech_selection
+                ):
                     raise ValueError(
-                        "priority_mech_address is required when use_mech_marketplace is True"
+                        "priority_mech_address is required "
+                        "when use_mech_marketplace is True and use_dynamic_mech_selection is False"
                     )
 
             # Validate sleep time

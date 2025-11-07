@@ -19,10 +19,11 @@
 
 """This module contains the base functionality for the rounds of the mech interact abci app."""
 
+import dataclasses
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Mapping, Optional, Type, cast
+from typing import Any, Dict, List, Mapping, Optional, Set, Type, cast
 
 from packages.valory.skills.abstract_round_abci.base import (
     BaseTxPayload,
@@ -30,8 +31,8 @@ from packages.valory.skills.abstract_round_abci.base import (
     CollectionRound,
 )
 from packages.valory.skills.mech_interact_abci.payloads import (
+    JSONPayload,
     MechRequestPayload,
-    MechResponsePayload,
     PrepareTxPayload,
 )
 from packages.valory.skills.transaction_settlement_abci.rounds import (
@@ -40,6 +41,7 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
 
 
 SERIALIZED_EMPTY_LIST = "[]"
+METADATA_FIELD = "metadata"
 
 
 class Event(Enum):
@@ -97,12 +99,104 @@ class MechInteractionResponse(MechRequest):
         self.error = f"The response's format was unexpected: {res}"
 
 
+@dataclasses.dataclass
+class Service:
+    """Structure for a Service."""
+
+    metadata: Optional[Dict[str, str]]
+
+    @property
+    def metadata_str(self) -> Optional[str]:
+        """Return un-nested metadata string."""
+        if self.metadata is None:
+            return None
+        return self.metadata.get(METADATA_FIELD, None)
+
+
+@dataclasses.dataclass
+class MechInfo:
+    """Structure for the Mech information."""
+
+    id: int
+    address: str
+    service: Service
+    karma: int
+    undeliveredRequests: dataclasses.InitVar[int]
+    maxDeliveryRate: dataclasses.InitVar[int]
+    undelivered_requests: int = 0
+    max_delivery_rate: int = 0
+    relevant_tools: Set[str] = field(default_factory=set)
+
+    def __post_init__(self, undeliveredRequests: int, maxDeliveryRate: int) -> None:
+        """Handle camelCase fields and serialize service if passed as a dict."""
+        if isinstance(self.service, Dict):
+            self.service = Service(**self.service)
+        self.undelivered_requests = int(undeliveredRequests)
+        self.max_delivery_rate = int(maxDeliveryRate)
+
+    def __lt__(self, other: "MechInfo") -> bool:
+        """Compare two `MechInfo` objects."""
+        if self.max_delivery_rate != other.max_delivery_rate:
+            return self.max_delivery_rate > other.max_delivery_rate
+
+        if self.undelivered_requests != other.undelivered_requests:
+            return self.undelivered_requests > other.undelivered_requests
+
+        return self.karma < other.karma
+
+    @property
+    def empty_metadata(self) -> bool:
+        """Return whether the metadata is empty."""
+        return self.service.metadata_str is None
+
+
+MechsInfo = List[MechInfo]
+
+
 class SynchronizedData(TxSynchronizedData):
     """
     Class to represent the synchronized data.
 
     This data is replicated by the tendermint application.
     """
+
+    @property
+    def mechs_info(self) -> MechsInfo:
+        """Get the mechs' information."""
+        mech_info = self.db.get("mech_info", SERIALIZED_EMPTY_LIST)
+        if isinstance(mech_info, str):
+            mech_info = json.loads(mech_info)
+        return [MechInfo(**item) for item in mech_info]
+
+    @property
+    def relevant_mechs_info(self) -> MechsInfo:
+        """Get the relevant mechs' information."""
+        return [info for info in self.mechs_info if info.relevant_tools]
+
+    @property
+    def mech_tools(self) -> Set[str]:
+        """Get the mechs' tools."""
+        return {
+            tool for mech_info in self.mechs_info for tool in mech_info.relevant_tools
+        }
+
+    @property
+    def priority_mech(
+        self,
+    ) -> Optional[MechInfo]:
+        """Get the priority mech."""
+        if self.relevant_mechs_info:
+            return max(self.relevant_mechs_info)
+        return None
+
+    @property
+    def priority_mech_address(
+        self,
+    ) -> Optional[str]:
+        """Get the priority mech's address."""
+        if self.priority_mech:
+            return self.priority_mech.address
+        return None
 
     @property
     def mech_price(self) -> int:
@@ -126,6 +220,13 @@ class SynchronizedData(TxSynchronizedData):
         return [MechInteractionResponse(**response_item) for response_item in responses]
 
     @property
+    def participant_to_info(self) -> Mapping[str, JSONPayload]:
+        """Get the `participant_to_info`."""
+        serialized = self.db.get_strict("participant_to_info")
+        deserialized = CollectionRound.deserialize_collection(serialized)
+        return cast(Mapping[str, JSONPayload], deserialized)
+
+    @property
     def participant_to_requests(self) -> Mapping[str, MechRequestPayload]:
         """Get the `participant_to_requests`."""
         serialized = self.db.get_strict("participant_to_requests")
@@ -133,11 +234,11 @@ class SynchronizedData(TxSynchronizedData):
         return cast(Mapping[str, MechRequestPayload], deserialized)
 
     @property
-    def participant_to_responses(self) -> Mapping[str, MechResponsePayload]:
+    def participant_to_responses(self) -> Mapping[str, JSONPayload]:
         """Get the `participant_to_responses`."""
         serialized = self.db.get_strict("participant_to_responses")
         deserialized = CollectionRound.deserialize_collection(serialized)
-        return cast(Mapping[str, MechResponsePayload], deserialized)
+        return cast(Mapping[str, JSONPayload], deserialized)
 
     @property
     def participant_to_purchase(self) -> Mapping[str, PrepareTxPayload]:

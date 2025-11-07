@@ -45,8 +45,10 @@ class MechRequestPayload(PrepareTxPayload):
 
 
 @dataclass(frozen=True)
-class MechResponsePayload(BaseTxPayload):
-    """Represent a transaction payload for the MechResponseRound."""
+class JSONPayload(BaseTxPayload):
+    """Represent a transaction payload for information serialized as a JSON string."""
+
+    information: Optional[str]
 
 
 @dataclass(frozen=True)

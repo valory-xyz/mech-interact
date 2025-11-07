@@ -102,8 +102,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         # Initialize internal attributes that will hold on-chain values once fetched
         self.token_balance: int = 0
         self.wallet_balance: int = 0
-        self._mech_payment_type: Optional[PaymentType] = None
-        self._mech_max_delivery_rate: Optional[int] = None
+        self._mech_payment_type: PaymentType = PaymentType.NATIVE
         self._subscription_balance: Optional[int] = None
         self._nvm_balance: Optional[int] = None
         self._subscription_address: Optional[str] = None
@@ -137,12 +136,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price = price
 
     @property
-    def mech_payment_type(self) -> Optional[PaymentType]:
+    def mech_payment_type(self) -> PaymentType:
         """Get the fetched mech payment type."""
-        if self._mech_payment_type is None:
-            self.context.logger.error(
-                "Accessing mech_payment_type before it has been fetched."
-            )
         return self._mech_payment_type
 
     @mech_payment_type.setter
@@ -223,13 +218,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         return self._subscription_id
 
     @property
-    def mech_max_delivery_rate(self) -> Optional[int]:
+    def mech_max_delivery_rate(self) -> int:
         """Get the fetched max delivery rate."""
-        if self._mech_max_delivery_rate is None:
-            self.context.logger.error(
-                "Accessing mech_max_delivery_rate before it has been fetched."
-            )
-        return self._mech_max_delivery_rate
+        return self.synchronized_data.priority_mech.max_delivery_rate
 
     @property
     def balance_tracker(self) -> Optional[str]:
@@ -574,43 +565,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             self.context.logger.error("Failed to get payment type from contract")
             return False
 
-        # Verify the attribute was set (optional, property handles None)
-        if self.mech_payment_type is None:
-            self.context.logger.error(
-                "Payment type attribute not set correctly after contract call."
-            )
-            return False
-
         self.context.logger.info(f"Payment type fetched: {self.mech_payment_type}")
-        return True
-
-    def _get_max_delivery_rate(self) -> WaitableConditionType:
-        """Get max delivery rate from the mech contract. Returns True on success, False otherwise."""
-        status = yield from self._mech_mm_contract_interact(
-            contract_callable="get_max_delivery_rate",
-            data_key="max_delivery_rate",
-            placeholder="_mech_max_delivery_rate",  # Store in private attribute
-            chain_id=self.params.mech_chain_id,
-        )
-        if not status:
-            # This might be acceptable depending on the contract.
-            self.context.logger.warning(
-                "Failed step: Could not get max delivery rate. Proceeding without it."
-            )
-            # No need to explicitly set attribute to None, property will return None
-            return True  # Return True as the step itself didn't fail catastrophically, just didn't get the value
-
-        # Verify the attribute was set (optional, property handles None)
-        if self.mech_max_delivery_rate is None:
-            self.context.logger.error(
-                "Max delivery rate attribute not set correctly after contract call."
-            )
-            # Even if status was True, if the value is None unexpectedly, treat as failure
-            return False
-
-        self.context.logger.info(
-            f"Max delivery rate fetched: {self.mech_max_delivery_rate}"
-        )
         return True
 
     def _decode_hex_to_bytes(self, hex_string: str, data_name: str) -> Optional[bytes]:
@@ -634,38 +589,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         if not (yield from self._get_payment_type()):
             self.context.logger.error("Failed step: Could not get payment type.")
             return False
-
-        if self.mech_payment_type is None:
-            self.context.logger.error(
-                "Payment type was not successfully fetched or is unexpectedly None."
-            )
-            return False
-
-        return True
-
-    def _fetch_and_validate_max_delivery_rate(self) -> WaitableConditionType:
-        """Fetch and validate the max delivery rate from the contract."""
-        self.context.logger.info("Getting max delivery rate")
-        if not (yield from self._get_max_delivery_rate()):
-            self.context.logger.warning(
-                "Failed step: Could not get max delivery rate. Proceeding without it, which might cause issues."
-            )
-            # The original logic considered missing max_delivery_rate an error for marketplace.
-            self.context.logger.error(
-                "Max delivery rate is required for marketplace request but was not fetched. Cannot build request data."
-            )
-            return False
-
-        # Although _get_max_delivery_rate handles logging if the attribute isn't set,
-        # we double-check here to be explicit about the requirement for this flow.
-        if self.mech_max_delivery_rate is None:
-            self.context.logger.error(
-                "Max delivery rate is required for marketplace request but is None. Cannot build request data."
-            )
-            return False
-
-        if self.using_native:
-            self.price = self.mech_max_delivery_rate
 
         return True
 
@@ -749,7 +672,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             data_key="data",
             placeholder=get_name(MechRequestBehaviour.request_data),
             request_data=request_data_bytes,
-            priority_mech=self.mech_marketplace_config.priority_mech_address,
+            priority_mech=self.priority_mech_address,
             payment_data=payment_data_bytes,
             payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
@@ -767,7 +690,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             "data",
             get_name(MechRequestBehaviour.request_data),
             request_data=self._v1_hex_truncated,
-            priority_mech=self.mech_marketplace_config.priority_mech_address,
+            priority_mech=self.priority_mech_address,
             priority_mech_staking_instance=self.mech_marketplace_config.priority_mech_staking_instance_address,
             priority_mech_service_id=self.mech_marketplace_config.priority_mech_service_id,
             requester_staking_instance=self.mech_marketplace_config.requester_staking_instance_address,
@@ -790,15 +713,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_target_contract_address(self) -> str:
-        """Get the target contract address based on the flow being used."""
-        if self.should_use_marketplace_v2():
-            return self.mech_marketplace_config.mech_marketplace_address
-        if self.params.use_mech_marketplace:
-            # Legacy marketplace - might still use marketplace contract but with different flow
-            return self.mech_marketplace_config.mech_marketplace_address
-        return self.params.mech_contract_address
-
     def _build_request_data(self) -> WaitableConditionType:
         """Build the request data by dispatching to the appropriate method."""
         self.context.logger.info("Building request data")
@@ -817,7 +731,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             status = yield from self._build_legacy_request_data()
 
         if status:
-            to = self._get_target_contract_address()
+            to = self.priority_mech_address
             batch = MultisendBatch(
                 to=to,
                 data=HexBytes(self.request_data),
@@ -835,7 +749,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     def _get_price(self) -> WaitableConditionType:
         """Get the price of the mech request."""
         if self.should_use_marketplace_v2():
-            return (yield from self._fetch_and_validate_max_delivery_rate())
+            if self.using_native:
+                self.price = self.mech_max_delivery_rate
+            return True
 
         result = yield from self._mech_contract_interact(
             "get_price",

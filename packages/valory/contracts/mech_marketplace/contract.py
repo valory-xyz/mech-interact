@@ -248,6 +248,18 @@ class MechMarketplace(Contract):
         return dict(data=request_id_info)
 
     @classmethod
+    def get_max_fee_factor(
+        cls,
+        ledger_api: LedgerApi,
+        contract_address: str,
+    ) -> JSONLike:
+        """Fetch the max fee factor."""
+        ledger_api = cast(EthereumApi, ledger_api)
+        contract_instance = cls.get_instance(ledger_api, contract_address)
+        max_fee_factor = contract_instance.functions.MAX_FEE_FACTOR().call()
+        return dict(max_fee_factor=max_fee_factor)
+
+    @classmethod
     def get_balance_tracker(
         cls,
         ledger_api: LedgerApi,

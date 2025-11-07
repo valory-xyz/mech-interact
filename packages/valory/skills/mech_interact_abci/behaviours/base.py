@@ -88,7 +88,12 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
     @property
     def mech_marketplace_config(self) -> MechMarketplaceConfig:
         """Return the mech marketplace config."""
-        return cast(MechMarketplaceConfig, self.context.params.mech_marketplace_config)
+        return self.params.mech_marketplace_config
+
+    @property
+    def marketplace_address(self) -> str:
+        """Get the mech marketplace address."""
+        return self.mech_marketplace_config.mech_marketplace_address
 
     @property
     def safe_tx_hash(self) -> str:
@@ -212,13 +217,25 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         )
         return status
 
+    @property
+    def priority_mech_address(self) -> str:
+        """Get the priority mech's address."""
+        if (
+            self.should_use_marketplace_v2()
+            and self.mech_marketplace_config.use_dynamic_mech_selection
+        ):
+            return self.synchronized_data.priority_mech_address
+        if self.params.use_mech_marketplace:
+            return self.mech_marketplace_config.priority_mech_address
+        return self.params.mech_contract_address
+
     def _mech_mm_contract_interact(
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the mech mm contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.mech_marketplace_config.priority_mech_address,
+            contract_address=self.priority_mech_address,
             contract_public_id=MechMM.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -237,7 +254,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         """Interact with the mech marketplace contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.mech_marketplace_config.mech_marketplace_address,
+            contract_address=self.marketplace_address,
             contract_public_id=MechMarketplace.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -256,7 +273,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         """Interact with the mech marketplace contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.params.mech_marketplace_config.mech_marketplace_address,
+            contract_address=self.marketplace_address,
             contract_public_id=MechMarketplaceLegacy.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
