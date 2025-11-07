@@ -111,6 +111,15 @@ CHAIN_TO_NVM_CONFIG = {
     ),
 }
 
+CHAIN_TO_PRICE_TOKEN = {
+    ChainType.ETHEREUM: "0x0001A500A6B18995B03f44bb040A5fFc28E45CB0",
+    ChainType.OPTIMISM: "0xFC2E6e6BCbd49ccf3A5f029c79984372DcBFE527",
+    ChainType.GNOSIS: "0xcE11e14225575945b8E6Dc0D4F2dD4C570f79d9f",
+    ChainType.POLYGON: "0xFEF5d947472e72Efbb2E388c730B7428406F2F95",
+    ChainType.BASE: "0x54330d28ca3357F294334BDC454a032e7f353416",
+    ChainType.CELO: "0x96ffa56a963EC33e5bC7057B9002722D1884fc01",
+}
+
 
 class MechResponseSpecs(ApiSpecs):
     """A model that wraps ApiSpecs for the Mech's response specifications."""
