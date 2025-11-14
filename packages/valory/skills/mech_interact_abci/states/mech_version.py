@@ -57,7 +57,7 @@ class MechVersionDetectionRound(VotingRound):
             is_v2 = None if event == Event.NO_MARKETPLACE else event == Event.V2
             synced_data = synced_data.update(
                 synchronized_data_class=self.synchronized_data_class,
-                **{get_name(synced_data.is_marketplace_v2): is_v2},
+                **{get_name(SynchronizedData.is_marketplace_v2): is_v2},
             )
 
         return synced_data, event
