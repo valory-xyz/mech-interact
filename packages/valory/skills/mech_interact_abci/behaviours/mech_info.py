@@ -29,6 +29,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.graph_tooling.requests import (
+    FetchStatus,
     MAX_LOG_SIZE,
     QueryingBehaviour,
 )
@@ -44,15 +45,6 @@ from packages.valory.skills.mech_interact_abci.states.mech_info import (
 
 
 CID_PREFIX = "f01701220"
-
-
-class FetchStatus(Enum):
-    """The status of a fetch operation."""
-
-    SUCCESS = auto()
-    IN_PROGRESS = auto()
-    FAIL = auto()
-    NONE = auto()
 
 
 class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
