@@ -196,10 +196,10 @@ class SynchronizedData(TxSynchronizedData):
     @property
     def mechs_info(self) -> MechsInfo:
         """Get the mechs' information."""
-        mech_info = self.db.get("mech_info", SERIALIZED_EMPTY_LIST)
-        if isinstance(mech_info, str):
-            mech_info = json.loads(mech_info)
-        return [MechInfo(**item) for item in mech_info]
+        mechs_info = self.db.get("mechs_info", SERIALIZED_EMPTY_LIST)
+        if isinstance(mechs_info, str):
+            mechs_info = json.loads(mechs_info)
+        return [MechInfo(**item) for item in mechs_info]
 
     @property
     def relevant_mechs_info(self) -> MechsInfo:
