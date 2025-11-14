@@ -19,9 +19,8 @@
 
 """This module contains the base functionality for the rounds of the mech interact abci app."""
 
-import dataclasses
 import json
-from dataclasses import dataclass, field
+from dataclasses import InitVar, asdict, dataclass, field, is_dataclass
 from enum import Enum
 from typing import Any, Dict, List, Mapping, Optional, Set, Type, cast
 
@@ -42,6 +41,7 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
 
 SERIALIZED_EMPTY_LIST = "[]"
 METADATA_FIELD = "metadata"
+METADATA_PREFIX_SIZE = 2
 
 
 class Event(Enum):
@@ -99,48 +99,76 @@ class MechInteractionResponse(MechRequest):
         self.error = f"The response's format was unexpected: {res}"
 
 
-@dataclasses.dataclass
+@dataclass
 class Service:
     """Structure for a Service."""
 
-    metadata: Optional[Dict[str, str]]
+    metadata: List[Dict[str, str]]
 
     @property
     def metadata_str(self) -> Optional[str]:
         """Return un-nested metadata string."""
-        if self.metadata is None:
+        metadata = self.metadata[0] if self.metadata else None
+        if metadata is None:
             return None
-        return self.metadata.get(METADATA_FIELD, None)
+        return metadata.get(METADATA_FIELD, None)[METADATA_PREFIX_SIZE:]
 
 
-@dataclasses.dataclass
+@dataclass
 class MechInfo:
     """Structure for the Mech information."""
 
-    id: int
+    id: str
     address: str
     service: Service
     karma: int
-    undeliveredRequests: dataclasses.InitVar[int]
-    maxDeliveryRate: dataclasses.InitVar[int]
-    undelivered_requests: int = 0
+    receivedRequests: InitVar[int] = 0
+    selfDeliveredFromReceived: InitVar[int] = 0
+    maxDeliveryRate: InitVar[int] = 0
+    received_requests: int = 0
+    self_delivered: int = 0
     max_delivery_rate: int = 0
     relevant_tools: Set[str] = field(default_factory=set)
 
-    def __post_init__(self, undeliveredRequests: int, maxDeliveryRate: int) -> None:
+    def __post_init__(
+        self,
+        receivedRequests: int,
+        selfDeliveredFromReceived: int,
+        maxDeliveryRate: int,
+    ) -> None:
         """Handle camelCase fields and serialize service if passed as a dict."""
-        if isinstance(self.service, Dict):
+        if isinstance(self.service, dict):
             self.service = Service(**self.service)
-        self.undelivered_requests = int(undeliveredRequests)
-        self.max_delivery_rate = int(maxDeliveryRate)
+
+        if isinstance(self.relevant_tools, (list, tuple)):
+            self.relevant_tools = set(self.relevant_tools)
+
+        case_convertion_mapping = {
+            "received_requests": receivedRequests,
+            "self_delivered": selfDeliveredFromReceived,
+            "max_delivery_rate": maxDeliveryRate,
+        }
+        for snake_name, value in case_convertion_mapping.items():
+            # if already given in snake case, ignore camel case input
+            if getattr(self, snake_name) != 0:
+                return
+
+            try:
+                setattr(self, snake_name, int(value))
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"Unexpected non-int {value=} received as {snake_name!r} for mech with id {self.id}."
+                )
 
     def __lt__(self, other: "MechInfo") -> bool:
         """Compare two `MechInfo` objects."""
         if self.max_delivery_rate != other.max_delivery_rate:
             return self.max_delivery_rate > other.max_delivery_rate
 
-        if self.undelivered_requests != other.undelivered_requests:
-            return self.undelivered_requests > other.undelivered_requests
+        delivered_ratio = self.delivered_ratio
+        other_delivered_ratio = other.delivered_ratio
+        if delivered_ratio != other_delivered_ratio:
+            return delivered_ratio < other_delivered_ratio
 
         return self.karma < other.karma
 
@@ -148,6 +176,11 @@ class MechInfo:
     def empty_metadata(self) -> bool:
         """Return whether the metadata is empty."""
         return self.service.metadata_str is None
+
+    @property
+    def delivered_ratio(self) -> float:
+        """Return the ratio of the self delivered requests to the total received requests."""
+        return self.self_delivered / self.received_requests
 
 
 MechsInfo = List[MechInfo]
