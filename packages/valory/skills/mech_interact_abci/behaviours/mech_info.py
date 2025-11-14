@@ -22,8 +22,6 @@
 
 
 import json
-from dataclasses import asdict
-from enum import Enum, auto
 from typing import Any, Generator, Optional
 
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
@@ -39,6 +37,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechsSubgraphResponseType,
 )
 from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
+from packages.valory.skills.mech_interact_abci.states.base import MechInfoEncoder
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
     MechInformationRound,
 )
@@ -138,7 +137,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             return None
 
         # truncate the information, otherwise logs get too big
-        serialized_info = json.dumps([asdict(info) for info in mech_info])
+        serialized_info = json.dumps(mech_info, cls=MechInfoEncoder)
         info_str = serialized_info[:MAX_LOG_SIZE]
         self.context.logger.info(f"Updated mechs' information: {info_str}")
         return serialized_info

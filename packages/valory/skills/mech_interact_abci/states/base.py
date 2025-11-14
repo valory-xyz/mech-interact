@@ -186,6 +186,21 @@ class MechInfo:
 MechsInfo = List[MechInfo]
 
 
+class MechInfoEncoder(json.JSONEncoder):
+    """A custom JSON encoder for the MechInfo."""
+
+    def default(self, obj: Any) -> Any:
+        """The default JSON encoder."""
+        if is_dataclass(obj):
+            return asdict(obj)
+
+        # convert relevant_tools set to list as JSON doesn't support sets
+        if isinstance(obj, set):
+            return list(obj)
+
+        return super().default(obj)
+
+
 class SynchronizedData(TxSynchronizedData):
     """
     Class to represent the synchronized data.
