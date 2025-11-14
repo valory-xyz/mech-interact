@@ -731,7 +731,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             status = yield from self._build_legacy_request_data()
 
         if status:
-            to = self.priority_mech_address
+            to = self.params.request_address
             batch = MultisendBatch(
                 to=to,
                 data=HexBytes(self.request_data),

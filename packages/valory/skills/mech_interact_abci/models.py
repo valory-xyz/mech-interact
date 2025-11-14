@@ -279,6 +279,13 @@ class MechParams(BaseParams):
         """Return the price token for the specified mech chain id."""
         return CHAIN_TO_PRICE_TOKEN[ChainType(self.mech_chain_id)]
 
+    @property
+    def request_address(self) -> str:
+        """Get the contract address in which we should send the request."""
+        if self.use_mech_marketplace:
+            return self.mech_marketplace_config.mech_marketplace_address
+        return self.mech_contract_address
+
     def validate_configuration(self) -> None:
         """Validate the entire configuration for consistency."""
         try:
