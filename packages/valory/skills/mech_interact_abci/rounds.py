@@ -191,6 +191,7 @@ class MechInteractAbciApp(AbciApp[Event]):
             get_name(SynchronizedData.relevant_mechs_info),
             get_name(SynchronizedData.mech_tools),
             get_name(SynchronizedData.priority_mech_address),
+            get_name(SynchronizedData.priority_mech),
         },
         FailedMechInformationRound: set(),
         FinishedMechRequestRound: {
