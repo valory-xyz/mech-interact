@@ -229,16 +229,6 @@ class MechParams(BaseParams):
         self.mech_marketplace_config: MechMarketplaceConfig = MechMarketplaceConfig(
             **kwargs["mech_marketplace_config"]
         )
-
-        if (
-            self.mech_marketplace_config.use_dynamic_mech_selection
-            and self.mech_marketplace_config.priority_mech_address
-        ):
-            self.context.logger.info(
-                "A priority mech has been set while dynamic mech selection is enabled. "
-                "The priority mech will be ignored."
-            )
-
         self.agent_registry_address: str = kwargs.get("agent_registry_address")
         enforce(
             self.agent_registry_address is not None,
@@ -249,15 +239,26 @@ class MechParams(BaseParams):
         )
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
 
+        super().__init__(*args, **kwargs)
+
+        if (
+            self.mech_marketplace_config.use_dynamic_mech_selection
+            and self.mech_marketplace_config.priority_mech_address
+        ):
+            self.context.logger.info(
+                "A priority mech has been set while dynamic mech selection is enabled. "
+                "The priority mech will be ignored."
+            )
+
         if self.use_mech_marketplace:
             self.context.logger.info(
                 "Using mech marketplace for mech interactions. "
                 "The `mech_contract_address` will be ignored. "
-                "The `mech_marketplace_config.priority_mech_address` will be used for V1, "
+                "The `mech_marketplace_config.priority_mech_address` will be used for V1 "
+                "or if `mech_marketplace_config.use_dynamic_mech_selection` is set to `False`, "
                 "otherwise, the priority mech will be auto-selected for V2."
             )
 
-        super().__init__(*args, **kwargs)
         # Validate configuration after initialization
         self.validate_configuration()
 
