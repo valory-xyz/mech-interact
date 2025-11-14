@@ -75,18 +75,9 @@ class MechsSubgraph(ApiSpecs):
     def process_response(self, response: HttpMessage) -> MechsSubgraphResponseType:
         """Process the response."""
         res = super().process_response(response)
-        if res is not None:
-            return self.filter_info(res)
-
-        error_data = self.response_info.error_data
-        expected_error_type = getattr(builtins, self.response_info.error_type)
-        if isinstance(error_data, expected_error_type):
-            error_message_key = self.context.params.the_graph_error_message_key
-            error_message = error_data.get(error_message_key, None)
-            if self.context.params.the_graph_payment_required_error in error_message:
-                err = "Payment required for subsequent requests for the current 'The Graph' API key!"
-                self.context.logger.error(err)
-        return None
+        if res is None:
+            return None
+        return self.filter_info(res)
 
 
 @dataclass
