@@ -19,7 +19,6 @@
 
 """This module contains the models for the abci skill of MechInteractAbciApp."""
 
-import builtins
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
