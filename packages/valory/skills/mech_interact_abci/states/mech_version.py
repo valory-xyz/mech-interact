@@ -48,6 +48,9 @@ class MechVersionDetectionRound(VotingRound):
     def end_block(self) -> Optional[Tuple[BaseSynchronizedData, Enum]]:
         """Process the end of the block."""
         res = super().end_block()
+        if res is None:
+            return None
+
         synced_data, event = cast(Tuple[SynchronizedData, Enum], res)
 
         if event in (Event.V2, Event.V1, Event.NO_MARKETPLACE):
