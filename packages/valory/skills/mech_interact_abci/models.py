@@ -63,7 +63,6 @@ class MechsSubgraph(ApiSpecs):
         """Initialize MechsSubgraph."""
         self.delivery_rate_cap: int = self._ensure("delivery_rate_cap", kwargs, int)
         super().__init__(*args, **kwargs)
-        self._frozen = True
 
     def filter_info(self, unfiltered: List[Dict[str, str]]) -> MechsInfo:
         """Filter the information based on the metadata."""
