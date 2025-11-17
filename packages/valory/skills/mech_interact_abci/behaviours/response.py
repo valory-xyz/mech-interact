@@ -34,7 +34,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import V1_HEX_PREFIX
 from packages.valory.skills.mech_interact_abci.models import MechResponseSpecs, Ox
-from packages.valory.skills.mech_interact_abci.payloads import MechResponsePayload
+from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     MECH_RESPONSE,
     MechInteractionResponse,
@@ -125,7 +125,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 f"Issue when accessing request info for delivery mech: {str(exc)}. "
                 "Returning default mech contract address."
             )
-            return self.params.mech_contract_address
+            return self.priority_mech_address
 
     @property
     def response_hex(self) -> str:
@@ -353,13 +353,6 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
     def _get_response_data(self) -> WaitableConditionType:
         """Get the response data from contract with compatibility detection."""
-
-        # Perform compatibility check if not already done
-        if self.params.use_mech_marketplace and not self._compatibility_check_performed:
-            yield from self.wait_for_condition_with_sleep(
-                self._detect_marketplace_compatibility
-            )
-
         if (
             self.params.use_acn_for_delivers
             and self.current_mech_response.response_data is not None
@@ -369,7 +362,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 data_key="is_valid",
                 placeholder=get_name(MechResponseBehaviour.is_valid_acn_sender),
                 sender_address=self.current_mech_response.sender_address,
-                mech_address=self.params.mech_contract_address,
+                mech_address=self.priority_mech_address,
             )
             if result and self.is_valid_acn_sender:
                 if self.current_mech_response.response_data:
@@ -579,12 +572,6 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self,
     ) -> Generator:
         """Get the response."""
-
-        if self.params.use_mech_marketplace:
-            yield from self.wait_for_condition_with_sleep(
-                self._detect_marketplace_compatibility
-            )
-
         for step in (
             self._get_block_number,
             self._process_request_event,
@@ -616,7 +603,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 f"Received mech responses: {self.serialized_responses}"
             )
 
-            payload = MechResponsePayload(
+            payload = JSONPayload(
                 self.context.agent_address,
                 self.serialized_responses,
             )
