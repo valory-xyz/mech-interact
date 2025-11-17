@@ -35,13 +35,13 @@ info = Template(
                     service_: {totalDeliveries_gt: 0}
                 }
             ) {
+                id
                 address
                 maxDeliveryRate
                 karma
-                undeliveredRequests
+                receivedRequests
+                selfDeliveredFromReceived
                 service {
-                    id
-                    totalDeliveries
                     metadata {
                         metadata
                     }

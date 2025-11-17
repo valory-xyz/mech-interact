@@ -22,8 +22,6 @@
 
 
 import json
-from dataclasses import asdict
-from enum import Enum, auto
 from typing import Any, Generator, Optional
 
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
@@ -31,6 +29,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.graph_tooling.requests import (
+    FetchStatus,
     MAX_LOG_SIZE,
     QueryingBehaviour,
 )
@@ -39,21 +38,13 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechsSubgraphResponseType,
 )
 from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
+from packages.valory.skills.mech_interact_abci.states.base import MechInfoEncoder
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
     MechInformationRound,
 )
 
 
 CID_PREFIX = "f01701220"
-
-
-class FetchStatus(Enum):
-    """The status of a fetch operation."""
-
-    SUCCESS = auto()
-    IN_PROGRESS = auto()
-    FAIL = auto()
-    NONE = auto()
 
 
 class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
@@ -138,7 +129,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             return None
 
         # truncate the information, otherwise logs get too big
-        serialized_info = json.dumps([asdict(info) for info in mech_info])
+        serialized_info = json.dumps(mech_info, cls=MechInfoEncoder)
         info_str = serialized_info[:MAX_LOG_SIZE]
         self.context.logger.info(f"Updated mechs' information: {info_str}")
         return serialized_info

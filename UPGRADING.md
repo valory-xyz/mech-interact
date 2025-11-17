@@ -38,6 +38,7 @@ Below, we describe the additional manual steps required to upgrade between diffe
 - New models have been introduced in `skill.yaml` and `models.py` and should be defined in the composed skills too:
   - `MechToolsSpecs`
   - `MechsSubgraph`
+- The `from_dict` method has been removed from the `MechMarketplaceConfig` dataclass, as it is not necessary.
 
 ## `v0.21.2` to `v0.21.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 - No backwards incompatible changes.

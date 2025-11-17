@@ -19,7 +19,6 @@
 
 """This module contains the models for the abci skill of MechInteractAbciApp."""
 
-import builtins
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -63,7 +62,6 @@ class MechsSubgraph(ApiSpecs):
         """Initialize MechsSubgraph."""
         self.delivery_rate_cap: int = self._ensure("delivery_rate_cap", kwargs, int)
         super().__init__(*args, **kwargs)
-        self._frozen = True
 
     def filter_info(self, unfiltered: List[Dict[str, str]]) -> MechsInfo:
         """Filter the information based on the metadata."""
@@ -77,18 +75,9 @@ class MechsSubgraph(ApiSpecs):
     def process_response(self, response: HttpMessage) -> MechsSubgraphResponseType:
         """Process the response."""
         res = super().process_response(response)
-        if res is not None:
-            return self.filter_info(res)
-
-        error_data = self.response_info.error_data
-        expected_error_type = getattr(builtins, self.response_info.error_type)
-        if isinstance(error_data, expected_error_type):
-            error_message_key = self.context.params.the_graph_error_message_key
-            error_message = error_data.get(error_message_key, None)
-            if self.context.params.the_graph_payment_required_error in error_message:
-                err = "Payment required for subsequent requests for the current 'The Graph' API key!"
-                self.context.logger.error(err)
-        return None
+        if res is None:
+            return None
+        return self.filter_info(res)
 
 
 @dataclass
@@ -240,16 +229,6 @@ class MechParams(BaseParams):
         self.mech_marketplace_config: MechMarketplaceConfig = MechMarketplaceConfig(
             **kwargs["mech_marketplace_config"]
         )
-
-        if (
-            self.mech_marketplace_config.use_dynamic_mech_selection
-            and self.mech_marketplace_config.priority_mech_address
-        ):
-            self.context.logger.info(
-                "A priority mech has been set while dynamic mech selection is enabled. "
-                "The priority mech will be ignored."
-            )
-
         self.agent_registry_address: str = kwargs.get("agent_registry_address")
         enforce(
             self.agent_registry_address is not None,
@@ -260,15 +239,26 @@ class MechParams(BaseParams):
         )
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
 
+        super().__init__(*args, **kwargs)
+
+        if (
+            self.mech_marketplace_config.use_dynamic_mech_selection
+            and self.mech_marketplace_config.priority_mech_address
+        ):
+            self.context.logger.info(
+                "A priority mech has been set while dynamic mech selection is enabled. "
+                "The priority mech will be ignored."
+            )
+
         if self.use_mech_marketplace:
             self.context.logger.info(
                 "Using mech marketplace for mech interactions. "
                 "The `mech_contract_address` will be ignored. "
-                "The `mech_marketplace_config.priority_mech_address` will be used for V1, "
+                "The `mech_marketplace_config.priority_mech_address` will be used for V1 "
+                "or if `mech_marketplace_config.use_dynamic_mech_selection` is set to `False`, "
                 "otherwise, the priority mech will be auto-selected for V2."
             )
 
-        super().__init__(*args, **kwargs)
         # Validate configuration after initialization
         self.validate_configuration()
 
@@ -288,6 +278,13 @@ class MechParams(BaseParams):
     def price_token(self) -> str:
         """Return the price token for the specified mech chain id."""
         return CHAIN_TO_PRICE_TOKEN[ChainType(self.mech_chain_id)]
+
+    @property
+    def request_address(self) -> str:
+        """Get the contract address in which we should send the request."""
+        if self.use_mech_marketplace:
+            return self.mech_marketplace_config.mech_marketplace_address
+        return self.mech_contract_address
 
     def validate_configuration(self) -> None:
         """Validate the entire configuration for consistency."""
