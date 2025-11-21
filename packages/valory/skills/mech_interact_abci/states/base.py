@@ -41,7 +41,11 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
 
 SERIALIZED_EMPTY_LIST = "[]"
 METADATA_FIELD = "metadata"
+BLOCK_TIMESTAMP_FIELD = "blockTimestamp"
 METADATA_PREFIX_SIZE = 2
+
+
+NestedSubgraphItemType = List[Dict[str, str]]
 
 
 class Event(Enum):
@@ -103,15 +107,36 @@ class MechInteractionResponse(MechRequest):
 class Service:
     """Structure for a Service."""
 
-    metadata: List[Dict[str, str]]
+    metadata: NestedSubgraphItemType
+    deliveries: NestedSubgraphItemType
+
+    @staticmethod
+    def _get_nested_item(nested: NestedSubgraphItemType, access_field: str) -> Any:
+        """Get a nested subgraph item."""
+        item = nested[0] if nested else None
+        if item is None:
+            return None
+        return item.get(access_field, None)
 
     @property
     def metadata_str(self) -> Optional[str]:
         """Return un-nested metadata string."""
-        metadata = self.metadata[0] if self.metadata else None
-        if metadata is None:
+        metadata_hex = self._get_nested_item(self.metadata, METADATA_FIELD)
+        if metadata_hex is None:
             return None
-        return metadata.get(METADATA_FIELD, None)[METADATA_PREFIX_SIZE:]
+        return metadata_hex[METADATA_PREFIX_SIZE:]
+
+    @property
+    def last_delivered(self) -> Optional[int]:
+        """Return the last delivered block timestamp."""
+        timestamp = self._get_nested_item(self.deliveries, BLOCK_TIMESTAMP_FIELD)
+        if timestamp is None:
+            return None
+
+        try:
+            return int(timestamp)
+        except ValueError:
+            return None
 
 
 @dataclass
