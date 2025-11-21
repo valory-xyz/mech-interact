@@ -233,7 +233,11 @@ class MechInfo:
     @property
     def delivered_ratio(self) -> float:
         """Return the ratio of the self delivered requests to the total received requests."""
-        return self.self_delivered / self.received_requests
+        return (
+            self.self_delivered / self.received_requests
+            if self.received_requests
+            else 0
+        )
 
 
 MechsInfo = List[MechInfo]
