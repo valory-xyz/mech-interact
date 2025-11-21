@@ -20,6 +20,8 @@
 """This module contains the base functionality for the rounds of the mech interact abci app."""
 
 import json
+import math
+import time
 from dataclasses import InitVar, asdict, dataclass, field, is_dataclass
 from enum import Enum
 from typing import Any, Dict, List, Mapping, Optional, Set, Type, cast
@@ -43,6 +45,8 @@ SERIALIZED_EMPTY_LIST = "[]"
 METADATA_FIELD = "metadata"
 BLOCK_TIMESTAMP_FIELD = "blockTimestamp"
 METADATA_PREFIX_SIZE = 2
+MACHINE_EPS = 1e-9
+HALF_LIFE_SECONDS = 60 * 60
 
 
 NestedSubgraphItemType = List[Dict[str, str]]
@@ -138,6 +142,20 @@ class Service:
         except ValueError:
             return None
 
+    @property
+    def liveness(self) -> float:
+        """Return the liveness of the service."""
+        if not self.last_delivered:
+            return 0
+
+        # using exponential decay to make day-scale differences meaningful.
+        now = int(time.time())
+        age = max(0, now - self.last_delivered)
+        # taf is a time constant that depends on half-life (time for score to halve)
+        # half-life can be tuned so that 1 day, 1 week, etc. map to desirable scores.
+        taf = HALF_LIFE_SECONDS / math.log(2)
+        return math.exp(-age / taf)
+
 
 @dataclass
 class MechInfo:
@@ -187,15 +205,25 @@ class MechInfo:
 
     def __lt__(self, other: "MechInfo") -> bool:
         """Compare two `MechInfo` objects."""
-        if self.max_delivery_rate != other.max_delivery_rate:
-            return self.max_delivery_rate > other.max_delivery_rate
 
-        delivered_ratio = self.delivered_ratio
-        other_delivered_ratio = other.delivered_ratio
-        if delivered_ratio != other_delivered_ratio:
-            return delivered_ratio < other_delivered_ratio
+        def score(instance: "MechInfo") -> float:
+            """Score a mech's state."""
+            filters = (
+                1 / (1 + math.log(instance.max_delivery_rate)),
+                instance.service.liveness,
+                instance.delivered_ratio,
+            )
+            n_filters = len(filters)
+            return sum((1 / n_filters) * filter_ for filter_ in filters)
 
-        return self.karma < other.karma
+        s1 = score(self)
+        s2 = score(other)
+
+        # floating-point equality is unreliable, therefore, using the abs of the diff and comparing with a tiny value
+        if abs(s1 - s2) < MACHINE_EPS:
+            return self.karma < other.karma
+
+        return s1 < s2
 
     @property
     def empty_metadata(self) -> bool:
