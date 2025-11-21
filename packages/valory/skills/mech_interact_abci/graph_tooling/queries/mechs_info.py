@@ -45,6 +45,13 @@ info = Template(
                     metadata {
                         metadata
                     }
+                    deliveries(
+                        first: 1,
+                        orderBy: blockTimestamp,
+                        orderDirection: desc
+                    ) {
+                        blockTimestamp
+                    }
                 }
             }
         }
