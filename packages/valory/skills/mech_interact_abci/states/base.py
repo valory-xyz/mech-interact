@@ -139,7 +139,7 @@ class Service:
 
         try:
             return int(timestamp)
-        except ValueError:
+        except (ValueError, TypeError):
             return None
 
     @property
