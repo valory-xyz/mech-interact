@@ -179,7 +179,7 @@ class MechInfo:
         selfDeliveredFromReceived: int,
         maxDeliveryRate: int,
     ) -> None:
-        """Handle camelCase fields and serialize service if passed as a dict."""
+        """Handle camelCase fields, serialize service if passed as a dict and ensure int values."""
         if isinstance(self.service, dict):
             self.service = Service(**self.service)
 
