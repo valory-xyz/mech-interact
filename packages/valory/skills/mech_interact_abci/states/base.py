@@ -203,6 +203,13 @@ class MechInfo:
                     f"Unexpected non-int {value=} received as {snake_name!r} for mech with id {self.id}."
                 )
 
+        try:
+            self.karma = int(self.karma)
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"Unexpected non-int {self.karma=} received for mech with id {self.id}."
+            )
+
     def __lt__(self, other: "MechInfo") -> bool:
         """Compare two `MechInfo` objects."""
 
