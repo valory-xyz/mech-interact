@@ -20,6 +20,8 @@
 """This module contains the base functionality for the rounds of the mech interact abci app."""
 
 import json
+import math
+import time
 from dataclasses import InitVar, asdict, dataclass, field, is_dataclass
 from enum import Enum
 from typing import Any, Dict, List, Mapping, Optional, Set, Type, cast
@@ -41,7 +43,13 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
 
 SERIALIZED_EMPTY_LIST = "[]"
 METADATA_FIELD = "metadata"
+BLOCK_TIMESTAMP_FIELD = "blockTimestamp"
 METADATA_PREFIX_SIZE = 2
+MACHINE_EPS = 1e-9
+HALF_LIFE_SECONDS = 60 * 60
+
+
+NestedSubgraphItemType = List[Dict[str, str]]
 
 
 class Event(Enum):
@@ -103,15 +111,50 @@ class MechInteractionResponse(MechRequest):
 class Service:
     """Structure for a Service."""
 
-    metadata: List[Dict[str, str]]
+    metadata: NestedSubgraphItemType
+    deliveries: NestedSubgraphItemType
+
+    @staticmethod
+    def _get_nested_item(nested: NestedSubgraphItemType, access_field: str) -> Any:
+        """Get a nested subgraph item."""
+        item = nested[0] if nested else None
+        if item is None:
+            return None
+        return item.get(access_field, None)
 
     @property
     def metadata_str(self) -> Optional[str]:
         """Return un-nested metadata string."""
-        metadata = self.metadata[0] if self.metadata else None
-        if metadata is None:
+        metadata_hex = self._get_nested_item(self.metadata, METADATA_FIELD)
+        if metadata_hex is None:
             return None
-        return metadata.get(METADATA_FIELD, None)[METADATA_PREFIX_SIZE:]
+        return metadata_hex[METADATA_PREFIX_SIZE:]
+
+    @property
+    def last_delivered(self) -> Optional[int]:
+        """Return the last delivered block timestamp."""
+        timestamp = self._get_nested_item(self.deliveries, BLOCK_TIMESTAMP_FIELD)
+        if timestamp is None:
+            return None
+
+        try:
+            return int(timestamp)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def liveness(self) -> float:
+        """Return the liveness of the service."""
+        if not self.last_delivered:
+            return 0
+
+        # using exponential decay to make day-scale differences meaningful.
+        now = int(time.time())
+        age = max(0, now - self.last_delivered)
+        # taf is a time constant that depends on half-life (time for score to halve)
+        # half-life can be tuned so that 1 day, 1 week, etc. map to desirable scores.
+        taf = HALF_LIFE_SECONDS / math.log(2)
+        return math.exp(-age / taf)
 
 
 @dataclass
@@ -136,7 +179,7 @@ class MechInfo:
         selfDeliveredFromReceived: int,
         maxDeliveryRate: int,
     ) -> None:
-        """Handle camelCase fields and serialize service if passed as a dict."""
+        """Handle camelCase fields, serialize service if passed as a dict and ensure int values."""
         if isinstance(self.service, dict):
             self.service = Service(**self.service)
 
@@ -160,17 +203,34 @@ class MechInfo:
                     f"Unexpected non-int {value=} received as {snake_name!r} for mech with id {self.id}."
                 )
 
+        try:
+            self.karma = int(self.karma)
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"Unexpected non-int {self.karma=} received for mech with id {self.id}."
+            )
+
     def __lt__(self, other: "MechInfo") -> bool:
         """Compare two `MechInfo` objects."""
-        if self.max_delivery_rate != other.max_delivery_rate:
-            return self.max_delivery_rate > other.max_delivery_rate
 
-        delivered_ratio = self.delivered_ratio
-        other_delivered_ratio = other.delivered_ratio
-        if delivered_ratio != other_delivered_ratio:
-            return delivered_ratio < other_delivered_ratio
+        def score(instance: "MechInfo") -> float:
+            """Score a mech's state."""
+            filters = (
+                1 / (1 + math.log(instance.max_delivery_rate)),
+                instance.service.liveness,
+                instance.delivered_ratio,
+            )
+            n_filters = len(filters)
+            return sum((1 / n_filters) * filter_ for filter_ in filters)
 
-        return self.karma < other.karma
+        s1 = score(self)
+        s2 = score(other)
+
+        # floating-point equality is unreliable, therefore, using the abs of the diff and comparing with a tiny value
+        if abs(s1 - s2) < MACHINE_EPS:
+            return self.karma < other.karma
+
+        return s1 < s2
 
     @property
     def empty_metadata(self) -> bool:
@@ -180,7 +240,11 @@ class MechInfo:
     @property
     def delivered_ratio(self) -> float:
         """Return the ratio of the self delivered requests to the total received requests."""
-        return self.self_delivered / self.received_requests
+        return (
+            self.self_delivered / self.received_requests
+            if self.received_requests
+            else 0
+        )
 
 
 MechsInfo = List[MechInfo]
