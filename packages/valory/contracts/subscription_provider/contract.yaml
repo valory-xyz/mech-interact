@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeiaz23eqyevmojjquzgxjqa6lc2opeciukngjxwi4jyum7hkljamxq
   __init__.py: bafybeielqwhv3c3bbl5ong2gq2xvtuisvi4utezz42wz7jxu4b5ivxhu4u
   build/subscription_provider.json: bafybeibb4ho42g6y5d67dgm5fretwowjie4qoohz7z6voheikht4v4bwcq
-  contract.py: bafybeiaqtc6tblvp6kgw6e57iimosbc3pk4vnina47ytv6rujdytfojzpi
+  contract.py: bafybeicwtq6oyefedbsrlcmviokuldrmyu7hbjluazahj4xcf32pw2756m
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: SubscriptionProvider
