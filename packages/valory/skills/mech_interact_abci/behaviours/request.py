@@ -102,7 +102,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         # Initialize internal attributes that will hold on-chain values once fetched
         self.token_balance: int = 0
         self.wallet_balance: int = 0
-        self._mech_payment_type: Optional[PaymentType] = None
+        self._mech_payment_type: PaymentType = PaymentType.NATIVE
         self._mech_max_delivery_rate: Optional[int] = None
         self._subscription_balance: Optional[int] = None
         self._nvm_balance: Optional[int] = None
@@ -137,12 +137,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price = price
 
     @property
-    def mech_payment_type(self) -> Optional[PaymentType]:
+    def mech_payment_type(self) -> PaymentType:
         """Get the fetched mech payment type."""
-        if self._mech_payment_type is None:
-            self.context.logger.error(
-                "Accessing mech_payment_type before it has been fetched."
-            )
         return self._mech_payment_type
 
     @mech_payment_type.setter
@@ -574,13 +570,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             self.context.logger.error("Failed to get payment type from contract")
             return False
 
-        # Verify the attribute was set (optional, property handles None)
-        if self.mech_payment_type is None:
-            self.context.logger.error(
-                "Payment type attribute not set correctly after contract call."
-            )
-            return False
-
         self.context.logger.info(f"Payment type fetched: {self.mech_payment_type}")
         return True
 
@@ -633,12 +622,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Getting payment type")
         if not (yield from self._get_payment_type()):
             self.context.logger.error("Failed step: Could not get payment type.")
-            return False
-
-        if self.mech_payment_type is None:
-            self.context.logger.error(
-                "Payment type was not successfully fetched or is unexpectedly None."
-            )
             return False
 
         return True
@@ -749,7 +732,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             data_key="data",
             placeholder=get_name(MechRequestBehaviour.request_data),
             request_data=request_data_bytes,
-            priority_mech=self.mech_marketplace_config.priority_mech_address,
+            priority_mech=self.priority_mech_address,
             payment_data=payment_data_bytes,
             payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
@@ -767,7 +750,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             "data",
             get_name(MechRequestBehaviour.request_data),
             request_data=self._v1_hex_truncated,
-            priority_mech=self.mech_marketplace_config.priority_mech_address,
+            priority_mech=self.priority_mech_address,
             priority_mech_staking_instance=self.mech_marketplace_config.priority_mech_staking_instance_address,
             priority_mech_service_id=self.mech_marketplace_config.priority_mech_service_id,
             requester_staking_instance=self.mech_marketplace_config.requester_staking_instance_address,
@@ -790,15 +773,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_target_contract_address(self) -> str:
-        """Get the target contract address based on the flow being used."""
-        if self.should_use_marketplace_v2():
-            return self.mech_marketplace_config.mech_marketplace_address
-        if self.params.use_mech_marketplace:
-            # Legacy marketplace - might still use marketplace contract but with different flow
-            return self.mech_marketplace_config.mech_marketplace_address
-        return self.params.mech_contract_address
-
     def _build_request_data(self) -> WaitableConditionType:
         """Build the request data by dispatching to the appropriate method."""
         self.context.logger.info("Building request data")
@@ -817,7 +791,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             status = yield from self._build_legacy_request_data()
 
         if status:
-            to = self._get_target_contract_address()
+            to = self.params.request_address
             batch = MultisendBatch(
                 to=to,
                 data=HexBytes(self.request_data),
@@ -848,15 +822,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     def _prepare_safe_tx(self) -> Generator[None, None, bool]:
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
         steps = (
-            [self._detect_marketplace_compatibility]
-            if self.params.use_mech_marketplace
-            else []
-        )
-        steps.extend(
-            (
-                self._fetch_and_validate_payment_type,
-                self._get_price,
-            )
+            self._fetch_and_validate_payment_type,
+            self._get_price,
         )
         for step in steps:
             yield from self.wait_for_condition_with_sleep(step)
@@ -892,7 +859,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                     self.synchronized_data.safe_contract_address,
                     SERIALIZED_EMPTY_LIST,
                     SERIALIZED_EMPTY_LIST,
-                    self.get_updated_compatibility_cache(),
                 )
             yield from self.finish_behaviour(payload)
             return
@@ -933,6 +899,5 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 self.synchronized_data.safe_contract_address,
                 serialized_requests,
                 serialized_responses,
-                self.get_updated_compatibility_cache(),
             )
         yield from self.finish_behaviour(payload)

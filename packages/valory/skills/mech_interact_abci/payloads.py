@@ -42,11 +42,17 @@ class MechRequestPayload(PrepareTxPayload):
     safe_contract_address: Optional[str]
     mech_requests: Optional[str]
     mech_responses: Optional[str]
-    marketplace_compatibility_cache: Optional[str]
 
 
 @dataclass(frozen=True)
-class MechResponsePayload(BaseTxPayload):
-    """Represent a transaction payload for the MechResponseRound."""
+class JSONPayload(BaseTxPayload):
+    """Represent a transaction payload for information serialized as a JSON string."""
 
-    mech_responses: str
+    information: Optional[str]
+
+
+@dataclass(frozen=True)
+class VotingPayload(BaseTxPayload):
+    """Represent a transaction payload for voting."""
+
+    vote: Optional[bool]
