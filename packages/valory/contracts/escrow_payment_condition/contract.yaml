@@ -4,7 +4,7 @@ version: 0.1.0
 type: contract
 description: Escrow Payment Condition contract
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   README.md: bafybeicrryg5u4zri42zd4qdarwapal6sayy7yyrrzzumurrpwkdt26ca4
   __init__.py: bafybeigtorc5oz4r5lfj5bhlajqc34nkknbkuswbupogg7kuquuxdilxgi
@@ -17,4 +17,4 @@ contract_interface_paths:
   ethereum: build/escrow_payment_condition.json
 dependencies:
   open-aea-ledger-ethereum:
-    version: ==1.65.0
+    version: ==2.0.6
