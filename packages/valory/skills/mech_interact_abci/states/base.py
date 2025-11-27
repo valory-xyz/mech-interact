@@ -47,7 +47,9 @@ BLOCK_TIMESTAMP_FIELD = "blockTimestamp"
 METADATA_PREFIX_SIZE = 2
 MACHINE_EPS = 1e-9
 HALF_LIFE_SECONDS = 60 * 60
-
+DELIVERY_RATE_METRIC_WEIGHT = 0.1
+LIVENESS_METRIC_WEIGHT = 0.45
+DELIVERED_RATIO_METRIC_WEIGHT = 0.45
 
 NestedSubgraphItemType = List[Dict[str, str]]
 
@@ -216,12 +218,11 @@ class MechInfo:
         def score(instance: "MechInfo") -> float:
             """Score a mech's state."""
             filters = (
-                1 / (1 + math.log(instance.max_delivery_rate)),
-                instance.service.liveness,
-                instance.delivered_ratio,
+                DELIVERY_RATE_METRIC_WEIGHT * instance.delivery_rate_metric,
+                LIVENESS_METRIC_WEIGHT * instance.service.liveness,
+                DELIVERED_RATIO_METRIC_WEIGHT * instance.delivered_ratio,
             )
-            n_filters = len(filters)
-            return sum((1 / n_filters) * filter_ for filter_ in filters)
+            return sum(filters)
 
         s1 = score(self)
         s2 = score(other)
@@ -231,6 +232,11 @@ class MechInfo:
             return self.karma < other.karma
 
         return s1 < s2
+
+    @property
+    def delivery_rate_metric(self) -> float:
+        """Return the delivery rate metric."""
+        return 1 / (1 + math.log(self.max_delivery_rate))
 
     @property
     def empty_metadata(self) -> bool:
