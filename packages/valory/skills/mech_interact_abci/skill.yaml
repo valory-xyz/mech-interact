@@ -53,7 +53,7 @@ contracts:
 - valory/mech:0.1.0:bafybeifwg3m375sv6i4grdj676qyaqw4hbwzblstahbepia27wwu6pu574
 - valory/mech_mm:0.1.0:bafybeigr2sf6zd4oxxkgkezowleso63prda4ofzn2uxcz2izpiyoa7ziq4
 - valory/multisend:0.1.0:bafybeidjdgi2kyexajirj3cnpzgse4y5u664b2blztt4flv6i7knlecyr4
-- valory/erc20:0.1.0:bafybeifm3nnmehkhgmwycj7ckqcayomfxnnurd4osjltbtyd2klgtwzize
+- valory/erc20:0.1.0:bafybeie2ndegdgg6dgd4qgssdladjcsxnkkgnntjhttwgobmfz34ihyutm
 - valory/mech_marketplace:0.1.0:bafybeid76vbpzam4jtjrldclagrleykmkppaznkizrk63klhnz6gihzope
 - valory/mech_marketplace_legacy:0.1.0:bafybeieuypdkhxjwo7mj2dm6j3hbojgu7gv7t6kg2hzc5ytlm3ap6xbylq
 - valory/agent_registry:0.1.0:bafybeibnbbsesuvwp2qnvpsguze3nziyjfkrzkmqq5wk3yh47p6xe2swty
