@@ -97,5 +97,7 @@ class ERC20(Contract):
         """Build an ERC20 approval."""
         contract_instance = cls.get_instance(ledger_api, contract_address)
         checksumed_spender = ledger_api.api.to_checksum_address(spender)
-        data = contract_instance.encode_abi("approve", args=(checksumed_spender, amount))
+        data = contract_instance.encode_abi(
+            "approve", args=(checksumed_spender, amount)
+        )
         return {"data": bytes.fromhex(data[2:])}
