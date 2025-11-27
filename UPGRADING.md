@@ -2,6 +2,12 @@
 
 Below, we describe the additional manual steps required to upgrade between different versions:
 
+## `v0.22.1` to `v0.22.2` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
+- No backwards incompatible changes.
+
+## `v0.22.0` to `v0.22.1` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
+- No backwards incompatible changes.
+
 ## `v0.21.3` to `v0.22.0` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 
 #### New features
