@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2025 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -17,19 +17,4 @@
 #
 # ------------------------------------------------------------------------------
 
-"""This module contains the response state of the mech interaction abci app."""
-
-from packages.valory.skills.abstract_round_abci.base import get_name
-from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
-from packages.valory.skills.mech_interact_abci.states.base import (
-    MechInteractionRound,
-    SynchronizedData,
-)
-
-
-class MechResponseRound(MechInteractionRound):
-    """A round for collecting the responses from a Mech."""
-
-    payload_class = JSONPayload
-    selection_key = get_name(SynchronizedData.mech_responses)
-    collection_key = get_name(SynchronizedData.participant_to_responses)
+"""Tests for the mech interact abci skill's states."""

@@ -22,6 +22,22 @@
 from packages.valory.skills.abstract_round_abci.base import DegenerateRound
 
 
+class FinishedMarketplaceLegacyDetectedRound(DegenerateRound):
+    """A round which indicates that the round detection finished by identifying that the legacy marketplace is used."""
+
+
+class FinishedMechLegacyDetectedRound(DegenerateRound):
+    """A round which indicates that the round detection finished by identifying that the legacy mech is used."""
+
+
+class FinishedMechInformationRound(DegenerateRound):
+    """FinishedMechInformationRound"""
+
+
+class FailedMechInformationRound(DegenerateRound):
+    """FailedMechInformationRound"""
+
+
 class FinishedMechRequestRound(DegenerateRound):
     """FinishedMechRequestRound"""
 

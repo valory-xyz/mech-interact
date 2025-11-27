@@ -2,6 +2,53 @@
 
 Below, we describe the additional manual steps required to upgrade between different versions:
 
+## `v0.22.1` to `v0.22.2` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
+- No backwards incompatible changes.
+
+## `v0.22.0` to `v0.22.1` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
+- No backwards incompatible changes.
+
+## `v0.21.3` to `v0.22.0` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
+
+#### New features
+- This skill now performs a check to see which mech version is used (legacy, legacy marketplace, new marketplace).
+  - The property `is_marketplace_v2` in the synced data holds the result:
+    - None: legacy
+    - True: new marketplace
+    - False: legacy marketplace
+- The priority mech is now dynamically picked (Discoverability feature).
+  - There is a feature flag to enable/disable this, in `mech_marketplace_config`, called `use_dynamic_mech_selection`.
+  - The mech's information and their tools are now gathered in this skill, to support the discoverability.
+    This is only performed if the new mech marketplace is detected.
+  - New properties introduced to support this feature:
+    - `mechs_info`: All the mechs' information.
+    - `relevant_mechs_info`: The mechs' information that are relevant to the user, 
+      i.e., include tools which are not in the `irrelevant_tools` set.
+    - `mech_tools`: The set of all the mechs' tools.
+    - `priority_mech`: The dynamically picked priority mech.
+    - `priority_mech_address`: The address of the dynamically picked priority mech.
+- The valory/mech_marketplace/0.1.0 contract component now includes the new method `get_max_fee_factor`, 
+  which reads the `MAX_FEE_FACTOR` constant from the contract.
+
+#### Breaking Changes
+- Due to the new feature that performs the mech versioning check, the following breaking changes have been introduced:
+  - The initial round has been changed from `MechRequestRound` to `MechVersionDetectionRound`. 
+    However, the `MechRequestRound` has remained in the `initial_states`, 
+    which have been expanded to also include the new `MechVersionDetectionRound`.
+  - New final states have been introduced:
+    - `FinishedMarketplaceLegacyDetectedRound`: Triggered if the detected mech version was the legacy marketplace
+    - `FinishedMechLegacyDetectedRound`: Triggered if the detected mech version was the legacy mech
+    - `FinishedMechInformationRound`: Triggered if the mech information gathering was successfully performed.
+    - `FailedMechInformationRound`: Triggered if the mech information gathering failed.
+- The `irrelevant_tools` are now defined in this skill. This is a list of tools which should never be picked.
+- New models have been introduced in `skill.yaml` and `models.py` and should be defined in the composed skills too:
+  - `MechToolsSpecs`
+  - `MechsSubgraph`
+- The `from_dict` method has been removed from the `MechMarketplaceConfig` dataclass, as it is not necessary.
+
+## `v0.21.2` to `v0.21.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
+- No backwards incompatible changes.
+
 ## `v0.21.1` to `v0.21.2` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 - No backwards incompatible changes.
 

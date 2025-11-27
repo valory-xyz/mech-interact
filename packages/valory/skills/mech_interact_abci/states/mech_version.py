@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2025 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -17,53 +17,47 @@
 #
 # ------------------------------------------------------------------------------
 
-"""This module contains the request state of the mech interaction abci app."""
+"""This module contains the mech version detection state of the mech interaction abci app."""
 
 from enum import Enum
 from typing import Optional, Tuple, cast
 
 from packages.valory.skills.abstract_round_abci.base import (
     BaseSynchronizedData,
+    VotingRound,
     get_name,
 )
-from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
+from packages.valory.skills.mech_interact_abci.payloads import VotingPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
-    MechInteractionRound,
     SynchronizedData,
 )
 
 
-class MechRequestRound(MechInteractionRound):
-    """A round for performing requests to a Mech."""
+class MechVersionDetectionRound(VotingRound):
+    """A round for voting on the mech marketplace's version."""
 
-    payload_class = MechRequestPayload
-
-    selection_key = (
-        get_name(SynchronizedData.tx_submitter),
-        get_name(SynchronizedData.most_voted_tx_hash),
-        get_name(SynchronizedData.mech_price),
-        get_name(SynchronizedData.chain_id),
-        get_name(SynchronizedData.safe_contract_address),
-        get_name(SynchronizedData.mech_requests),
-        get_name(SynchronizedData.mech_responses),
-    )
-    collection_key = get_name(SynchronizedData.participant_to_requests)
-    none_event = Event.BUY_SUBSCRIPTION
+    payload_class = VotingPayload
+    synchronized_data_class = SynchronizedData
+    done_event = Event.V2
+    negative_event = Event.V1
+    none_event = Event.NO_MARKETPLACE
+    no_majority_event = Event.NO_MAJORITY
+    collection_key = get_name(SynchronizedData.participant_to_votes)
 
     def end_block(self) -> Optional[Tuple[BaseSynchronizedData, Enum]]:
         """Process the end of the block."""
         res = super().end_block()
-
         if res is None:
             return None
 
         synced_data, event = cast(Tuple[SynchronizedData, Enum], res)
 
-        if event != Event.DONE:
-            return res
+        if event in (Event.V2, Event.V1, Event.NO_MARKETPLACE):
+            is_v2 = None if event == Event.NO_MARKETPLACE else event == Event.V2
+            synced_data = synced_data.update(
+                synchronized_data_class=self.synchronized_data_class,
+                **{get_name(SynchronizedData.is_marketplace_v2): is_v2},
+            )
 
-        if not (synced_data.mech_requests or synced_data.mech_responses):
-            return synced_data, Event.SKIP_REQUEST
-
-        return res
+        return synced_data, event
