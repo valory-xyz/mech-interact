@@ -47,8 +47,8 @@ class SubscriptionProvider(Contract):
         """Get the tx for fulfill."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
-        encoded_data = contract_instance.encodeABI(
-            fn_name="fulfill",
+        encoded_data = contract_instance.encode_abi(
+            abi_element_identifier="fulfill",
             args=(agreement_id, did, fulfill_for_delegate_params, fulfill_params),
         )
         return {"data": bytes.fromhex(encoded_data[HEX_PREFIX_LENGTH:])}
