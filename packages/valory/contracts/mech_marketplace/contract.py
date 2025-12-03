@@ -69,8 +69,8 @@ class MechMarketplace(Contract):
         contract_instance = cls.get_instance(ledger_api, checksummed_contract_address)
         # Checksum the priority mech address before passing it to the contract method
         checksummed_priority_mech = ledger_api.api.to_checksum_address(priority_mech)
-        encoded_data = contract_instance.encodeABI(
-            fn_name="request",
+        encoded_data = contract_instance.encode_abi(
+            abi_element_identifier="request",
             args=(
                 request_data,
                 max_delivery_rate,
