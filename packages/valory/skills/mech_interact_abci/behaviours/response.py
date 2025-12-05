@@ -125,7 +125,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 f"Issue when accessing request info for delivery mech: {str(exc)}. "
                 "Returning default mech contract address."
             )
-            return self.shared_state.last_called_mech
+            return self.shared_state.last_called_mech or ADDRESS_ZERO
 
     @property
     def response_hex(self) -> str:
@@ -302,12 +302,13 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 chain_id=self.params.mech_chain_id,
             )
 
-            if self.delivery_mech == ADDRESS_ZERO:
+            delivery_mech = self.delivery_mech
+            if delivery_mech == ADDRESS_ZERO:
                 return False
 
             result = yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                contract_address=self.delivery_mech,
+                contract_address=delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
                 contract_callable="get_response",
                 data_key="data",
@@ -357,12 +358,16 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             self.params.use_acn_for_delivers
             and self.current_mech_response.response_data is not None
         ):
+            requested_mech_address = self.shared_state.last_called_mech
+            if not requested_mech_address:
+                return False
+
             result = yield from self.agent_registry_contract_interact(
                 contract_callable="authenticate_sender",
                 data_key="is_valid",
                 placeholder=get_name(MechResponseBehaviour.is_valid_acn_sender),
                 sender_address=self.current_mech_response.sender_address,
-                mech_address=self.priority_mech_address,
+                mech_address=requested_mech_address,
             )
             if result and self.is_valid_acn_sender:
                 if self.current_mech_response.response_data:

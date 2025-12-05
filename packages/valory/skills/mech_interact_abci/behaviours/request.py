@@ -778,13 +778,17 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         if payment_data_bytes is None:
             return False
 
+        priority_mech_address = self.priority_mech_address
+        if not priority_mech_address:
+            return False
+
         # Call the contract to get the encoded request data
         status = yield from self._mech_marketplace_contract_interact(
             contract_callable="get_request_data",
             data_key="data",
             placeholder=get_name(MechRequestBehaviour.request_data),
             request_data=request_data_bytes,
-            priority_mech=self.priority_mech_address,
+            priority_mech=priority_mech_address,
             payment_data=payment_data_bytes,
             payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
@@ -797,12 +801,16 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Build request data for marketplace v1 (legacy marketplace without payment_type)."""
         self.context.logger.info("Building request data for legacy marketplace flow.")
 
+        priority_mech_address = self.priority_mech_address
+        if not priority_mech_address:
+            return False
+
         status = yield from self._mech_marketplace_legacy_contract_interact(
             "get_request_data",
             "data",
             get_name(MechRequestBehaviour.request_data),
             request_data=self._v1_hex_truncated,
-            priority_mech=self.priority_mech_address,
+            priority_mech=priority_mech_address,
             priority_mech_staking_instance=self.mech_marketplace_config.priority_mech_staking_instance_address,
             priority_mech_service_id=self.mech_marketplace_config.priority_mech_service_id,
             requester_staking_instance=self.mech_marketplace_config.requester_staking_instance_address,
