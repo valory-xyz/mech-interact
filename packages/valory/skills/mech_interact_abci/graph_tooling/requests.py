@@ -22,7 +22,7 @@
 import json
 from abc import ABC
 from enum import Enum, auto
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 from packages.valory.skills.abstract_round_abci.behaviour_utils import BaseBehaviour
 from packages.valory.skills.abstract_round_abci.models import ApiSpecs
@@ -30,6 +30,7 @@ from packages.valory.skills.mech_interact_abci.graph_tooling.queries.mechs_info 
     info as mechs_info_query,
 )
 from packages.valory.skills.mech_interact_abci.models import (
+    MechParams,
     MechsSubgraph,
     MechsSubgraphResponseType,
 )
@@ -67,6 +68,11 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         super().__init__(**kwargs)
         self._call_failed: bool = False
         self._fetch_status: FetchStatus = FetchStatus.NONE
+
+    @property
+    def params(self) -> MechParams:
+        """Return the params."""
+        return cast(MechParams, super().params)
 
     @property
     def mechs_subgraph(self) -> MechsSubgraph:
@@ -117,6 +123,7 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         query = mechs_info_query.substitute(
             first=QUERY_BATCH_SIZE,
             mechs_id_gt=mechs_id_gt,
+            ignored_mechs='", "'.join(self.params.ignored_mechs),
         )
         res_raw = yield from self.get_http_response(
             content=to_content(query),
