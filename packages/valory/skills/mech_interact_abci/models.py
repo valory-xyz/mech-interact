@@ -20,9 +20,10 @@
 """This module contains the models for the abci skill of MechInteractAbciApp."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, cast
 
 from aea.exceptions import enforce
+from aea.skills.base import SkillContext
 from hexbytes import HexBytes
 
 from autonomy.chain.config import ChainType
@@ -157,12 +158,6 @@ class MechResponseSpecs(ApiSpecs):
     """A model that wraps ApiSpecs for the Mech's response specifications."""
 
 
-class SharedState(BaseSharedState):
-    """Keep the current shared state of the skill."""
-
-    abci_app_cls = MechInteractAbciApp
-
-
 @dataclass(frozen=True)
 class MechMarketplaceConfig:
     """The configuration for the Mech marketplace."""
@@ -240,6 +235,9 @@ class MechParams(BaseParams):
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
         self.ignored_mechs: FrozenSet[str] = frozenset(
             self._ensure("ignored_mechs", kwargs, List[str])
+        )
+        self.penalize_mech_time_window: int = self._ensure(
+            "penalize_mech_time_window", kwargs, int
         )
 
         super().__init__(*args, **kwargs)
@@ -320,6 +318,56 @@ class MechParams(BaseParams):
 
 
 Params = MechParams
+
+
+class SharedState(BaseSharedState):
+    """Keep the current shared state of the skill."""
+
+    abci_app_cls = MechInteractAbciApp
+
+    def __init__(self, *args, skill_context: SkillContext, **kwargs) -> None:
+        """Set up."""
+        super().__init__(*args, skill_context=skill_context, **kwargs)
+        # defined here so developers can penalize mechs (e.g., based on the response) to lower their ranking
+        self._penalized_mechs: Dict[str, int] = {}
+        self.last_called_mech: Optional[str] = None
+
+    @property
+    def params(self) -> MechParams:
+        """Return the params."""
+        return cast(MechParams, self.context.params)
+
+    @property
+    def synced_timestamp(self) -> int:
+        """Return the synchronized timestamp across the agents."""
+        return int(self.round_sequence.last_round_transition_timestamp.timestamp())
+
+    @property
+    def penalized_mechs(self) -> Dict[str, int]:
+        """Get the penalized mechs sorted by the time of penalization (less to most recent)."""
+        now = self.synced_timestamp
+
+        return dict(
+            sorted(
+                (
+                    (addr, ts)
+                    for addr, ts in self._penalized_mechs.items()
+                    if now - ts < self.params.penalize_mech_time_window
+                ),
+                key=lambda x: x[1],
+            )
+        )
+
+    def penalize_mech(self, mech_address: str) -> None:
+        """Penalize a mech."""
+        self._penalized_mechs[mech_address] = self.synced_timestamp
+
+    def penalize_last_called_mech(self) -> None:
+        """Penalize the last called mech."""
+        if self.last_called_mech:
+            self.penalize_mech(self.last_called_mech)
+        else:
+            self.context.logger.warning("No called mech found to penalize!")
 
 
 @dataclass
