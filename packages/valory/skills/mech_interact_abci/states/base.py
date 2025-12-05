@@ -318,6 +318,26 @@ class SynchronizedData(TxSynchronizedData):
         return None
 
     @property
+    def ranked_mechs(
+        self,
+    ) -> MechsInfo:
+        """Get the mechs ranked from the best to the worse."""
+        relevant_mechs_info = self.relevant_mechs_info
+        if relevant_mechs_info:
+            return sorted(relevant_mechs_info, reverse=True)
+        return []
+
+    @property
+    def ranked_mechs_addresses(
+        self,
+    ) -> List[str]:
+        """Get the priority mech's address."""
+        ranked_mechs = self.ranked_mechs
+        if ranked_mechs:
+            return [mech.address for mech in ranked_mechs]
+        return []
+
+    @property
     def mech_price(self) -> int:
         """Get the mech's request price."""
         return int(self.db.get_strict("mech_price"))
