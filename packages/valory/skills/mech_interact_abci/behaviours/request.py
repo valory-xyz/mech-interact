@@ -918,6 +918,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             self.context.logger.info(f"Preparing mech requests: {self._mech_requests}")
             should_buy_subscription = yield from self._prepare_safe_tx()
+            self.shared_state.last_called_mech = self.priority_mech_address
 
         if should_buy_subscription:
             payload = MechRequestPayload(
