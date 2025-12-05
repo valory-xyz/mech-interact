@@ -287,9 +287,16 @@ class SynchronizedData(TxSynchronizedData):
         return [MechInfo(**item) for item in mechs_info]
 
     @property
+    def mech_tool(self) -> str:
+        """Get the selected mech tool."""
+        return str(self.db.get_strict("mech_tool"))
+
+    @property
     def relevant_mechs_info(self) -> MechsInfo:
         """Get the relevant mechs' information."""
-        return [info for info in self.mechs_info if info.relevant_tools]
+        return [
+            info for info in self.mechs_info if self.mech_tool in info.relevant_tools
+        ]
 
     @property
     def mech_tools(self) -> Set[str]:
