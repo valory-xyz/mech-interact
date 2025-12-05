@@ -287,9 +287,16 @@ class SynchronizedData(TxSynchronizedData):
         return [MechInfo(**item) for item in mechs_info]
 
     @property
+    def mech_tool(self) -> str:
+        """Get the selected mech tool."""
+        return str(self.db.get_strict("mech_tool"))
+
+    @property
     def relevant_mechs_info(self) -> MechsInfo:
         """Get the relevant mechs' information."""
-        return [info for info in self.mechs_info if info.relevant_tools]
+        return [
+            info for info in self.mechs_info if self.mech_tool in info.relevant_tools
+        ]
 
     @property
     def mech_tools(self) -> Set[str]:
@@ -312,9 +319,30 @@ class SynchronizedData(TxSynchronizedData):
         self,
     ) -> Optional[str]:
         """Get the priority mech's address."""
-        if self.priority_mech:
-            return self.priority_mech.address
+        priority_mech = self.priority_mech
+        if priority_mech:
+            return priority_mech.address
         return None
+
+    @property
+    def ranked_mechs(
+        self,
+    ) -> MechsInfo:
+        """Get the mechs ranked from the best to the worse."""
+        relevant_mechs_info = self.relevant_mechs_info
+        if relevant_mechs_info:
+            return sorted(relevant_mechs_info, reverse=True)
+        return []
+
+    @property
+    def ranked_mechs_addresses(
+        self,
+    ) -> List[str]:
+        """Get the priority mech's address."""
+        ranked_mechs = self.ranked_mechs
+        if ranked_mechs:
+            return [mech.address for mech in ranked_mechs]
+        return []
 
     @property
     def mech_price(self) -> int:

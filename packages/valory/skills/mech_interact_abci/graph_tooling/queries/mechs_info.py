@@ -32,7 +32,8 @@ info = Template(
                 orderDirection: asc,
                 where: {
                     id_gt: "${mechs_id_gt}",
-                    service_: {totalDeliveries_gt: 0}
+                    service_: {totalDeliveries_gt: 0},
+                    address_not_in: ["${ignored_mechs}"]
                 }
             ) {
                 id
