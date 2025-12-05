@@ -312,8 +312,9 @@ class SynchronizedData(TxSynchronizedData):
         self,
     ) -> Optional[str]:
         """Get the priority mech's address."""
-        if self.priority_mech:
-            return self.priority_mech.address
+        priority_mech = self.priority_mech
+        if priority_mech:
+            return priority_mech.address
         return None
 
     @property
