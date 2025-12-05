@@ -125,7 +125,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 f"Issue when accessing request info for delivery mech: {str(exc)}. "
                 "Returning default mech contract address."
             )
-            return self.priority_mech_address
+            return self.shared_state.last_called_mech
 
     @property
     def response_hex(self) -> str:
