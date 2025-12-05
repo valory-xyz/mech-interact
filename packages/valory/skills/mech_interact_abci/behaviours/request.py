@@ -35,6 +35,7 @@ from hexbytes import HexBytes
 
 from packages.valory.contracts.erc20.contract import ERC20
 from packages.valory.contracts.ierc1155.contract import IERC1155
+from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.contracts.nvm_balance_tracker_native.contract import (
     BalanceTrackerNvmSubscriptionNative,
 )
@@ -98,6 +99,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._price: int = 0
         self._mech_requests: List[MechMetadata] = []
         self._pending_responses: List[MechInteractionResponse] = []
+        self.priority_mech_address: str = ""
 
         # Initialize internal attributes that will hold on-chain values once fetched
         self.token_balance: int = 0
@@ -528,10 +530,41 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.sleep(self.params.sleep_time)
         return False
 
+    def get_priority_mech_address(self) -> Optional[str]:
+        """Get the priority mech's address. Warning: the result is based on the time of access."""
+        if (
+            self.should_use_marketplace_v2()
+            and self.mech_marketplace_config.use_dynamic_mech_selection
+        ):
+            # get the next priority mech that is not penalized.
+            # if all mechs are penalized, return the priority mech to avoid getting blocked
+            priority_mech = next(
+                (
+                    mech
+                    for mech in self.synchronized_data.ranked_mechs_addresses
+                    if mech not in self.shared_state.penalized_mechs
+                ),
+                self.synchronized_data.priority_mech_address,
+            )
+            if not priority_mech:
+                self.context.logger.warning("No whitelisted priority mech found!")
+
+            return priority_mech
+
+        if self.params.use_mech_marketplace:
+            return self.mech_marketplace_config.priority_mech_address
+
+        return self.params.mech_contract_address
+
     def setup(self) -> None:
         """Set up the `MechRequest` behaviour."""
         self._mech_requests = self.synchronized_data.mech_requests
         self.context.logger.info(f"Processing mech requests: {self._mech_requests}")
+        self.context.logger.info("Selecting priority mech...")
+        self.priority_mech_address = self.get_priority_mech_address()
+        self.context.logger.info(
+            f"{self.priority_mech_address!r} was selected as priority mech."
+        )
 
     def _send_metadata_to_ipfs(
         self,
@@ -557,6 +590,25 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._v1_hex_truncated = Ox + mech_request_data
         self._pending_responses.append(pending_response)
         return True
+
+    def _mech_mm_contract_interact(
+        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
+    ) -> WaitableConditionType:
+        """Interact with the mech mm contract."""
+        priority_mech_address = self.priority_mech_address
+        if not priority_mech_address:
+            return False
+
+        status = yield from self.contract_interact(
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
+            contract_address=priority_mech_address,
+            contract_public_id=MechMM.contract_id,
+            contract_callable=contract_callable,
+            data_key=data_key,
+            placeholder=placeholder,
+            **kwargs,
+        )
+        return status
 
     def _get_payment_type(self) -> WaitableConditionType:
         """Get payment type from the mech contract. Returns True on success, False otherwise."""
@@ -726,13 +778,17 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         if payment_data_bytes is None:
             return False
 
+        priority_mech_address = self.priority_mech_address
+        if not priority_mech_address:
+            return False
+
         # Call the contract to get the encoded request data
         status = yield from self._mech_marketplace_contract_interact(
             contract_callable="get_request_data",
             data_key="data",
             placeholder=get_name(MechRequestBehaviour.request_data),
             request_data=request_data_bytes,
-            priority_mech=self.priority_mech_address,
+            priority_mech=priority_mech_address,
             payment_data=payment_data_bytes,
             payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
@@ -745,12 +801,16 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Build request data for marketplace v1 (legacy marketplace without payment_type)."""
         self.context.logger.info("Building request data for legacy marketplace flow.")
 
+        priority_mech_address = self.priority_mech_address
+        if not priority_mech_address:
+            return False
+
         status = yield from self._mech_marketplace_legacy_contract_interact(
             "get_request_data",
             "data",
             get_name(MechRequestBehaviour.request_data),
             request_data=self._v1_hex_truncated,
-            priority_mech=self.priority_mech_address,
+            priority_mech=priority_mech_address,
             priority_mech_staking_instance=self.mech_marketplace_config.priority_mech_staking_instance_address,
             priority_mech_service_id=self.mech_marketplace_config.priority_mech_service_id,
             requester_staking_instance=self.mech_marketplace_config.requester_staking_instance_address,
@@ -866,6 +926,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             self.context.logger.info(f"Preparing mech requests: {self._mech_requests}")
             should_buy_subscription = yield from self._prepare_safe_tx()
+            self.shared_state.last_called_mech = self.priority_mech_address
 
         if should_buy_subscription:
             payload = MechRequestPayload(

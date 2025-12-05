@@ -36,7 +36,6 @@ from packages.valory.contracts.mech_marketplace.contract import MechMarketplace
 from packages.valory.contracts.mech_marketplace_legacy.contract import (
     MechMarketplaceLegacy,
 )
-from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.contracts.multisend.contract import MultiSendContract
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.skills.abstract_round_abci.base import BaseTxPayload
@@ -48,6 +47,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechMarketplaceConfig,
     MechParams,
     MultisendBatch,
+    SharedState,
 )
 from packages.valory.skills.mech_interact_abci.states.base import SynchronizedData
 from packages.valory.skills.transaction_settlement_abci.payload_tools import (
@@ -84,6 +84,11 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
     def params(self) -> MechParams:
         """Return the params."""
         return cast(MechParams, self.context.params)
+
+    @property
+    def shared_state(self) -> SharedState:
+        """Return the shared state."""
+        return cast(SharedState, self.context.state)
 
     @property
     def mech_marketplace_config(self) -> MechMarketplaceConfig:
@@ -210,33 +215,6 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.params.mech_contract_address,
             contract_public_id=Mech.contract_id,
-            contract_callable=contract_callable,
-            data_key=data_key,
-            placeholder=placeholder,
-            **kwargs,
-        )
-        return status
-
-    @property
-    def priority_mech_address(self) -> str:
-        """Get the priority mech's address."""
-        if (
-            self.should_use_marketplace_v2()
-            and self.mech_marketplace_config.use_dynamic_mech_selection
-        ):
-            return self.synchronized_data.priority_mech_address
-        if self.params.use_mech_marketplace:
-            return self.mech_marketplace_config.priority_mech_address
-        return self.params.mech_contract_address
-
-    def _mech_mm_contract_interact(
-        self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
-    ) -> WaitableConditionType:
-        """Interact with the mech mm contract."""
-        status = yield from self.contract_interact(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.priority_mech_address,
-            contract_public_id=MechMM.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
             placeholder=placeholder,

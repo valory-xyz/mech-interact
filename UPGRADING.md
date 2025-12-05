@@ -2,6 +2,22 @@
 
 Below, we describe the additional manual steps required to upgrade between different versions:
 
+## `v0.22.2` to `v0.22.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
+
+#### Breaking Changes
+- No backwards incompatible changes.
+
+#### New features
+- New configurations have been introduced,  
+  and users may optionally override them in their composed skills, agents and services:
+  - `ignored_mechs`: A list of mech addresses to ignore.
+  - `penalize_mech_time_window`: The time window in seconds to penalize a mech for.
+- The shared state has some new properties that may be optionally used:
+  - `penalized_mechs`: Returns all the penalized mechs, 
+    taking into consideration the `penalize_mech_time_window` and the time of penalization.
+  - `penalize_mech`: Penalizes a given mech.
+  - `penalize_last_called_mech`: Penalizes the last called mech.
+
 ## `v0.22.1` to `v0.22.2` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 - No backwards incompatible changes.
 
