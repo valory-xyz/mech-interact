@@ -48,6 +48,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechMarketplaceConfig,
     MechParams,
     MultisendBatch,
+    SharedState,
 )
 from packages.valory.skills.mech_interact_abci.states.base import SynchronizedData
 from packages.valory.skills.transaction_settlement_abci.payload_tools import (
@@ -84,6 +85,11 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
     def params(self) -> MechParams:
         """Return the params."""
         return cast(MechParams, self.context.params)
+
+    @property
+    def shared_state(self) -> SharedState:
+        """Return the shared state."""
+        return cast(SharedState, self.context.state)
 
     @property
     def mech_marketplace_config(self) -> MechMarketplaceConfig:
