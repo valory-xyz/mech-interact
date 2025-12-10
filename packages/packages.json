@@ -16,7 +16,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeidxlt74p62dg64qxtjitlqv242h3ei6vbvuixr5su7wijl3cj2fai",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeig6yxeacd6pd3h5oogveh6reemyehrr4bpismlgtfkirxs6wyjt7y",
         "contract/valory/subscription_provider/0.1.0": "bafybeiar63hsdrug6ml64mmkybiszeqaw2qfxugvat3irkdlmwthsmohb4",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeig3pmccp4jlewglr6o4r5ncvgyuobv7qutalsq2dtnhao2evvhbfa"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeieba23yyqnwakedhkilti4eqw3pfdrvs7vwqj3kgula3l4flfngj4"
     },
     "third_party": {
         "protocol/open_aea/signing/1.0.0": "bafybeib7p5as3obcdzseiwg5umj2piiqaodkxkto7qh7b552l5emwsmdzm",
