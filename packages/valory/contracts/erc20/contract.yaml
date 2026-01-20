@@ -4,7 +4,7 @@ version: 0.1.0
 type: contract
 description: ERC20 token contract
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   README.md: bafybeifmfma6rglvpa22odtozyosnp5mwljum64utxip2wgmezuhnjjjyi
   __init__.py: bafybeib3qhriydui6metcinv73p4tjsqrzw62l5cvshvmzt62jclct6nza
@@ -21,9 +21,9 @@ dependencies:
   eth_typing: {}
   hexbytes: {}
   open-aea-ledger-ethereum:
-    version: ==1.65.0
+    version: ==2.0.7
   open-aea-test-autonomy:
-    version: ==0.19.11
+    version: ==0.21.6
   packaging: {}
   py-eth-sig-utils: {}
   requests:

@@ -4,7 +4,7 @@ version: 0.1.0
 type: contract
 description: Balance tracker contract for a native NVM subscription
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   README.md: bafybeihbbepmyfrkvj7j7q7xbno77gapxsyvwjgkz24cjlfe7xkcrgfo6i
   __init__.py: bafybeia2jy4hgoyhxzxbnc5fccrg55zqmsuonudcbblpvxz7kqlvr7oiwy
@@ -17,4 +17,4 @@ contract_interface_paths:
   ethereum: build/nvm_balance_tracker_native.json
 dependencies:
   open-aea-ledger-ethereum:
-    version: ==1.65.0
+    version: ==2.0.7
