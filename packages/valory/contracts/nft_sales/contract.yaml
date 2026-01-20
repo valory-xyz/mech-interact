@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeidszmr7t4igquq7334a2tozphtlnl77mxtbtorf45vuzv3wp2ftde
   __init__.py: bafybeibirew6ud2mhqt7le3exroyhjb5l3qu5azovegu6riyujf3ltmjfa
   build/nft_sales.json: bafybeicnis2uezzufu46mnvkifkodyw6bnmsgqimwp7lgf6fnfkmhgc2cq
-  contract.py: bafybeigzne2r6l7yfslq4ralwuels4bl76t3rlb3hdeiujeks5nomfkxx4
+  contract.py: bafybeifpuqe7hckahbmpj4ojpbmrnkd5towuk4ouqmnfqrhnbwdbunmte4
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: NFTSalesTemplate
