@@ -111,12 +111,19 @@ CHAIN_TO_NVM_CONFIG = {
     ),
 }
 
+# This mapping means that we only support one token per chain.
 CHAIN_TO_PRICE_TOKEN = {
+    # Eth supports OLAS.
     ChainType.ETHEREUM: "0x0001A500A6B18995B03f44bb040A5fFc28E45CB0",
-    ChainType.OPTIMISM: "0xFC2E6e6BCbd49ccf3A5f029c79984372DcBFE527",
+    # Op supports USDC.
+    ChainType.OPTIMISM: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+    # Gnosis supports OLAS.
     ChainType.GNOSIS: "0xcE11e14225575945b8E6Dc0D4F2dD4C570f79d9f",
-    ChainType.POLYGON: "0xFEF5d947472e72Efbb2E388c730B7428406F2F95",
-    ChainType.BASE: "0x54330d28ca3357F294334BDC454a032e7f353416",
+    # Polygon supports USDC.
+    ChainType.POLYGON: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+    # Base supports USDC.
+    ChainType.BASE: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    # Celo supports OLAS.
     ChainType.CELO: "0x96ffa56a963EC33e5bC7057B9002722D1884fc01",
 }
 
