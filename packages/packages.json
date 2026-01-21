@@ -1,11 +1,11 @@
 {
     "dev": {
-        "contract/valory/agent_registry/0.1.0": "bafybeibp3cd2biahq3zueo5vwi2xxua7u4p2cf4tgrily7ip26njlzwhpe",
-        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeiaz7ilzywhxw7qlbw2z5b4lbdegpguou6nn6ocmjeirzjatdfjdma",
-        "contract/valory/mech_marketplace/0.1.0": "bafybeidtlgmqt4ilioa2r67mvxb6t63k5unwkamsc7kz5jrnsjkawk2xte",
-        "contract/valory/mech/0.1.0": "bafybeihgqqt4fdwhptoharq5c7vgj47mh74bm6ljm6znar2d3kgdk42vxq",
-        "contract/valory/mech_mm/0.1.0": "bafybeihie7apjlo4qimetw7ipvvtigc44k2p5lq73ffedih4a24j2vwfae",
-        "contract/valory/erc20/0.1.0": "bafybeiapqgamgkjedtopbmbtyy5gjdq26ygyiwqatgtffybcjcuhgs6oli",
+        "contract/valory/agent_registry/0.1.0": "bafybeigz7id6rllnw5vzpfnwouweagcrlz4cgymtruxbihsx2zcm6xhyda",
+        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeigh3o7kxyaulnvcbld2h6cmae6ma6yei2xram2hqifcftn5f3bw7q",
+        "contract/valory/mech_marketplace/0.1.0": "bafybeibbxutph6qbaldnq3o5kiaqgubc6jhgxappf33u2t7udnwajhmbf4",
+        "contract/valory/mech/0.1.0": "bafybeibzaxri2yru6l2nwgr2vdctkczqthalel2g4wojz2whohr3sznil4",
+        "contract/valory/mech_mm/0.1.0": "bafybeielrjtejohqcom5donjmrjd7r2jb2ub3pbcxbhyap4exkbfg7ppoi",
+        "contract/valory/erc20/0.1.0": "bafybeiggqkajyy3shkcdfzvwvrf2eepbhemy4urbuozodqyq5laghmwfpq",
         "contract/valory/ierc1155/0.1.0": "bafybeid5whskodle54bifmwjzkaqfmkzngqga6jtmbhvlzigel2f5mghda",
         "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeiapcxwvr4hshevutwzs7vv3eza6ueosnj2wt2fb7yjwvl6e73mmqq",
         "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeicu32o3rpp2ouacssybsgnhabojzwem2s6eh7lqunq2fkcxi2kmmy",
@@ -16,7 +16,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeigmajoan2l2vh3jwla6kictcplgcbnxq7wgazaqy27enipjezlfky",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeigndjs5mthj42yq3aw3u4c2l3gakove2uoj2jvurnr36qcbaigjni",
         "contract/valory/subscription_provider/0.1.0": "bafybeib5bvuoyhwprzpc33qqlneeftkyzyaecxb42t2lk34ptdduzdtsbu",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeid7ahfil6ca7jvxkdixqjxjuuywpfj4njx5ytspt4kkvp7to65kni"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeieynbuqad5roc3t2qt2j6r56527wvwmiqyvjd5k22cqeen22tnaki"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeih5ydonnvrwvy2ygfqgfabkr47s4yw3uqxztmwyfprulwfsoe7ipq",
