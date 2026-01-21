@@ -49,32 +49,32 @@ fingerprint:
 fingerprint_ignore_patterns: []
 connections: []
 contracts:
-- valory/gnosis_safe:0.1.0:bafybeift6zq32brismk6c7csidcveeijyalrlpnefnqv2jrwrxnfmyu7li
-- valory/mech:0.1.0:bafybeia2fumjlopm6cblkwjiirxhaa2bmyrtgshgcbblmd63mo5ohmh36a
-- valory/mech_mm:0.1.0:bafybeibqichh4abdqovx3t5mv6lb6alwtmrpsxckem6qkxg5ferv52vkn4
+- valory/gnosis_safe:0.1.0:bafybeidmuh7jhh2xv24j24sjtnfdv7itkfk4t5opptvm4mibwrthxesc2u
+- valory/mech:0.1.0:bafybeihgqqt4fdwhptoharq5c7vgj47mh74bm6ljm6znar2d3kgdk42vxq
+- valory/mech_mm:0.1.0:bafybeihie7apjlo4qimetw7ipvvtigc44k2p5lq73ffedih4a24j2vwfae
 - valory/multisend:0.1.0:bafybeidjdgi2kyexajirj3cnpzgse4y5u664b2blztt4flv6i7knlecyr4
-- valory/erc20:0.1.0:bafybeicmz6z2bzjky52jty5kv33vp25xn3xsttgqtgqyn4r3khnprqpo44
-- valory/mech_marketplace:0.1.0:bafybeiavi2j6nwq5zod7yd7hc66u74bilk6ahkfez7tshqutpf6wl3iuwy
-- valory/mech_marketplace_legacy:0.1.0:bafybeidpm6d5cjvri3wszqkj3j5pqb2rzacjrzlngfdj4cxveu5r2fq6lu
-- valory/agent_registry:0.1.0:bafybeigdrl2f6isuvtm3st5b4uypkabwazusaftxwvgfsk5r76gk2dmlhy
-- valory/ierc1155:0.1.0:bafybeihxvb6mkoqslafg764bevcybarjpge5oswc3qdpz4fomokvgjpsvm
-- valory/nvm_balance_tracker_token:0.1.0:bafybeibugdgkfnvgjjovmsbp5wjoh56p27ceb75b6wzrmb3dx5wllrodme
-- valory/nvm_balance_tracker_native:0.1.0:bafybeigcdeezxeh3qxhadwonnnuujyo22btbenzxm5bgdwqyh65wiutrhy
-- valory/escrow_payment_condition:0.1.0:bafybeigtnhahgma5akvdqvrmw5cwcmrp52xsgcdddl4qhreugn2lacsore
-- valory/did_registry:0.1.0:bafybeid3xrla6geglzw2wzzdquslklykpajrdhhxnjva3bmmtq7axcldyi
-- valory/nft_sales:0.1.0:bafybeicxu4wamktup2othub7gnzl7w32h33ripie6qfloptsbrkc4al6wa
-- valory/lock_payment_condition:0.1.0:bafybeiffgc2r3pljfj5oq7otmyolrwtsdkt5euu4m2ecb5oxsfp6nzh76i
-- valory/agreement_store_manager:0.1.0:bafybeihjuc7ldrq4lj5lizkr2jvol6urzdn2il5zwksuqi57z6usahhexy
-- valory/transfer_nft_condition:0.1.0:bafybeihzjrhrjicszzfqz5f3au3alrbalb7utvse7pbr4eli6reofnoxw4
-- valory/subscription_provider:0.1.0:bafybeihqlpc2c7srd6tho6xkjjrnpowlax55e5xexcoohyot7du5oxz3vi
+- valory/erc20:0.1.0:bafybeiapqgamgkjedtopbmbtyy5gjdq26ygyiwqatgtffybcjcuhgs6oli
+- valory/mech_marketplace:0.1.0:bafybeidtlgmqt4ilioa2r67mvxb6t63k5unwkamsc7kz5jrnsjkawk2xte
+- valory/mech_marketplace_legacy:0.1.0:bafybeiaz7ilzywhxw7qlbw2z5b4lbdegpguou6nn6ocmjeirzjatdfjdma
+- valory/agent_registry:0.1.0:bafybeibp3cd2biahq3zueo5vwi2xxua7u4p2cf4tgrily7ip26njlzwhpe
+- valory/ierc1155:0.1.0:bafybeid5whskodle54bifmwjzkaqfmkzngqga6jtmbhvlzigel2f5mghda
+- valory/nvm_balance_tracker_token:0.1.0:bafybeiapcxwvr4hshevutwzs7vv3eza6ueosnj2wt2fb7yjwvl6e73mmqq
+- valory/nvm_balance_tracker_native:0.1.0:bafybeicu32o3rpp2ouacssybsgnhabojzwem2s6eh7lqunq2fkcxi2kmmy
+- valory/escrow_payment_condition:0.1.0:bafybeia2y57anc37wsky2tpq2kwyj3hp76dj6ldfoll7susw3f23euaxfe
+- valory/did_registry:0.1.0:bafybeia7jjpsyvv2q3blk6c5bd3zure37dsnrz4zny7pbzbtuqaudp44di
+- valory/nft_sales:0.1.0:bafybeiaaiwiobwrdvx6xie2657a2utldusemlnwpxysuoofcp3l5meruam
+- valory/lock_payment_condition:0.1.0:bafybeihuob2jmcn6i7ipaekscsectadwohiql3jiakeq3forj2lywuwdo4
+- valory/agreement_store_manager:0.1.0:bafybeigmajoan2l2vh3jwla6kictcplgcbnxq7wgazaqy27enipjezlfky
+- valory/transfer_nft_condition:0.1.0:bafybeigndjs5mthj42yq3aw3u4c2l3gakove2uoj2jvurnr36qcbaigjni
+- valory/subscription_provider:0.1.0:bafybeib5bvuoyhwprzpc33qqlneeftkyzyaecxb42t2lk34ptdduzdtsbu
 protocols:
-- valory/contract_api:1.0.0:bafybeicmo2ufeoqyyczkom6xp3nwmhosd75kpe4xfwn7gaz6vegj732b4m
-- valory/ledger_api:1.0.0:bafybeiga6gdd3ccdt5jgrov474koz524f3pfbhprwxfjj7wextkl7wozsa
+- valory/contract_api:1.0.0:bafybeigl7mxuyxngk4gztgygeccbgdfrllx73kwbvvkjvtkfw6ionyd56q
+- valory/ledger_api:1.0.0:bafybeig7yk77pmebqcb33jbavodcslmltitz2uolq6s5arklvsvu5bvp7y
 - valory/acn_data_share:0.1.0:bafybeih5ydonnvrwvy2ygfqgfabkr47s4yw3uqxztmwyfprulwfsoe7ipq
-- valory/http:1.0.0:bafybeibxab2yfpchusrzw4rgrasjomtpphazanpivhhtznmuao5ny2lsmi
+- valory/http:1.0.0:bafybeia4tq7ycivm3dnekelrnlzdwb4qnrjdykk6gf5tizq6djr66adotm
 skills:
-- valory/abstract_round_abci:0.1.0:bafybeib4apybhtx3gx6o4x5b2nwqjkbdqi7dx7rxyrb5r3zztcdjiezvh4
-- valory/transaction_settlement_abci:0.1.0:bafybeifw2sem532gwdcyujknhsgdcgubpwsrrjtve4ztzxlkpmporjp4rq
+- valory/abstract_round_abci:0.1.0:bafybeiazxdhf7ls5krsmrcyfndt5pxxky2tfrlaahvbbpbe637nqual6ke
+- valory/transaction_settlement_abci:0.1.0:bafybeie6rjlwdpyngdvz6o5f6rgmaon5qzrwdafy7kdclg6g4x2w7zbdwy
 behaviours:
   main:
     args: {}
@@ -270,5 +270,6 @@ dependencies:
   hexbytes: {}
   py-multicodec: {}
   py-multibase: {}
-  open-autonomy: {}
+  open-autonomy:
+    version: ==0.21.7
 is_abstract: true
