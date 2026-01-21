@@ -18,3 +18,5 @@ dfc1de501cf190ea8bed1fb900331e73f7484a54:packages/valory/skills/mech_interact_ab
 dfc1de501cf190ea8bed1fb900331e73f7484a54:packages/valory/skills/mech_interact_abci/behaviours/request.py:generic-api-key:81
 08daa8264db80ba302af7ce74b4010e60d5a702e:packages/valory/skills/mech_interact_abci/behaviours/request.py:generic-api-key:79
 08daa8264db80ba302af7ce74b4010e60d5a702e:packages/valory/skills/mech_interact_abci/behaviours/request.py:generic-api-key:81
+254247e36a55a97ef7f2534eb8cbfa1b20e63bc0:packages/valory/skills/mech_interact_abci/skill.yaml:generic-api-key:187
+f5960e7e2ae9d3ed3dbe16f108fd61705138eabf:packages/valory/skills/mech_interact_abci/skill.yaml:generic-api-key:188
