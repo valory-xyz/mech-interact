@@ -210,6 +210,12 @@ class MechParams(BaseParams):
         self.mech_wrapped_native_token_address: Optional[str] = kwargs.get(
             "mech_wrapped_native_token_address"
         )
+        if not self.mech_wrapped_native_token_address:
+            self.context.logger.info(
+                "Please configure 'mech_wrapped_native_token_address', "
+                "if you want to use wrapped native tokens for mech requests."
+            )
+
         self.mech_interaction_sleep_time: int = self._ensure(
             "mech_interaction_sleep_time", kwargs, int
         )
@@ -249,6 +255,11 @@ class MechParams(BaseParams):
     def nvm_config(self) -> NVMConfig:
         """Return the NVM configuration for the specified mech chain id."""
         return CHAIN_TO_NVM_CONFIG[ChainType(self.mech_chain_id)]
+
+    @property
+    def price_token(self) -> str:
+        """Return the price token for the specified mech chain id."""
+        return CHAIN_TO_PRICE_TOKEN[ChainType(self.mech_chain_id)]
 
     def validate_configuration(self) -> None:
         """Validate the entire configuration for consistency."""
