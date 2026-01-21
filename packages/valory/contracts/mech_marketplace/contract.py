@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2024-2025 Valory AG
+#   Copyright 2024-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -69,8 +69,8 @@ class MechMarketplace(Contract):
         contract_instance = cls.get_instance(ledger_api, checksummed_contract_address)
         # Checksum the priority mech address before passing it to the contract method
         checksummed_priority_mech = ledger_api.api.to_checksum_address(priority_mech)
-        encoded_data = contract_instance.encodeABI(
-            fn_name="request",
+        encoded_data = contract_instance.encode_abi(
+            abi_element_identifier="request",
             args=(
                 request_data,
                 max_delivery_rate,

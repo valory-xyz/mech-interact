@@ -4,12 +4,12 @@ version: 0.1.0
 type: contract
 description: Agent mech contract
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   README.md: bafybeibl4uw7rs6mwh7zuvdnqmj2o2xyr7nx5qk3w7torwx3jg6farn6ca
   __init__.py: bafybeifawfjsdfhhaxebj4aphxccebxgmuarzgk6atnicqak747tgqi77m
   build/mech.json: bafybeibrocnkmfe46ylcso7245qq5ysl5z6ydr4xumjt6zl4satc7uqt4m
-  contract.py: bafybeiftv4mxh3hehsbx33u363rq53k5aeemnfrijqw74yymedfuznmtaq
+  contract.py: bafybeidt2jsjuywqhqjj5r5inalnaj2ersv27adekmthcvbei6hwfyh4fa
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: Mech
@@ -17,9 +17,9 @@ contract_interface_paths:
   ethereum: build/mech.json
 dependencies:
   open-aea-ledger-ethereum:
-    version: ==1.65.0
+    version: ==2.0.7
   web3:
-    version: <7,>=6.0.0
+    version: <8,>=7.0.0
   eth_typing: {}
   eth-utils:
-    version: ==2.2.0
+    version: ==5.3.0

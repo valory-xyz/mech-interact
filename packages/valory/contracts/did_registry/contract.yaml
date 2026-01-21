@@ -4,7 +4,7 @@ version: 0.1.0
 type: contract
 description: DID Registry contract
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   README.md: bafybeibb3vfw56qtzx2sg5sj3bbfw3u7clqgn3hjjngzbxswx5pvw3utzi
   __init__.py: bafybeicgozrvijcef4zxrvo2he5uprlvrp6oioedejj6gj2ccityttyjmy
@@ -17,4 +17,4 @@ contract_interface_paths:
   ethereum: build/did_registry.json
 dependencies:
   open-aea-ledger-ethereum:
-    version: ==1.65.0
+    version: ==2.0.7

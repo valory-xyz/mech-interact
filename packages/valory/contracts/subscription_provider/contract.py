@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2025 Valory AG
+#   Copyright 2025-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -47,8 +47,8 @@ class SubscriptionProvider(Contract):
         """Get the tx for fulfill."""
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
-        encoded_data = contract_instance.encodeABI(
-            fn_name="fulfill",
+        encoded_data = contract_instance.encode_abi(
+            abi_element_identifier="fulfill",
             args=(agreement_id, did, fulfill_for_delegate_params, fulfill_params),
         )
         return {"data": bytes.fromhex(encoded_data[HEX_PREFIX_LENGTH:])}
