@@ -2,12 +2,13 @@ name: mech_interact_abci
 author: valory
 version: 0.1.0
 type: skill
-description: "The mech interact skill provides comprehensive interaction capabilities\
+description:
+  "The mech interact skill provides comprehensive interaction capabilities\
   \ with \nmech contracts, supporting both legacy direct mech interactions and marketplace-based\
   \ \ntransactions. It includes dynamic compatibility detection, intelligent caching,\
   \ \nand automatic fallback mechanisms for robust cross-version contract support.\n"
 license: Apache-2.0
-aea_version: '>=2.0.0, <3.0.0'
+aea_version: ">=2.0.0, <3.0.0"
 fingerprint:
   __init__.py: bafybeifvvp5bbbzd3dfo5mf66tijiuylahhuugwlsha22xkqg33epqtbku
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
@@ -49,32 +50,32 @@ fingerprint:
 fingerprint_ignore_patterns: []
 connections: []
 contracts:
-- valory/gnosis_safe:0.1.0:bafybeift6zq32brismk6c7csidcveeijyalrlpnefnqv2jrwrxnfmyu7li
-- valory/mech:0.1.0:bafybeia2fumjlopm6cblkwjiirxhaa2bmyrtgshgcbblmd63mo5ohmh36a
-- valory/mech_mm:0.1.0:bafybeibqichh4abdqovx3t5mv6lb6alwtmrpsxckem6qkxg5ferv52vkn4
-- valory/multisend:0.1.0:bafybeidjdgi2kyexajirj3cnpzgse4y5u664b2blztt4flv6i7knlecyr4
-- valory/erc20:0.1.0:bafybeicmz6z2bzjky52jty5kv33vp25xn3xsttgqtgqyn4r3khnprqpo44
-- valory/mech_marketplace:0.1.0:bafybeiavi2j6nwq5zod7yd7hc66u74bilk6ahkfez7tshqutpf6wl3iuwy
-- valory/mech_marketplace_legacy:0.1.0:bafybeidpm6d5cjvri3wszqkj3j5pqb2rzacjrzlngfdj4cxveu5r2fq6lu
-- valory/agent_registry:0.1.0:bafybeigdrl2f6isuvtm3st5b4uypkabwazusaftxwvgfsk5r76gk2dmlhy
-- valory/ierc1155:0.1.0:bafybeihxvb6mkoqslafg764bevcybarjpge5oswc3qdpz4fomokvgjpsvm
-- valory/nvm_balance_tracker_token:0.1.0:bafybeibugdgkfnvgjjovmsbp5wjoh56p27ceb75b6wzrmb3dx5wllrodme
-- valory/nvm_balance_tracker_native:0.1.0:bafybeigcdeezxeh3qxhadwonnnuujyo22btbenzxm5bgdwqyh65wiutrhy
-- valory/escrow_payment_condition:0.1.0:bafybeigtnhahgma5akvdqvrmw5cwcmrp52xsgcdddl4qhreugn2lacsore
-- valory/did_registry:0.1.0:bafybeid3xrla6geglzw2wzzdquslklykpajrdhhxnjva3bmmtq7axcldyi
-- valory/nft_sales:0.1.0:bafybeicxu4wamktup2othub7gnzl7w32h33ripie6qfloptsbrkc4al6wa
-- valory/lock_payment_condition:0.1.0:bafybeiffgc2r3pljfj5oq7otmyolrwtsdkt5euu4m2ecb5oxsfp6nzh76i
-- valory/agreement_store_manager:0.1.0:bafybeihjuc7ldrq4lj5lizkr2jvol6urzdn2il5zwksuqi57z6usahhexy
-- valory/transfer_nft_condition:0.1.0:bafybeihzjrhrjicszzfqz5f3au3alrbalb7utvse7pbr4eli6reofnoxw4
-- valory/subscription_provider:0.1.0:bafybeihqlpc2c7srd6tho6xkjjrnpowlax55e5xexcoohyot7du5oxz3vi
+  - valory/gnosis_safe:0.1.0:bafybeift6zq32brismk6c7csidcveeijyalrlpnefnqv2jrwrxnfmyu7li
+  - valory/mech:0.1.0:bafybeia2fumjlopm6cblkwjiirxhaa2bmyrtgshgcbblmd63mo5ohmh36a
+  - valory/mech_mm:0.1.0:bafybeibqichh4abdqovx3t5mv6lb6alwtmrpsxckem6qkxg5ferv52vkn4
+  - valory/multisend:0.1.0:bafybeidjdgi2kyexajirj3cnpzgse4y5u664b2blztt4flv6i7knlecyr4
+  - valory/erc20:0.1.0:bafybeicmz6z2bzjky52jty5kv33vp25xn3xsttgqtgqyn4r3khnprqpo44
+  - valory/mech_marketplace:0.1.0:bafybeiavi2j6nwq5zod7yd7hc66u74bilk6ahkfez7tshqutpf6wl3iuwy
+  - valory/mech_marketplace_legacy:0.1.0:bafybeidpm6d5cjvri3wszqkj3j5pqb2rzacjrzlngfdj4cxveu5r2fq6lu
+  - valory/agent_registry:0.1.0:bafybeigdrl2f6isuvtm3st5b4uypkabwazusaftxwvgfsk5r76gk2dmlhy
+  - valory/ierc1155:0.1.0:bafybeihxvb6mkoqslafg764bevcybarjpge5oswc3qdpz4fomokvgjpsvm
+  - valory/nvm_balance_tracker_token:0.1.0:bafybeibugdgkfnvgjjovmsbp5wjoh56p27ceb75b6wzrmb3dx5wllrodme
+  - valory/nvm_balance_tracker_native:0.1.0:bafybeigcdeezxeh3qxhadwonnnuujyo22btbenzxm5bgdwqyh65wiutrhy
+  - valory/escrow_payment_condition:0.1.0:bafybeigtnhahgma5akvdqvrmw5cwcmrp52xsgcdddl4qhreugn2lacsore
+  - valory/did_registry:0.1.0:bafybeid3xrla6geglzw2wzzdquslklykpajrdhhxnjva3bmmtq7axcldyi
+  - valory/nft_sales:0.1.0:bafybeicxu4wamktup2othub7gnzl7w32h33ripie6qfloptsbrkc4al6wa
+  - valory/lock_payment_condition:0.1.0:bafybeiffgc2r3pljfj5oq7otmyolrwtsdkt5euu4m2ecb5oxsfp6nzh76i
+  - valory/agreement_store_manager:0.1.0:bafybeihjuc7ldrq4lj5lizkr2jvol6urzdn2il5zwksuqi57z6usahhexy
+  - valory/transfer_nft_condition:0.1.0:bafybeihzjrhrjicszzfqz5f3au3alrbalb7utvse7pbr4eli6reofnoxw4
+  - valory/subscription_provider:0.1.0:bafybeihqlpc2c7srd6tho6xkjjrnpowlax55e5xexcoohyot7du5oxz3vi
 protocols:
-- valory/contract_api:1.0.0:bafybeicmo2ufeoqyyczkom6xp3nwmhosd75kpe4xfwn7gaz6vegj732b4m
-- valory/ledger_api:1.0.0:bafybeiga6gdd3ccdt5jgrov474koz524f3pfbhprwxfjj7wextkl7wozsa
-- valory/acn_data_share:0.1.0:bafybeic7infync56c4b5qzmgomcfkh3au5bpsd53rlfq4hzyjelb3w2u74
-- valory/http:1.0.0:bafybeibxab2yfpchusrzw4rgrasjomtpphazanpivhhtznmuao5ny2lsmi
+  - valory/contract_api:1.0.0:bafybeicmo2ufeoqyyczkom6xp3nwmhosd75kpe4xfwn7gaz6vegj732b4m
+  - valory/ledger_api:1.0.0:bafybeiga6gdd3ccdt5jgrov474koz524f3pfbhprwxfjj7wextkl7wozsa
+  - valory/acn_data_share:0.1.0:bafybeic7infync56c4b5qzmgomcfkh3au5bpsd53rlfq4hzyjelb3w2u74
+  - valory/http:1.0.0:bafybeibxab2yfpchusrzw4rgrasjomtpphazanpivhhtznmuao5ny2lsmi
 skills:
-- valory/abstract_round_abci:0.1.0:bafybeib4apybhtx3gx6o4x5b2nwqjkbdqi7dx7rxyrb5r3zztcdjiezvh4
-- valory/transaction_settlement_abci:0.1.0:bafybeifw2sem532gwdcyujknhsgdcgubpwsrrjtve4ztzxlkpmporjp4rq
+  - valory/abstract_round_abci:0.1.0:bafybeib4apybhtx3gx6o4x5b2nwqjkbdqi7dx7rxyrb5r3zztcdjiezvh4
+  - valory/transaction_settlement_abci:0.1.0:bafybeifw2sem532gwdcyujknhsgdcgubpwsrrjtve4ztzxlkpmporjp4rq
 behaviours:
   main:
     args: {}
@@ -137,26 +138,26 @@ models:
         chain_id: chain-c4daS1
         consensus_params:
           block:
-            max_bytes: '22020096'
-            max_gas: '-1'
-            time_iota_ms: '1000'
+            max_bytes: "22020096"
+            max_gas: "-1"
+            time_iota_ms: "1000"
           evidence:
-            max_age_duration: '172800000000000'
-            max_age_num_blocks: '100000'
-            max_bytes: '1048576'
+            max_age_duration: "172800000000000"
+            max_age_num_blocks: "100000"
+            max_bytes: "1048576"
           validator:
             pub_key_types:
-            - ed25519
+              - ed25519
           version: {}
-        genesis_time: '2022-05-20T16:00:21.735122717Z'
-        voting_power: '10'
+        genesis_time: "2022-05-20T16:00:21.735122717Z"
+        voting_power: "10"
       history_check_timeout: 1205
       ipfs_domain_name: null
       keeper_allowed_retries: 3
       keeper_timeout: 30.0
       max_attempts: 10
       max_healthcheck: 120
-      multisend_address: '0x0000000000000000000000000000000000000000'
+      multisend_address: "0x0000000000000000000000000000000000000000"
       on_chain_service_id: null
       request_retry_delay: 1.0
       request_timeout: 10.0
@@ -169,9 +170,9 @@ models:
       service_registry_address: null
       setup:
         all_participants:
-        - '0x0000000000000000000000000000000000000000'
+          - "0x0000000000000000000000000000000000000000"
         consensus_threshold: null
-        safe_contract_address: '0x0000000000000000000000000000000000000000'
+        safe_contract_address: "0x0000000000000000000000000000000000000000"
       share_tm_config_on_startup: false
       sleep_time: 1
       tendermint_check_sleep_delay: 3
@@ -182,11 +183,11 @@ models:
       tx_timeout: 10.0
       validate_timeout: 1205
       multisend_batch_size: 50
-      mech_contract_address: '0x77af31De935740567Cf4fF1986D04B2c964A786a'
+      mech_contract_address: "0x77af31De935740567Cf4fF1986D04B2c964A786a"
       mech_chain_id: gnosis
-      mech_wrapped_native_token_address: '0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d'
+      mech_wrapped_native_token_address: "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d"
       ipfs_address: https://gateway.autonolas.tech/ipfs/
-      agent_registry_address: '0x0000000000000000000000000000000000000000'
+      agent_registry_address: "0x0000000000000000000000000000000000000000"
       mech_interaction_sleep_time: 10
       use_acn_for_delivers: false
       use_termination: false
@@ -197,18 +198,18 @@ models:
       serious_slash_unit_amount: 8000000000000000
       use_mech_marketplace: false
       mech_marketplace_config:
-        mech_marketplace_address: '0x0000000000000000000000000000000000000000'
-        priority_mech_address: '0x0000000000000000000000000000000000000000'
+        mech_marketplace_address: "0x0000000000000000000000000000000000000000"
+        priority_mech_address: "0x0000000000000000000000000000000000000000"
         response_timeout: 300
       irrelevant_tools:
-      - openai-text-davinci-002
-      - openai-text-davinci-003
-      - openai-gpt-3.5-turbo
-      - openai-gpt-4
-      - stabilityai-stable-diffusion-v1-5
-      - stabilityai-stable-diffusion-xl-beta-v2-2-2
-      - stabilityai-stable-diffusion-512-v2-1
-      - stabilityai-stable-diffusion-768-v2-1
+        - openai-text-davinci-002
+        - openai-text-davinci-003
+        - openai-gpt-3.5-turbo
+        - openai-gpt-4
+        - stabilityai-stable-diffusion-v1-5
+        - stabilityai-stable-diffusion-xl-beta-v2-2-2
+        - stabilityai-stable-diffusion-512-v2-1
+        - stabilityai-stable-diffusion-768-v2-1
       ignored_mechs: []
       penalize_mech_time_window: 1800
     class_name: Params
@@ -222,7 +223,7 @@ models:
       response_key: tools
       response_type: list
       retries: 5
-      url: ''
+      url: ""
     class_name: MechToolsSpecs
   mechs_subgraph:
     args:
@@ -250,7 +251,7 @@ models:
       response_key: result
       response_type: str
       retries: 5
-      url: ''
+      url: ""
     class_name: MechResponseSpecs
   requests:
     args: {}
@@ -266,7 +267,7 @@ models:
     class_name: TendermintDialogues
 dependencies:
   web3:
-    version: <7,>=6.0.0
+    version: <8,>=7.0.0
   hexbytes: {}
   py-multicodec: {}
   py-multibase: {}
