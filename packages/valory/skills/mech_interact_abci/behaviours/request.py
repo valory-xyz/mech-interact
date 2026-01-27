@@ -68,6 +68,8 @@ METADATA_FILENAME = "metadata.json"
 V1_HEX_PREFIX = "f01"
 Ox = "0x"
 EMPTY_PAYMENT_DATA_HEX = Ox
+DECIMALS_18 = 18
+DECIMALS_6 = 6
 
 
 class PaymentType(str, Enum):
@@ -180,9 +182,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             PaymentType.TOKEN_USDC,
             PaymentType.TOKEN_NVM_USDC,
         }:
-            return 6
+            return DECIMALS_6
         # Native tokens, OLAS, and wrapped native tokens use 18 decimals
-        return 18
+        return DECIMALS_18
 
     @property
     def nvm_balance_tracker_contract_id(self) -> PublicId:
@@ -302,7 +304,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             return None
 
         self.context.logger.info(
-            f"Account {account} has {self.wei_to_unit(balance, decimals=self.token_decimals)} native tokens."
+            f"Account {account} has {self.wei_to_unit(balance, decimals=DECIMALS_18)} native tokens."
         )
         return balance
 
