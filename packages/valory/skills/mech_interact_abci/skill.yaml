@@ -29,7 +29,7 @@ fingerprint:
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeiewhynivpu72vzstzppmqedoytidmfgjszf7mb22ml7lhi5ep6eyy
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
-  states/base.py: bafybeigsdojwtaveevfnouiwhsukxacqmegt42retp6ke6uuuabuy2kw5u
+  states/base.py: bafybeif3krhmpnivhnkk67rkv7ymx52jcnn5u5bmoggbye2vroaid5zn4e
   states/final_states.py: bafybeiaclul6oq3wtktpwwutgnzw4qi3untxqgnc34cofsxl3ejampou6q
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
   states/mech_version.py: bafybeidxivyjn77uylctz6gwbpz2zgywdgphtlhmropirf36nnnhp3rnp4
@@ -38,7 +38,7 @@ fingerprint:
   states/response.py: bafybeige4x7reiynwwzd3h6uxi3k7lfiobndmhrlvy6s3dgqjmyi2tal3i
   tests/__init__.py: bafybeiaxfprhthhmkvbh6ntfcu5q2lotazaokacgbbsw7taahfivmrqzoy
   tests/states/__init__.py: bafybeieo3txynlsaxtuqxvvhjyjn2hft3ztsnr5v6byoccqg2allecx2vm
-  tests/states/test_base.py: bafybeiawgb52lmr4ibgivtnkq5p3ps5wwk7mne6a2b23wzbk3pb7dbun44
+  tests/states/test_base.py: bafybeics5i2dboukep2csxkqwmnzv5iszqohryrukf6s2ymjw2ohs5v4nq
   tests/test_behaviours.py: bafybeibacr7ya6ica3hpp65xatzn24rly4jsvcyugpvln6yhanpi4ki6iu
   tests/test_dialogues.py: bafybeihdwligor2vsh3itoa5fmvc7j3jc6dcdi3etohf3bs2skvrqawoae
   tests/test_handlers.py: bafybeiglcc4ygs2q27wbqym7oxkm2rbm4e3lsmkm6vzzn52oa2l4qqqeri
