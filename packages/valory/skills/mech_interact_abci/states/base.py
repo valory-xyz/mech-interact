@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -50,6 +50,11 @@ HALF_LIFE_SECONDS = 60 * 60
 DELIVERY_RATE_METRIC_WEIGHT = 0.1
 LIVENESS_METRIC_WEIGHT = 0.45
 DELIVERED_RATIO_METRIC_WEIGHT = 0.45
+LAPLACE_SMOOTHING_ALPHA = 8
+LAPLACE_SMOOTHING_BETA = 1
+COLD_START_LIVENESS = LAPLACE_SMOOTHING_ALPHA / (
+    LAPLACE_SMOOTHING_ALPHA + LAPLACE_SMOOTHING_BETA
+)
 
 NestedSubgraphItemType = List[Dict[str, str]]
 
@@ -219,8 +224,8 @@ class MechInfo:
             """Score a mech's state."""
             filters = (
                 DELIVERY_RATE_METRIC_WEIGHT * instance.delivery_rate_metric,
-                LIVENESS_METRIC_WEIGHT * instance.service.liveness,
-                DELIVERED_RATIO_METRIC_WEIGHT * instance.delivered_ratio,
+                LIVENESS_METRIC_WEIGHT * instance.liveness,
+                DELIVERED_RATIO_METRIC_WEIGHT * instance.delivered_ratio_smoothed,
             )
             return sum(filters)
 
@@ -244,12 +249,17 @@ class MechInfo:
         return self.service.metadata_str is None
 
     @property
-    def delivered_ratio(self) -> float:
-        """Return the ratio of the self delivered requests to the total received requests."""
-        return (
-            self.self_delivered / self.received_requests
-            if self.received_requests
-            else 0
+    def liveness(self) -> float:
+        """The liveness of the mech."""
+        if self.received_requests == 0:
+            return COLD_START_LIVENESS
+        return self.service.liveness
+
+    @property
+    def delivered_ratio_smoothed(self) -> float:
+        """Ratio of the self-delivered requests to the received requests, Laplace smoothed to improve cold start."""
+        return (self.self_delivered + LAPLACE_SMOOTHING_ALPHA) / (
+            self.received_requests + LAPLACE_SMOOTHING_ALPHA + LAPLACE_SMOOTHING_BETA
         )
 
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2025 Valory AG
+#   Copyright 2025-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -93,8 +93,8 @@ class TestMechInfo:
                 # simple example
                 [
                     dict(
-                        id="mech_1",
-                        address="0x1",
+                        id="mech_0",
+                        address="0x0",
                         service={
                             "metadata": [{"metadata": "metadata"}],
                             "deliveries": [
@@ -107,8 +107,8 @@ class TestMechInfo:
                         maxDeliveryRate="1",
                     ),
                     dict(
-                        id="mech_2",
-                        address="0x2",
+                        id="mech_1",
+                        address="0x1",
                         service={
                             "metadata": [{"metadata": "0xmetadata"}],
                             "deliveries": [
@@ -117,7 +117,63 @@ class TestMechInfo:
                         },
                         karma="-123",
                         receivedRequests="100",
-                        selfDeliveredFromReceived="73",
+                        selfDeliveredFromReceived="85",
+                        maxDeliveryRate="1000",
+                    ),
+                    dict(
+                        id="mech_2",
+                        address="0x2",
+                        service={
+                            "metadata": [{"metadata": "metadata"}],
+                            "deliveries": [
+                                {"blockTimestamp": int(time.time()) - TWO_MIN_IN_SEC}
+                            ],
+                        },
+                        karma="-123",
+                        receivedRequests="0",
+                        selfDeliveredFromReceived="0",
+                        maxDeliveryRate="1000",
+                    ),
+                    dict(
+                        id="mech_1b",
+                        address="0x1b",
+                        service={
+                            "metadata": [{"metadata": "0xmetadata"}],
+                            "deliveries": [
+                                {"blockTimestamp": int(time.time()) - TWO_MIN_IN_SEC}
+                            ],
+                        },
+                        karma="-123",
+                        receivedRequests="100",
+                        selfDeliveredFromReceived="70",
+                        maxDeliveryRate="1000",
+                    ),
+                    dict(
+                        id="mech_2b",
+                        address="0x2b",
+                        service={
+                            "metadata": [{"metadata": "metadata"}],
+                            "deliveries": [
+                                {"blockTimestamp": int(time.time()) - TWO_MIN_IN_SEC}
+                            ],
+                        },
+                        karma="-123",
+                        receivedRequests="3",
+                        selfDeliveredFromReceived="0",
+                        maxDeliveryRate="1000",
+                    ),
+                    dict(
+                        id="mech_1c",
+                        address="0x1c",
+                        service={
+                            "metadata": [{"metadata": "0xmetadata"}],
+                            "deliveries": [
+                                {"blockTimestamp": int(time.time()) - TWO_MIN_IN_SEC}
+                            ],
+                        },
+                        karma="-123",
+                        receivedRequests="100",
+                        selfDeliveredFromReceived="50",
                         maxDeliveryRate="1000",
                     ),
                     # better karma, perfect delivery rate, but terrible liveness -> should end up last in the ranking
@@ -129,14 +185,13 @@ class TestMechInfo:
                             "deliveries": [
                                 {
                                     "blockTimestamp": int(time.time())
-                                    - TWO_MIN_IN_SEC
-                                    - HALF_LIFE_SECONDS
+                                    - HALF_LIFE_SECONDS * 2
                                 }
                             ],
                         },
                         karma="123",
                         receivedRequests="100",
-                        selfDeliveredFromReceived="0",
+                        selfDeliveredFromReceived="100",
                         maxDeliveryRate="1",
                     ),
                 ],
@@ -144,18 +199,6 @@ class TestMechInfo:
             (
                 # current mechs example
                 [
-                    dict(
-                        id="1966",
-                        address="0x895c50590a516b451668a620a9ef9b8286b9e72d",
-                        maxDeliveryRate="1",
-                        karma="93",
-                        receivedRequests="94",
-                        selfDeliveredFromReceived="93",
-                        service={
-                            "metadata": [],
-                            "deliveries": [{"blockTimestamp": "1741341490"}],
-                        },
-                    ),
                     dict(
                         id="2010",
                         address="0x61b962bf1cf91224b0967c7e726c8ce597569983",
@@ -169,19 +212,27 @@ class TestMechInfo:
                         },
                     ),
                     dict(
-                        id="2340",
-                        address="0xdb78159e9246ec738f51c2c9cb1169b5c0e45fee",
-                        maxDeliveryRate="10000000000000000",
-                        karma="12546",
-                        receivedRequests="7",
-                        selfDeliveredFromReceived="7",
+                        id="1966",
+                        address="0x895c50590a516b451668a620a9ef9b8286b9e72d",
+                        maxDeliveryRate="1",
+                        karma="93",
+                        receivedRequests="94",
+                        selfDeliveredFromReceived="93",
                         service={
-                            "metadata": [
-                                {
-                                    "metadata": "0x4d82a931d803e2b46b0dcd53f558f8de8305fd44b36288b42287ef1450a6611f"
-                                }
-                            ],
-                            "deliveries": [{"blockTimestamp": "1764061690"}],
+                            "metadata": [],
+                            "deliveries": [{"blockTimestamp": "1741341490"}],
+                        },
+                    ),
+                    dict(
+                        id="2095",
+                        address="0x55426a0b38e05fd4ff82a92c276cdc4f0f58bc36",
+                        maxDeliveryRate="1",
+                        karma="1",
+                        receivedRequests="2",
+                        selfDeliveredFromReceived="1",
+                        service={
+                            "metadata": [],
+                            "deliveries": [{"blockTimestamp": "1745417305"}],
                         },
                     ),
                     dict(
@@ -209,6 +260,22 @@ class TestMechInfo:
                         },
                     ),
                     dict(
+                        id="2267",
+                        address="0xe43a68c509886b6eb1147c7cfb20cacec1cea32b",
+                        maxDeliveryRate="1",
+                        karma="174",
+                        receivedRequests="187",
+                        selfDeliveredFromReceived="135",
+                        service={
+                            "metadata": [
+                                {
+                                    "metadata": "0x86c1006a54ef9c100279b72eeb480682d407f120e4659ac0e4afe1d4e92da336"
+                                }
+                            ],
+                            "deliveries": [{"blockTimestamp": "1763388685"}],
+                        },
+                    ),
+                    dict(
                         id="2135",
                         address="0xbead38e4c4777341bb3fd44e8cd4d1ba1a7ad9d7",
                         maxDeliveryRate="10000000000000000",
@@ -225,15 +292,19 @@ class TestMechInfo:
                         },
                     ),
                     dict(
-                        id="1999",
-                        address="0xa61026515b701c9a123b0587fd601857f368127a",
-                        maxDeliveryRate="150000000000000000",
-                        karma="17",
-                        receivedRequests="18",
-                        selfDeliveredFromReceived="17",
+                        id="2340",
+                        address="0xdb78159e9246ec738f51c2c9cb1169b5c0e45fee",
+                        maxDeliveryRate="10000000000000000",
+                        karma="12546",
+                        receivedRequests="7",
+                        selfDeliveredFromReceived="7",
                         service={
-                            "metadata": [],
-                            "deliveries": [{"blockTimestamp": "1742909160"}],
+                            "metadata": [
+                                {
+                                    "metadata": "0x4d82a931d803e2b46b0dcd53f558f8de8305fd44b36288b42287ef1450a6611f"
+                                }
+                            ],
+                            "deliveries": [{"blockTimestamp": "1764061690"}],
                         },
                     ),
                     dict(
@@ -249,19 +320,15 @@ class TestMechInfo:
                         },
                     ),
                     dict(
-                        id="2267",
-                        address="0xe43a68c509886b6eb1147c7cfb20cacec1cea32b",
-                        maxDeliveryRate="1",
-                        karma="174",
-                        receivedRequests="187",
-                        selfDeliveredFromReceived="135",
+                        id="1999",
+                        address="0xa61026515b701c9a123b0587fd601857f368127a",
+                        maxDeliveryRate="150000000000000000",
+                        karma="17",
+                        receivedRequests="18",
+                        selfDeliveredFromReceived="17",
                         service={
-                            "metadata": [
-                                {
-                                    "metadata": "0x86c1006a54ef9c100279b72eeb480682d407f120e4659ac0e4afe1d4e92da336"
-                                }
-                            ],
-                            "deliveries": [{"blockTimestamp": "1763388685"}],
+                            "metadata": [],
+                            "deliveries": [{"blockTimestamp": "1742909160"}],
                         },
                     ),
                     dict(
@@ -326,18 +393,6 @@ class TestMechInfo:
                                 }
                             ],
                             "deliveries": [{"blockTimestamp": "1764079180"}],
-                        },
-                    ),
-                    dict(
-                        id="2095",
-                        address="0x55426a0b38e05fd4ff82a92c276cdc4f0f58bc36",
-                        maxDeliveryRate="1",
-                        karma="1",
-                        receivedRequests="2",
-                        selfDeliveredFromReceived="1",
-                        service={
-                            "metadata": [],
-                            "deliveries": [{"blockTimestamp": "1745417305"}],
                         },
                     ),
                     dict(
