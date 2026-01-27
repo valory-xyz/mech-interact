@@ -174,6 +174,17 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         return self.mech_payment_type in NVM_PAYMENT_TYPES
 
     @property
+    def token_decimals(self) -> int:
+        """Get the number of decimals for the current payment token."""
+        if self.mech_payment_type in {
+            PaymentType.TOKEN_USDC,
+            PaymentType.TOKEN_NVM_USDC,
+        }:
+            return 6
+        # Native tokens, OLAS, and wrapped native tokens use 18 decimals
+        return 18
+
+    @property
     def nvm_balance_tracker_contract_id(self) -> PublicId:
         """Get the NVM balance tracker contract id."""
         contract_id = PAYMENT_TYPE_TO_NVM_CONTRACT.get(self.mech_payment_type, None)
@@ -254,10 +265,11 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
         return self._approval_data
 
-    @staticmethod
-    def wei_to_unit(wei: int) -> float:
+    def wei_to_unit(self, wei: int, decimals: Optional[int] = None) -> float:
         """Convert WEI to unit token."""
-        return wei / 10**18
+        if decimals is None:
+            decimals = self.token_decimals
+        return wei / 10**decimals
 
     def _get_native_balance(self, account: str) -> Generator[None, None, Optional[int]]:
         """Get native balance for account."""
@@ -290,7 +302,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             return None
 
         self.context.logger.info(
-            f"Account {account} has {self.wei_to_unit(balance)} native tokens."
+            f"Account {account} has {self.wei_to_unit(balance, decimals=self.token_decimals)} native tokens."
         )
         return balance
 
@@ -532,7 +544,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         self.context.logger.warning(
             "The balance is not enough to pay for the mech's price. "
-            f"Please refill the safe with at least {self.wei_to_unit(shortage)} {missing_tokens} tokens."
+            f"Please refill the safe with at least {self.wei_to_unit(shortage, decimals=self.token_decimals)} {missing_tokens} tokens."
         )
         self.sleep(self.params.sleep_time)
         return False
