@@ -14,6 +14,7 @@ keys.json
 leak_report
 packages/valory/connections/*
 packages/valory/contracts/agent_registry
+packages/valory/contracts/erc20
 packages/valory/contracts/gnosis_safe
 packages/valory/contracts/gnosis_safe_proxy_factory
 packages/valory/contracts/multisend
