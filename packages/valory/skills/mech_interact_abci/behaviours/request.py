@@ -33,7 +33,7 @@ from aea.exceptions import AEAEnforceError
 from aea.helpers.cid import to_v1
 from hexbytes import HexBytes
 
-from packages.valory.contracts.erc20.contract import ERC20
+from packages.valory.contracts.erc20.contract import ERC20TokenContract
 from packages.valory.contracts.ierc1155.contract import IERC1155
 from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.contracts.nvm_balance_tracker_native.contract import (
@@ -319,7 +319,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=token_address,
-            contract_id=str(ERC20.contract_id),
+            contract_id=str(ERC20TokenContract.contract_id),
             contract_callable="check_balance",
             account=account,
             chain_id=self.params.mech_chain_id,
@@ -385,7 +385,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         response_msg = yield from self.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
             contract_address=self.params.mech_wrapped_native_token_address,
-            contract_id=str(ERC20.contract_id),
+            contract_id=str(ERC20TokenContract.contract_id),
             contract_callable="build_withdraw_tx",
             amount=amount,
             chain_id=self.params.mech_chain_id,
@@ -747,7 +747,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             yield from self.contract_interact(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
                 contract_address=self.params.price_token,
-                contract_public_id=ERC20.contract_id,
+                contract_public_id=ERC20TokenContract.contract_id,
                 contract_callable="build_approval_tx",
                 data_key="data",
                 placeholder="_approval_data",

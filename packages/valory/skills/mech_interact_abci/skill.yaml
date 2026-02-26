@@ -11,11 +11,11 @@ aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
   __init__.py: bafybeifvvp5bbbzd3dfo5mf66tijiuylahhuugwlsha22xkqg33epqtbku
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
-  behaviours/base.py: bafybeigr3pztuiiweu75rdocgkkkm67q2dnix2shvt74wnh4wzqjjaej6q
+  behaviours/base.py: bafybeieluq2vowvynkqgg5ebkeuxis232ewhfak4nclunkcf7xnw6rr55m
   behaviours/mech_info.py: bafybeieg4kik64uleaz35muchyxptrhqz55wgbutpg2wdtgvvhnwojjnim
   behaviours/mech_version.py: bafybeicopuc3hw5nstfbk5q4qiyfshj6uplzuiiar5f6d7jobcw36bmpze
-  behaviours/purchase_subcription.py: bafybeie55mtc7qhe56fb2p7qowaswybdczegvelj7cn4gqyezhrfgwkpaa
-  behaviours/request.py: bafybeib4vuna3oshacupp6m6nxh6asqhyjbd3v4q6maoccraldacxvekdy
+  behaviours/purchase_subcription.py: bafybeibpewjqjbt2zmfqxc2gykv5o4xl2ju723zlt5mly5bra7b5u7zwhu
+  behaviours/request.py: bafybeifbte4ee7ezcc3g2wmdadsmxb2jtxmspjtylyswvdblyttio4xwpy
   behaviours/response.py: bafybeiad56y4u6zppsqm5ftx4jtuu3c6dusznxxe46gjri7amurdq6mbaq
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeib3o7nigjgi4tpkux6ypjftvqfwodv2vx4dljfwwo4h2qplpkxxoa

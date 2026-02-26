@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -26,13 +26,13 @@ from typing import Any, Callable, Generator, List, Optional, cast
 
 from aea.configurations.data_types import PublicId
 
+from packages.valory.contracts.agent_mech.contract import AgentMech
 from packages.valory.contracts.agent_registry.contract import AgentRegistryContract
 from packages.valory.contracts.gnosis_safe.contract import (
     GnosisSafeContract,
     SafeOperation,
 )
 from packages.valory.contracts.mech.contract import Mech
-from packages.valory.contracts.agent_mech.contract import AgentMech
 from packages.valory.contracts.mech_marketplace_legacy.contract import (
     MechMarketplaceLegacy,
 )
