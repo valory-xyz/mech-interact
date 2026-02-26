@@ -1,4 +1,4 @@
-name: mech_marketplace
+name: agent_mech
 author: valory
 version: 0.1.0
 type: contract
@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeihygfmkbo4cegrqnz5ws6bbjaifubvk7r2uyvuanxpqy24l634tba
   __init__.py: bafybeien2jiopu7htty6dwg6vtm43iwosnxhv6p27hoatlrf65hjf7a3ze
   build/mech.json: bafybeiczngojkmncocmx33ddlwjdu3kicsz5hikymsuk4zytunf5aeogvy
-  contract.py: bafybeidhxigiqbpzou2cn53dgosz3vtopbux47bvqevk2fl7gg4gehntji
+  contract.py: bafybeidhyx5tje74zaau3t4wimvl72zrdqcqei7deoi7ocmfyaxqkk2m4u
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: MechMarketplace

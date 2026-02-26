@@ -17,7 +17,7 @@
 #
 # ------------------------------------------------------------------------------
 
-"""This module contains the class to connect to a Mech Marketplace contract."""
+"""This module contains the class to connect to an Agent Mech contract."""
 
 from typing import Any, Dict, List, cast
 
@@ -30,12 +30,12 @@ from eth_typing import HexStr
 from web3.types import BlockData, EventData, TxReceipt
 
 
-PUBLIC_ID = PublicId.from_str("valory/mech_marketplace:0.1.0")
+PUBLIC_ID = PublicId.from_str("valory/agent_mech:0.1.0")
 FIVE_MINUTES = 300.0
 
 
-class MechMarketplace(Contract):
-    """The Mech Marketplace contract."""
+class AgentMech(Contract):
+    """The Agent Mech contract."""
 
     contract_id = PUBLIC_ID
 

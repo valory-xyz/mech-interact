@@ -43,7 +43,7 @@ Below, we describe the additional manual steps required to upgrade between diffe
     - `mech_tools`: The set of all the mechs' tools.
     - `priority_mech`: The dynamically picked priority mech.
     - `priority_mech_address`: The address of the dynamically picked priority mech.
-- The valory/mech_marketplace/0.1.0 contract component now includes the new method `get_max_fee_factor`, 
+- The valory/agent_mech/0.1.0 contract component now includes the new method `get_max_fee_factor`, 
   which reads the `MAX_FEE_FACTOR` constant from the contract.
 
 #### Breaking Changes

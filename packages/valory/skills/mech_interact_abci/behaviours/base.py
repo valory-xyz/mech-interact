@@ -32,7 +32,7 @@ from packages.valory.contracts.gnosis_safe.contract import (
     SafeOperation,
 )
 from packages.valory.contracts.mech.contract import Mech
-from packages.valory.contracts.mech_marketplace.contract import MechMarketplace
+from packages.valory.contracts.agent_mech.contract import AgentMech
 from packages.valory.contracts.mech_marketplace_legacy.contract import (
     MechMarketplaceLegacy,
 )
@@ -233,7 +233,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.marketplace_address,
-            contract_public_id=MechMarketplace.contract_id,
+            contract_public_id=AgentMech.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
             placeholder=placeholder,
