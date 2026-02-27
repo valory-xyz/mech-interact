@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2025 Valory AG
+#   Copyright 2025-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ from packages.valory.contracts.agreement_store_manager.contract import (
     AgreementStorageManager,
 )
 from packages.valory.contracts.did_registry.contract import DIDRegistry
-from packages.valory.contracts.erc20.contract import ERC20
+from packages.valory.contracts.erc20.contract import ERC20TokenContract
 from packages.valory.contracts.escrow_payment_condition.contract import (
     EscrowPaymentConditionContract,
 )
@@ -604,7 +604,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.nvm_config.subscription_token_address,
-            contract_public_id=ERC20.contract_id,
+            contract_public_id=ERC20TokenContract.contract_id,
             contract_callable="build_approval_tx",
             data_key="data",
             placeholder="_subscription_token_approval_tx_data",

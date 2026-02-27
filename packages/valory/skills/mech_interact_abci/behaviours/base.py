@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -26,13 +26,13 @@ from typing import Any, Callable, Generator, List, Optional, cast
 
 from aea.configurations.data_types import PublicId
 
+from packages.valory.contracts.agent_mech.contract import AgentMech
 from packages.valory.contracts.agent_registry.contract import AgentRegistryContract
 from packages.valory.contracts.gnosis_safe.contract import (
     GnosisSafeContract,
     SafeOperation,
 )
 from packages.valory.contracts.mech.contract import Mech
-from packages.valory.contracts.mech_marketplace.contract import MechMarketplace
 from packages.valory.contracts.mech_marketplace_legacy.contract import (
     MechMarketplaceLegacy,
 )
@@ -233,7 +233,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
             contract_address=self.marketplace_address,
-            contract_public_id=MechMarketplace.contract_id,
+            contract_public_id=AgentMech.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
             placeholder=placeholder,
