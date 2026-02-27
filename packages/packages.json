@@ -13,7 +13,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeigmajoan2l2vh3jwla6kictcplgcbnxq7wgazaqy27enipjezlfky",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeigndjs5mthj42yq3aw3u4c2l3gakove2uoj2jvurnr36qcbaigjni",
         "contract/valory/subscription_provider/0.1.0": "bafybeib5bvuoyhwprzpc33qqlneeftkyzyaecxb42t2lk34ptdduzdtsbu",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeibp5jxwhubuhs37s67kzubq7lleaxc4lyaxina22nboafodpyskvy"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeiclxuouj2rm7rc4adlosidlpov7f6vngqhlbcutz74ekcxcofndo4"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeiebct3enol4nkiy3uxm2xnn2hniwnorjfwtcjbsywea5ql36pqk3y",
@@ -29,9 +29,9 @@
         "contract/valory/service_registry/0.1.0": "bafybeibzuktplryzlfhdyahcbldfh5dz6pnvukigzbejeuvlvv24774lpi",
         "contract/valory/gnosis_safe/0.1.0": "bafybeia3ictpeosrza3tkxa7ad2io5txutcs44jgrqoqgdxhrjdu2fy4qy",
         "contract/valory/multisend/0.1.0": "bafybeidjdgi2kyexajirj3cnpzgse4y5u664b2blztt4flv6i7knlecyr4",
-        "contract/valory/agent_registry/0.1.0": "bafybeicrhupwpzko4t4vbcfswoviwqbqrsftcvdfzb65mpmz4yz5oundlu",
-        "contract/valory/erc20/0.1.0": "bafybeieiqrhzaziniamxmldytitnuwou3ixt65wef5ikasrnch35rg7rbu",
         "contract/valory/agent_mech/0.1.0": "bafybeibvtxsxeuymbmxyyn7rj46m3skylupr7qib5eptqluklz4apr77iq",
+        "contract/valory/agent_registry/0.1.0": "bafybeiekiqeq5usfbwbpgi35phy44kdxehf3mi7ucnl2kjv2zqc5s5eto4",
+        "contract/valory/erc20/0.1.0": "bafybeihnhciwd3hr3ml26fl6zsockqe2yqvgwvc7xuebs3zkm5awvi3dju",
         "connection/valory/http_client/0.23.0": "bafybeigwzn4hkry3wy7nf2myk3h3pl5xrqkvvxp2ppdbwwffa4c2s2bkwy",
         "connection/valory/ledger/0.19.0": "bafybeigiipjmtjdivz2wd54c7bmbqxbayk5b5st7wcrsvsnqkfc2f2rbaa",
         "connection/valory/p2p_libp2p_client/0.1.0": "bafybeigg3kzkywemiswrgjhb7hei5qsysxcsx36c6weyewtirctbmleowm",
