@@ -121,12 +121,13 @@ class QueryingBehaviour(BaseBehaviour, ABC):
 
     def fetch_mechs_info_batch(self, mechs_id_gt: int) -> MechsInfoFetcher:
         """Fetch a batch of mechs' information from the subgraph."""
-        thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
+        lookback_seconds = self.params.deliveries_lookback_days * 24 * 60 * 60
+        block_timestamp_gt = int(time.time()) - lookback_seconds
         query = mechs_info_query.substitute(
             first=QUERY_BATCH_SIZE,
             mechs_id_gt=mechs_id_gt,
             ignored_mechs='", "'.join(self.params.ignored_mechs),
-            block_timestamp_gt=thirty_days_ago,
+            block_timestamp_gt=block_timestamp_gt,
         )
         res_raw = yield from self.get_http_response(
             content=to_content(query),

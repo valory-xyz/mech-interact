@@ -246,6 +246,9 @@ class MechParams(BaseParams):
         self.penalize_mech_time_window: int = self._ensure(
             "penalize_mech_time_window", kwargs, int
         )
+        self.deliveries_lookback_days: int = self._ensure(
+            "deliveries_lookback_days", kwargs, int
+        )
 
         super().__init__(*args, **kwargs)
 
