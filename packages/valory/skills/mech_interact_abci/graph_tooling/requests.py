@@ -20,6 +20,7 @@
 """Tooling to perform subgraph requests from a behaviour."""
 
 import json
+import time
 from abc import ABC
 from enum import Enum, auto
 from typing import Any, Generator, cast
@@ -120,10 +121,12 @@ class QueryingBehaviour(BaseBehaviour, ABC):
 
     def fetch_mechs_info_batch(self, mechs_id_gt: int) -> MechsInfoFetcher:
         """Fetch a batch of mechs' information from the subgraph."""
+        thirty_days_ago = int(time.time()) - 30 * 24 * 60 * 60
         query = mechs_info_query.substitute(
             first=QUERY_BATCH_SIZE,
             mechs_id_gt=mechs_id_gt,
             ignored_mechs='", "'.join(self.params.ignored_mechs),
+            blockTimestamp_gt=thirty_days_ago,
         )
         res_raw = yield from self.get_http_response(
             content=to_content(query),

@@ -49,7 +49,8 @@ info = Template(
                     deliveries(
                         first: 1,
                         orderBy: blockTimestamp,
-                        orderDirection: desc
+                        orderDirection: desc,
+                        where: {blockTimestamp_gt: ${blockTimestamp_gt}}
                     ) {
                         blockTimestamp
                     }
