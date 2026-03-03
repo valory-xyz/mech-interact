@@ -256,6 +256,13 @@ class MechInfo:
         return self.service.liveness
 
     @property
+    def delivered_ratio(self) -> float:
+        """Ratio of the self-delivered requests to the received requests."""
+        if self.received_requests == 0:
+            return 0.0
+        return self.self_delivered / self.received_requests
+
+    @property
     def delivered_ratio_smoothed(self) -> float:
         """Ratio of the self-delivered requests to the received requests, Laplace smoothed to improve cold start."""
         return (self.self_delivered + LAPLACE_SMOOTHING_ALPHA) / (

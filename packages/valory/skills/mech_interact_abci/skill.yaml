@@ -22,14 +22,14 @@ fingerprint:
   fsm_specification.yaml: bafybeieyjqlctk364q6azapuiyjcekfj4gohoo6yuxkfbgp7yctbizpfq4
   graph_tooling/__init__.py: bafybeihodjy6hetkp7curzbpae5xtbeotluwed5ekr3hb26uwfox5op5za
   graph_tooling/queries/__init__.py: bafybeiep7vka3rytzsdag2ibmcpz2qiz2bfev734vbp7snwf4nc2upgz3u
-  graph_tooling/queries/mechs_info.py: bafybeig64hod54oinvl2zrbqld5odb5who6zhivqklaiqwrdxktimoyp7a
-  graph_tooling/requests.py: bafybeieomdt3zlmhdjd64vxqmal7dv4a4xwxu6gilno527mp5fgjvuq7gi
+  graph_tooling/queries/mechs_info.py: bafybeibmxdtcpf23c4rmnsspduqbdg4gnrbhzzl4r3mupnbuuqquttkimy
+  graph_tooling/requests.py: bafybeigquglnevje6iitzmkk4ydfbp3v3uen4ifhqjsuosnpxkns65zx2i
   handlers.py: bafybeieho4uyy6qqx3uzgzy4rpb7qvqb4jl2yk5tfwacce3zapec7pflie
-  models.py: bafybeihwfe44knbwvnk574rzjtpbwaygok5jyaacumu7jwuyzcy2ftzmha
+  models.py: bafybeibfq7gk4zrf6qso3eq5urwfndjupwqwcz36v25wggjiyuqtlpueje
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeiewhynivpu72vzstzppmqedoytidmfgjszf7mb22ml7lhi5ep6eyy
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
-  states/base.py: bafybeif3krhmpnivhnkk67rkv7ymx52jcnn5u5bmoggbye2vroaid5zn4e
+  states/base.py: bafybeig53dm7wnggzkew6ddjpm4o7q4vb7q77rfkrwsihc2curnskbwqt4
   states/final_states.py: bafybeiaclul6oq3wtktpwwutgnzw4qi3untxqgnc34cofsxl3ejampou6q
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
   states/mech_version.py: bafybeidxivyjn77uylctz6gwbpz2zgywdgphtlhmropirf36nnnhp3rnp4
@@ -209,6 +209,7 @@ models:
       - stabilityai-stable-diffusion-xl-beta-v2-2-2
       - stabilityai-stable-diffusion-512-v2-1
       - stabilityai-stable-diffusion-768-v2-1
+      deliveries_lookback_days: 30
       ignored_mechs: []
       penalize_mech_time_window: 1800
     class_name: Params
@@ -237,7 +238,7 @@ models:
       error_index: 0
       error_type: dict
       retries: 5
-      url: https://subgraph.staging.autonolas.tech/subgraphs/name/marketplace-gnosis-v0_7_0
+      url: https://api.subgraph.autonolas.tech/api/proxy/marketplace-gnosis
       delivery_rate_cap: 10000000000000000
     class_name: MechsSubgraph
   mech_response:
