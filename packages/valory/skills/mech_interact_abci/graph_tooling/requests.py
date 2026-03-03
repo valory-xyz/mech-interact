@@ -42,6 +42,7 @@ MechsInfoFetcher = Generator[None, None, MechsSubgraphResponseType]
 
 QUERY_BATCH_SIZE = 1000
 MAX_LOG_SIZE = 1000
+SECONDS_PER_DAY = 24 * 60 * 60
 
 
 def to_content(query: str) -> bytes:
@@ -121,7 +122,7 @@ class QueryingBehaviour(BaseBehaviour, ABC):
 
     def fetch_mechs_info_batch(self, mechs_id_gt: int) -> MechsInfoFetcher:
         """Fetch a batch of mechs' information from the subgraph."""
-        lookback_seconds = self.params.deliveries_lookback_days * 24 * 60 * 60
+        lookback_seconds = self.params.deliveries_lookback_days * SECONDS_PER_DAY
         block_timestamp_gt = int(time.time()) - lookback_seconds
         query = mechs_info_query.substitute(
             first=QUERY_BATCH_SIZE,
