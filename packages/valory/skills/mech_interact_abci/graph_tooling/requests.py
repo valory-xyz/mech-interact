@@ -126,7 +126,7 @@ class QueryingBehaviour(BaseBehaviour, ABC):
             first=QUERY_BATCH_SIZE,
             mechs_id_gt=mechs_id_gt,
             ignored_mechs='", "'.join(self.params.ignored_mechs),
-            blockTimestamp_gt=thirty_days_ago,
+            block_timestamp_gt=thirty_days_ago,
         )
         res_raw = yield from self.get_http_response(
             content=to_content(query),

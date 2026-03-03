@@ -50,7 +50,7 @@ info = Template(
                         first: 1,
                         orderBy: blockTimestamp,
                         orderDirection: desc,
-                        where: {blockTimestamp_gt: ${blockTimestamp_gt}}
+                        where: {blockTimestamp_gt: ${block_timestamp_gt}}
                     ) {
                         blockTimestamp
                     }
