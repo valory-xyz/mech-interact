@@ -30,7 +30,6 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     Service,
 )
 
-
 TWO_MIN_IN_SEC = 2 * 60
 
 

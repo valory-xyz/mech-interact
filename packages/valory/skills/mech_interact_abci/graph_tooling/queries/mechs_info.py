@@ -19,12 +19,9 @@
 
 """Mechs' info queries."""
 
-
 from string import Template
 
-
-info = Template(
-    """
+info = Template("""
         {
             meches(
                 first: ${first},
@@ -57,5 +54,4 @@ info = Template(
                 }
             }
         }
-    """
-)
+    """)

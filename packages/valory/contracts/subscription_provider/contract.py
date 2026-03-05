@@ -24,7 +24,6 @@ from aea.configurations.base import PublicId
 from aea.contracts.base import Contract
 from aea_ledger_ethereum import EthereumApi
 
-
 PUBLIC_ID = PublicId.from_str("valory/subscription_provider:0.1.0")
 HEX_PREFIX_LENGTH = 2
 

@@ -61,7 +61,6 @@ from packages.valory.skills.mech_interact_abci.states.purchase_subscription impo
     MechPurchaseSubscriptionRound,
 )
 
-
 EMPTY_PAYMENT_DATA_HEX = Ox
 HTTP_OK = 200
 SEED_BYTES_LENGTH = 32

@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeicxemyhwf5ntz5elcmio3k66dukzcsrryovnl2k7xq4amxlptlwwa
   __init__.py: bafybeiejkhqbscng3twa2bzwvaxkr35kempm2y6w77sxx2hl3vlqkmchhm
   build/lock_payment_condition.json: bafybeigdenibhodkl3azqestxnn3dubb6kkobvo45afcajmyqf4e4rj5t4
-  contract.py: bafybeig3qw4tg5zjsa454katkmefxzugihtcazglr2y4up5niddrerw77a
+  contract.py: bafybeicnmpef3cscnthsmsxrmkwchtgfg5liepsdsouhxloq4q4sujq3fa
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: LockPaymentCondition

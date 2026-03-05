@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2025 Valory AG
+#   Copyright 2025-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -19,7 +19,6 @@
 
 
 """This module contains the behaviour responsible for gathering information about the mech marketplace."""
-
 
 import json
 from typing import Any, Generator, Optional
@@ -42,7 +41,6 @@ from packages.valory.skills.mech_interact_abci.states.base import MechInfoEncode
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
     MechInformationRound,
 )
-
 
 CID_PREFIX = "f01701220"
 

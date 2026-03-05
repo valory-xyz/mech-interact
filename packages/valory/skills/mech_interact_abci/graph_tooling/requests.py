@@ -36,7 +36,6 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechsSubgraphResponseType,
 )
 
-
 MechsInfoFetcher = Generator[None, None, MechsSubgraphResponseType]
 
 

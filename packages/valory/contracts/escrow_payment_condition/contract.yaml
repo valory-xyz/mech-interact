@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeicrryg5u4zri42zd4qdarwapal6sayy7yyrrzzumurrpwkdt26ca4
   __init__.py: bafybeigtorc5oz4r5lfj5bhlajqc34nkknbkuswbupogg7kuquuxdilxgi
   build/escrow_payment_condition.json: bafybeie5bs35fhf5wgvjiynsw4lgzfwkk6643cmov2hpojdwp6lma54vgi
-  contract.py: bafybeibw7c7xmshlod7hglpr6adl4xpbe72xmsnurbbkbdibhmex3dhmfy
+  contract.py: bafybeidq6vel73vvkejpzyphxd4ad5vlebi3io76mxwyprganulv32bnsi
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: EscrowPaymentConditionContract
