@@ -43,7 +43,6 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 from packages.valory.skills.mech_interact_abci.states.response import MechResponseRound
 from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
 
-
 IPFS_HASH_PREFIX = f"{V1_HEX_PREFIX}701220"
 HEX_PREFIX_LENGTH = 2
 BYTES32_LENGTH = 32
@@ -166,9 +165,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
     def setup(self) -> None:
         """Set up the `MechResponse` behaviour."""
-        self._mech_responses: List[
-            MechInteractionResponse
-        ] = self.synchronized_data.mech_responses
+        self._mech_responses: List[MechInteractionResponse] = (
+            self.synchronized_data.mech_responses
+        )
 
     def set_mech_response_specs(self, request_id: int) -> None:
         """Set the mech's response specs."""

@@ -20,7 +20,6 @@
 
 """This module contains the behaviour responsible for gathering information about the mech marketplace."""
 
-
 import json
 from typing import Any, Generator, Optional
 
@@ -42,7 +41,6 @@ from packages.valory.skills.mech_interact_abci.states.base import MechInfoEncode
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
     MechInformationRound,
 )
-
 
 CID_PREFIX = "f01701220"
 

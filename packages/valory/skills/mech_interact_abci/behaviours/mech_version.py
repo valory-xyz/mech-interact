@@ -32,7 +32,6 @@ from packages.valory.skills.mech_interact_abci.states.mech_version import (
     MechVersionDetectionRound,
 )
 
-
 V1 = "v1"
 V2 = "v2"
 

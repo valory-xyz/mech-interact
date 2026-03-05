@@ -42,7 +42,6 @@ from packages.valory.skills.abstract_round_abci.models import (
 from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
 from packages.valory.skills.mech_interact_abci.states.base import MechInfo, MechsInfo
 
-
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
 MechsSubgraphResponseType = Optional[MechsInfo]

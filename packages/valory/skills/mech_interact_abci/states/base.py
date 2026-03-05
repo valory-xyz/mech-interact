@@ -40,7 +40,6 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
     SynchronizedData as TxSynchronizedData,
 )
 
-
 SERIALIZED_EMPTY_LIST = "[]"
 METADATA_FIELD = "metadata"
 BLOCK_TIMESTAMP_FIELD = "blockTimestamp"

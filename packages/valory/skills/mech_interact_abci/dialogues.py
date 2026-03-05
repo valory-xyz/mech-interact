@@ -18,6 +18,7 @@
 # ------------------------------------------------------------------------------
 
 """This module contains the dialogues of the MechInteractAbciApp."""
+
 from typing import Any
 
 from aea.protocols.base import Address, Message
@@ -72,7 +73,6 @@ from packages.valory.skills.abstract_round_abci.dialogues import (
 from packages.valory.skills.abstract_round_abci.dialogues import (
     TendermintDialogues as BaseTendermintDialogues,
 )
-
 
 AbciDialogue = BaseAbciDialogue
 AbciDialogues = BaseAbciDialogues
