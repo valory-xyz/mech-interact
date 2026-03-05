@@ -1,19 +1,19 @@
 {
     "dev": {
-        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeicim5nuqk7aelbzlslk7ofxxafu7obhklqgvwrqiwx5jkthiizsgy",
-        "contract/valory/mech/0.1.0": "bafybeigprn523mvfohjk7qa7jxdvjighr6yatjgqzhydcyzsabobdf6mii",
-        "contract/valory/mech_mm/0.1.0": "bafybeifa5gzz2kvigebfgvvwyf4n32xmx7zcyeylhdukddro3yb2ccnpeu",
-        "contract/valory/ierc1155/0.1.0": "bafybeiey7dzcolefzr7pugplnmoklyt4wtezusvitvf2wxhbflwkbz6swy",
-        "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeiddbyatpyixvre5zqw2iafb4wjsrxz2pdd7g77mkys6ovy4gscfnm",
-        "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeiduptbqrwarhgsxlaazoabbjpdqxzrist5k7nhn66v2kyeqtxsthi",
-        "contract/valory/escrow_payment_condition/0.1.0": "bafybeihbre5lzj2jqhkdoz3hh7cyrc4kxqgr2m3yhfpgaywbpq6vreygca",
-        "contract/valory/did_registry/0.1.0": "bafybeicmpemxcbukky4lizoctdqjfaurgvjc4ah25itgmqyata5rxplh6m",
-        "contract/valory/nft_sales/0.1.0": "bafybeihjdxlfkaja7h6p3rtglp7puqc24cx2f2gq2wkzrvuvzdqnhnjabu",
-        "contract/valory/lock_payment_condition/0.1.0": "bafybeiax7tnvo7z66zevsh7b4sceh63iqkxexl5bohq23wcp4ae76zlm2q",
-        "contract/valory/agreement_store_manager/0.1.0": "bafybeicfpbi5p5yf3ha4jm224bpea7e5oifsk2gb4gzgyfowxxbqz4fz5q",
-        "contract/valory/transfer_nft_condition/0.1.0": "bafybeibvxqbghm7wrj5puzslay4uzxb6a4oxzppiqbfeuhmvivtca3jeqa",
-        "contract/valory/subscription_provider/0.1.0": "bafybeig4uk25lehlqsg5fb7zlq5vhzof7n33zqofjmb6ntalfnbhm6oxcy",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeig3mwfrfdchrgihlrtos2262d7jmudzyze7esww4ind2i3wrt7wt4"
+        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeidafub7e4n2sl2xc5ziffldycctovb55fucobiprs3btjprn56uvm",
+        "contract/valory/mech/0.1.0": "bafybeieg4sb4c6fdqrluctuee4of3lhcfoioddh6lrllmhyxmxpb67kjty",
+        "contract/valory/mech_mm/0.1.0": "bafybeicy7xi3aj6k43jzzxsndf7eokkwbownqa3nt63dpzce5xnov7qe6e",
+        "contract/valory/ierc1155/0.1.0": "bafybeibrnetdx3qn7xy5tb4c3gyx4nijakdy67poqw27xu65dnivknnhr4",
+        "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeiddsiji6lzb7tykdhmpv7vsoqnvrgajr5op3ddzsm376jcnbst7qe",
+        "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeicia7pddgvtfbp2uhb6fhzsceanor5jjbafk32ppb6yfrkzgd3pa4",
+        "contract/valory/escrow_payment_condition/0.1.0": "bafybeieknsr2z5z3x2nifmsfwvugq7hkotnphaeewydcq3mz4p3q6ogbrq",
+        "contract/valory/did_registry/0.1.0": "bafybeialk5be667aezuwnwmpzojswnxtowus5dkhvsayjhqlaf67mpnp74",
+        "contract/valory/nft_sales/0.1.0": "bafybeiecsicd4cv26xtrwv2li4rtyua6ppq3o4kpw3ek2nl3ar3v45tkvq",
+        "contract/valory/lock_payment_condition/0.1.0": "bafybeifhgwbgitqfmpwah556ncmtuopaamiht26w3vmljoh5qcfas3hotu",
+        "contract/valory/agreement_store_manager/0.1.0": "bafybeibm2oqx2ar36q7lcjkfsf3vrrfsi6r6owa363xopzgnlgmietgcjm",
+        "contract/valory/transfer_nft_condition/0.1.0": "bafybeicrux44vkxndr35kc3cpy7s2jpjztd2x3tm6aec3cylenubchu62u",
+        "contract/valory/subscription_provider/0.1.0": "bafybeihtl4gn3tqapxcnu56w3zo3bgo6yg5s5i72mrld7k6rtacpxvcnae",
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeigqq2vnnwqelllo2rb2wq3v6adkstkv47atcr6ieqxstvkkxm3toy"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i",
