@@ -32,7 +32,6 @@ from eth_utils import event_abi_to_log_topic
 from web3._utils.events import get_event_data
 from web3.types import BlockIdentifier, EventData, FilterParams, TxReceipt
 
-
 PUBLIC_ID = PublicId.from_str("valory/mech_mm:0.1.0")
 FIVE_MINUTES = 300.0
 

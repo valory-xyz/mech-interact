@@ -19,12 +19,10 @@
 
 """This module contains the class to connect to a TransferNFTCondition contract."""
 
-
 from aea.common import JSONLike
 from aea.configurations.base import PublicId
 from aea.contracts.base import Contract
 from aea_ledger_ethereum import EthereumApi
-
 
 PUBLIC_ID = PublicId.from_str("valory/transfer_nft_condition:0.1.0")
 

@@ -33,7 +33,6 @@ from hexbytes import HexBytes
 from web3._utils.events import get_event_data
 from web3.types import BlockData, BlockIdentifier, EventData, FilterParams, TxReceipt
 
-
 PUBLIC_ID = PublicId.from_str("valory/mech_marketplace_legacy:0.1.0")
 FIVE_MINUTES = 300.0
 TOPIC_BYTES = 32

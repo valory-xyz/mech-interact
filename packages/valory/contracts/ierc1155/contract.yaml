@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeicpbv673pqvstddnphn6zk24tpi6rjdtcx6zk6ax5tsen2e4hja74
   __init__.py: bafybeidx57lm6uzxxvnbhsuedadi3f6w36e6xhc2po64a5zojaqqaotmoy
   build/IERC1155.json: bafybeia4apxwvusbff4a5vp2i76yzg6bqsjfofmwoao5y2eceb3ufeyomq
-  contract.py: bafybeifiooluzh5f2wlal63wghq4ycvfjwclvdrxqy7nh5folel32ucsyu
+  contract.py: bafybeignubqm36sq2hzjpjq4jg43rhveb4eogonsfrugnesyxhcngff74m
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: IERC1155
