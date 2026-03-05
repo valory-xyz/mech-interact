@@ -9,22 +9,22 @@ description: "The mech interact skill provides comprehensive interaction capabil
 license: Apache-2.0
 aea_version: '>=2.0.0, <3.0.0'
 fingerprint:
-  __init__.py: bafybeiccgui4nbjqissahhv5f5qffpldxag2gexckw3rhcna44yknukule
+  __init__.py: bafybeic6zmplvwsgp5gh2rse2ushtaqnodvmb4kxooace5ghabz4exqbt4
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
   behaviours/base.py: bafybeifuzvl3k4rpx5kcjrm5kqvpzub6cjnxarzlbfnelf42b6uge2goq4
-  behaviours/mech_info.py: bafybeigrdx7mz6kqn2lvqydweihxnidv66p4miqtbdebl5jyoij44nyvqy
-  behaviours/mech_version.py: bafybeieu3vi7snah632plkw3a3ezpblkrlrvtoqz5mnlxb5tbrdkcujtqy
+  behaviours/mech_info.py: bafybeicq6azac6lujet4hubey4omhqtvd5lzohutnvymkqu4zqnmfw2aty
+  behaviours/mech_version.py: bafybeibldzqg35lmlfm6m3rw4zms3w7kjxpmg42477at7kloz6wvhxk64y
   behaviours/purchase_subcription.py: bafybeig2m5ddc6k6rbmu2sbocxk4k5ntvqm5sava2njfomco6p3utwk7uu
   behaviours/request.py: bafybeial4eigeygrrhxxf5fuqsgyaemkpgmyhjjqy2uj3po74ojk5exnqm
-  behaviours/response.py: bafybeibb6vdvussqprymidxlmewvgiqbt3zbw3ga7crqszkdejcw6t5uty
+  behaviours/response.py: bafybeihynzhbnzu6rycdi2xykay4znhzofnlzazaqdtwye233ltzi4wpw4
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
-  dialogues.py: bafybeiflg33vckigataqchep5i5qct2dyvhqojwbijanng6mej3c4zkhdq
+  dialogues.py: bafybeieblfroooh2brkzkodr2eqsnkjdua2244lzou5c3h5eawyaygdc2m
   fsm_specification.yaml: bafybeieyjqlctk364q6azapuiyjcekfj4gohoo6yuxkfbgp7yctbizpfq4
   graph_tooling/__init__.py: bafybeihodjy6hetkp7curzbpae5xtbeotluwed5ekr3hb26uwfox5op5za
   graph_tooling/queries/__init__.py: bafybeiep7vka3rytzsdag2ibmcpz2qiz2bfev734vbp7snwf4nc2upgz3u
   graph_tooling/queries/mechs_info.py: bafybeigmk3y3uwlsmzommqwimirko6vph3j6mmymxbncshjdzebne4nija
   graph_tooling/requests.py: bafybeianx3jy4yvet2mfln36wdpzbjk6mfytzmiqogcvtlax3322ko7jra
-  handlers.py: bafybeietq2klhhlw6uptsmesde2xzabfq7pap5fe66hi2zj46gfvw4to7m
+  handlers.py: bafybeie256xt7gyelrprl2omqx3b3cmdl2rv7ezqhwcc2l7gkqcdu7gd5m
   models.py: bafybeic6vmnbz4efwyjd3ysvoaayi2hlaszsr6vunsplujkniubqzyrksy
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeiewhynivpu72vzstzppmqedoytidmfgjszf7mb22ml7lhi5ep6eyy
@@ -53,19 +53,19 @@ contracts:
 - valory/mech:0.1.0:bafybeigprn523mvfohjk7qa7jxdvjighr6yatjgqzhydcyzsabobdf6mii
 - valory/mech_mm:0.1.0:bafybeifa5gzz2kvigebfgvvwyf4n32xmx7zcyeylhdukddro3yb2ccnpeu
 - valory/multisend:0.1.0:bafybeiaf3hapi3prgpjeugwhq64k7lqelo6kibhol5rkajt7id3knomp5q
-- valory/erc20:0.1.0:bafybeifnavtn55w7t3j6de34nc7o3pxmoydoc5u6flocfaflqzurvpch2m
+- valory/erc20:0.1.0:bafybeiasg4jgjof5vtva7kjqdnhxzwhgwybydef5fsampm7tu2cgfy3peq
 - valory/agent_mech:0.1.0:bafybeifamjf76fn3f7qjdv7jm5skrd4xcsnt43kq3zy6e5hnh6kwsjbjvq
 - valory/mech_marketplace_legacy:0.1.0:bafybeicim5nuqk7aelbzlslk7ofxxafu7obhklqgvwrqiwx5jkthiizsgy
-- valory/agent_registry:0.1.0:bafybeihes4w25gs4xdsmkwxg3mi5fmgfk5apa4ilpg3jy3hw4lkrearaii
-- valory/ierc1155:0.1.0:bafybeienhhjcvz3rrxuxcu365u3fniqo3kdl3hncz6jea7jgdahdolxdey
-- valory/nvm_balance_tracker_token:0.1.0:bafybeic72ggmwdukcapksptcj3wgeyht4rmzmpkbxlanu3ft54y5dms76i
-- valory/nvm_balance_tracker_native:0.1.0:bafybeicgcl73gny66bivxfqqfhjv4yaebcorrqbvwt3aniqpys2drklyiu
-- valory/escrow_payment_condition:0.1.0:bafybeig56czgxdas47kmcv4qo766y44vqv6mo3qfiwys2n25kl3jgfnbae
-- valory/did_registry:0.1.0:bafybeigg2ujn6n2qwasd22daytqbr7s2z4qwcba6dtjqdznsjabns74tsy
+- valory/agent_registry:0.1.0:bafybeido56tglxwyoxwjylpkto4asg5tuosvbojmbbiqwfm4wh6r45pxwe
+- valory/ierc1155:0.1.0:bafybeiey7dzcolefzr7pugplnmoklyt4wtezusvitvf2wxhbflwkbz6swy
+- valory/nvm_balance_tracker_token:0.1.0:bafybeiddbyatpyixvre5zqw2iafb4wjsrxz2pdd7g77mkys6ovy4gscfnm
+- valory/nvm_balance_tracker_native:0.1.0:bafybeiduptbqrwarhgsxlaazoabbjpdqxzrist5k7nhn66v2kyeqtxsthi
+- valory/escrow_payment_condition:0.1.0:bafybeihbre5lzj2jqhkdoz3hh7cyrc4kxqgr2m3yhfpgaywbpq6vreygca
+- valory/did_registry:0.1.0:bafybeicmpemxcbukky4lizoctdqjfaurgvjc4ah25itgmqyata5rxplh6m
 - valory/nft_sales:0.1.0:bafybeihjdxlfkaja7h6p3rtglp7puqc24cx2f2gq2wkzrvuvzdqnhnjabu
-- valory/lock_payment_condition:0.1.0:bafybeihyg74od4hbz5aikcf3ipbvrhch4cknkw2gp4w5upzvqsui4jhqim
-- valory/agreement_store_manager:0.1.0:bafybeibabrz5anmrqizflok6udzrqv2tvtveal4zgzdeoxarjvqqrhz2p4
-- valory/transfer_nft_condition:0.1.0:bafybeid26f2jgcrzvo2uwbzq5q2w3awcgn3eieavvb2r7gtrriku3hgbri
+- valory/lock_payment_condition:0.1.0:bafybeiax7tnvo7z66zevsh7b4sceh63iqkxexl5bohq23wcp4ae76zlm2q
+- valory/agreement_store_manager:0.1.0:bafybeicfpbi5p5yf3ha4jm224bpea7e5oifsk2gb4gzgyfowxxbqz4fz5q
+- valory/transfer_nft_condition:0.1.0:bafybeibvxqbghm7wrj5puzslay4uzxb6a4oxzppiqbfeuhmvivtca3jeqa
 - valory/subscription_provider:0.1.0:bafybeig4uk25lehlqsg5fb7zlq5vhzof7n33zqofjmb6ntalfnbhm6oxcy
 protocols:
 - valory/contract_api:1.0.0:bafybeibld2xb5m7kyluiptkamp4nrt6oeomkohz7a3yppbv2oo7qw2e4la

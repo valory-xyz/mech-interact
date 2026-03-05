@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeibb3vfw56qtzx2sg5sj3bbfw3u7clqgn3hjjngzbxswx5pvw3utzi
   __init__.py: bafybeicgozrvijcef4zxrvo2he5uprlvrp6oioedejj6gj2ccityttyjmy
   build/did_registry.json: bafybeigxejjvpk3wkhvpdnw3c7qx7jbhouubmko67lbkvq27uoj7hnmxia
-  contract.py: bafybeidtqsdne4je4k4g7xwsdrz7nudinj5ucgdbx2kjzcs2qe7xbjnrda
+  contract.py: bafybeicinvn4qx5h5cycnqxl5wn3ytizvgwqlxvz7ys4pqxyysr6plumse
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: DIDRegistry

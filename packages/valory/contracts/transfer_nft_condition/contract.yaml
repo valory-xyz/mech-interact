@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeihflj46o6zvfroct2uk6xfzidhvehywr5kskhualbcatpokf77hbi
   __init__.py: bafybeiggpwlocaqq2xqg2emyuhfchui6qytz62674ab4sklslo3pi5zfma
   build/transfer_nft_condition.json: bafybeihkgf2zozkty4767wn7zwbml4emgzz7dl6yekatdur6uodbw4yu4u
-  contract.py: bafybeig2d26hzbwyhhgpg72o67izap67k2e4k6anm2grsssu656pbmiciy
+  contract.py: bafybeib7tqdil3zyqaovnang5skjfjghjosory6k26b3oihcjymmqp4hp4
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: TransferNFTCondition

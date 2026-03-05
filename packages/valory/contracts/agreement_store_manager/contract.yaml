@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeihvrenqqs5unsroous4q7i64dzxzr3yhuseb3iwsmaigizlfcyhey
   __init__.py: bafybeihqqe5vid3jswhksrf4r2hk4buj3zl7env5crbk4rb45h5kvltmei
   build/agreement_store_manager.json: bafybeigofhfvvdutp57roysjkvv6j4iquq7kqxnail2ch7skhxktdvgdxy
-  contract.py: bafybeihjfpudrmwrkhhjps2nhb35tpq2b4fseifdnvz5u2qrfxouo5fvdm
+  contract.py: bafybeib3nrlfhrirjazapmljqk5pbcstl4md6rmf4fuoroxoxozzfaoqhy
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: AgreementStorageManager
