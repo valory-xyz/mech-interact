@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v3
         with:
           python-version: ${{ matrix.python-version }}
@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v3
@@ -81,7 +81,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v3
         with:
           python-version: ${{ matrix.python-version }}
@@ -113,7 +113,7 @@ jobs:
     name: gitleaks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: actions/setup-go@v3
@@ -141,7 +141,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v3
         with:
           submodules: recursive
@@ -267,7 +267,7 @@ jobs:
         os: [ubuntu-latest]
         python-version: ["3.10"]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v3
         with:
           submodules: recursive
