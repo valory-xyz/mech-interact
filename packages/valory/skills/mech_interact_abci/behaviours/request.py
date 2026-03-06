@@ -20,7 +20,7 @@
 """This module contains the request state of the mech interaction abci app."""
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from enum import Enum
 from pathlib import Path
 from tempfile import mkdtemp
@@ -44,17 +44,14 @@ from packages.valory.contracts.nvm_balance_tracker_token.contract import (
 )
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
-from packages.valory.skills.abstract_round_abci.base import get_name
+from packages.valory.skills.abstract_round_abci.base import BaseTxPayload, get_name
 from packages.valory.skills.abstract_round_abci.io_.store import SupportedFiletype
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
 )
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
-from packages.valory.skills.mech_interact_abci.payloads import (
-    MechRequestPayload,
-    PrepareTxPayload,
-)
+from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
     MechMetadata,
@@ -952,10 +949,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             payload = MechRequestPayload(
                 self.context.agent_address,
                 *(None,)
-                * (
-                    len(MechRequestPayload.__annotations__)
-                    + len(PrepareTxPayload.__annotations__)
-                ),
+                * (len(fields(MechRequestPayload)) - len(fields(BaseTxPayload))),
             )
             yield from self.finish_behaviour(payload)
             return
