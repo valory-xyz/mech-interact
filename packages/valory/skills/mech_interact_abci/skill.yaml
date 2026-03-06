@@ -15,7 +15,7 @@ fingerprint:
   behaviours/mech_info.py: bafybeicq6azac6lujet4hubey4omhqtvd5lzohutnvymkqu4zqnmfw2aty
   behaviours/mech_version.py: bafybeibldzqg35lmlfm6m3rw4zms3w7kjxpmg42477at7kloz6wvhxk64y
   behaviours/purchase_subcription.py: bafybeig2m5ddc6k6rbmu2sbocxk4k5ntvqm5sava2njfomco6p3utwk7uu
-  behaviours/request.py: bafybeial4eigeygrrhxxf5fuqsgyaemkpgmyhjjqy2uj3po74ojk5exnqm
+  behaviours/request.py: bafybeidz6ebspg2g2b3zjx3shqo4tnimtjhwwppbh3iwepwv4kpbklxofi
   behaviours/response.py: bafybeihynzhbnzu6rycdi2xykay4znhzofnlzazaqdtwye233ltzi4wpw4
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeieblfroooh2brkzkodr2eqsnkjdua2244lzou5c3h5eawyaygdc2m
