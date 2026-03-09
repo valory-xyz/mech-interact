@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -19,35 +19,35 @@
 
 """This package contains the tests for rounds of MechInteract."""
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Hashable, List, Mapping, Type
+import json
+from typing import Type
+from unittest.mock import MagicMock
 
-import pytest
-
-from packages.valory.skills.abstract_round_abci.base import AbstractRound, BaseTxPayload
+from packages.valory.skills.abstract_round_abci.base import AbstractRound
 from packages.valory.skills.abstract_round_abci.test_tools.rounds import (
     BaseRoundTestClass,
+)
+from packages.valory.skills.mech_interact_abci.payloads import (
+    JSONPayload,
+    MechRequestPayload,
+    PrepareTxPayload,
+    VotingPayload,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     SynchronizedData,
 )
+from packages.valory.skills.mech_interact_abci.states.mech_info import (
+    MechInformationRound,
+)
+from packages.valory.skills.mech_interact_abci.states.mech_version import (
+    MechVersionDetectionRound,
+)
+from packages.valory.skills.mech_interact_abci.states.purchase_subscription import (
+    MechPurchaseSubscriptionRound,
+)
 from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
 from packages.valory.skills.mech_interact_abci.states.response import MechResponseRound
-
-
-@dataclass
-class RoundTestCase:
-    """RoundTestCase"""
-
-    name: str
-    initial_data: Dict[str, Hashable]
-    payloads: Mapping[str, BaseTxPayload]
-    final_data: Dict[str, Hashable]
-    event: Event
-    synchronized_data_attr_checks: List[Callable] = field(default_factory=list)
-    kwargs: Dict[str, Any] = field(default_factory=dict)
-
 
 MAX_PARTICIPANTS: int = 4
 
@@ -60,50 +60,280 @@ class BaseMechInteractRoundTest(BaseRoundTestClass):
     _synchronized_data_class = SynchronizedData
     _event_class = Event
 
-    def run_test(self, test_case: RoundTestCase) -> None:
-        """Run the test"""
-
-        self.synchronized_data.update(**test_case.initial_data)
-
-        test_round = self.round_cls(
-            synchronized_data=self.synchronized_data,
-        )
-
-        self._complete_run(
-            self._test_round(
-                test_round=test_round,
-                round_payloads=test_case.payloads,
-                synchronized_data_update_fn=lambda sync_data, _: sync_data.update(
-                    **test_case.final_data
-                ),
-                synchronized_data_attr_checks=test_case.synchronized_data_attr_checks,
-                exit_event=test_case.event,
-                **test_case.kwargs,  # varies per BaseRoundTestClass child
-            )
-        )
-
 
 class TestMechRequestRound(BaseMechInteractRoundTest):
     """Tests for MechRequestRound."""
 
-    round_class = MechRequestRound
+    round_cls = MechRequestRound
 
-    # TODO: provide test cases
-    @pytest.mark.parametrize("test_case", [])
-    def test_run(self, test_case: RoundTestCase) -> None:
-        """Run tests."""
+    def _make_request_payloads(self, **kwargs):
+        """Create identical MechRequestPayload for all participants."""
+        defaults = dict(
+            tx_submitter="MechRequestBehaviour",
+            tx_hash="0xabc",
+            price=100,
+            chain_id="1",
+            safe_contract_address="0xsafe",
+            mech_requests="[]",
+            mech_responses="[]",
+        )
+        defaults.update(kwargs)
+        return [
+            MechRequestPayload(sender=agent, **defaults)
+            for agent in sorted(self.participants)
+        ]
 
-        self.run_test(test_case)
+    def test_done_event(self):
+        """Test DONE event when mech requests are non-empty."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        mech_requests = json.dumps([{"prompt": "test", "tool": "tool", "nonce": "1"}])
+        for payload in self._make_request_payloads(
+            mech_requests=mech_requests,
+        ):
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.DONE
+
+    def test_skip_request_event(self):
+        """Test SKIP_REQUEST when requests and responses are empty."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        for payload in self._make_request_payloads(
+            mech_requests="[]",
+            mech_responses="[]",
+        ):
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.SKIP_REQUEST
+
+    def test_buy_subscription_event(self):
+        """Test BUY_SUBSCRIPTION when all payload values are None."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        for payload in self._make_request_payloads(
+            tx_submitter=None,
+            tx_hash=None,
+            price=None,
+            chain_id=None,
+            safe_contract_address=None,
+            mech_requests=None,
+            mech_responses=None,
+        ):
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.BUY_SUBSCRIPTION
+
+    def test_no_majority_event(self):
+        """Test NO_MAJORITY event."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        self._test_no_majority_event(test_round)
 
 
 class TestMechResponseRound(BaseMechInteractRoundTest):
     """Tests for MechResponseRound."""
 
-    round_class = MechResponseRound
+    round_cls = MechResponseRound
 
-    # TODO: provide test cases
-    @pytest.mark.parametrize("test_case", [])
-    def test_run(self, test_case: RoundTestCase) -> None:
-        """Run tests."""
+    def test_done_event(self):
+        """Test DONE event with non-empty response information."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        responses = json.dumps(
+            [{"nonce": "1", "result": "answer", "data": "", "requestId": 0}]
+        )
+        for agent in sorted(self.participants):
+            payload = JSONPayload(sender=agent, information=responses)
+            test_round.process_payload(payload)
 
-        self.run_test(test_case)
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.DONE
+
+    def test_no_majority_event(self):
+        """Test NO_MAJORITY event."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        self._test_no_majority_event(test_round)
+
+
+class TestMechVersionDetectionRound(BaseMechInteractRoundTest):
+    """Tests for MechVersionDetectionRound."""
+
+    round_cls = MechVersionDetectionRound
+
+    def test_v2_event(self):
+        """Test V2 event with positive votes."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        for agent in sorted(self.participants):
+            payload = VotingPayload(sender=agent, vote=True)
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        synced_data, event = result
+        assert event == Event.V2
+        assert synced_data.is_marketplace_v2 is True
+
+    def test_v1_event(self):
+        """Test V1 event with negative votes."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        for agent in sorted(self.participants):
+            payload = VotingPayload(sender=agent, vote=False)
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        synced_data, event = result
+        assert event == Event.V1
+        assert synced_data.is_marketplace_v2 is False
+
+    def test_no_marketplace_event(self):
+        """Test NO_MARKETPLACE event with None votes."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        for agent in sorted(self.participants):
+            payload = VotingPayload(sender=agent, vote=None)
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        synced_data, event = result
+        assert event == Event.NO_MARKETPLACE
+        assert synced_data.is_marketplace_v2 is None
+
+    def test_no_majority_event(self):
+        """Test NO_MAJORITY event."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        self._test_no_majority_event(test_round)
+
+
+class TestMechInformationRound(BaseMechInteractRoundTest):
+    """Tests for MechInformationRound."""
+
+    round_cls = MechInformationRound
+
+    def test_done_event(self):
+        """Test DONE event with mech information."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        info = json.dumps([{"id": "1", "address": "0xmech"}])
+        for agent in sorted(self.participants):
+            payload = JSONPayload(sender=agent, information=info)
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.DONE
+
+    def test_none_event(self):
+        """Test NONE event when information is None."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        for agent in sorted(self.participants):
+            payload = JSONPayload(sender=agent, information=None)
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.NONE
+
+    def test_no_majority_event(self):
+        """Test NO_MAJORITY event."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        self._test_no_majority_event(test_round)
+
+
+class TestMechPurchaseSubscriptionRound(BaseMechInteractRoundTest):
+    """Tests for MechPurchaseSubscriptionRound."""
+
+    round_cls = MechPurchaseSubscriptionRound
+
+    def test_done_event(self):
+        """Test DONE event with a prepared transaction."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        for agent in sorted(self.participants):
+            payload = PrepareTxPayload(
+                sender=agent,
+                tx_submitter="MechPurchaseSubscriptionBehaviour",
+                tx_hash="0xdef",
+            )
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.DONE
+
+    def test_none_event(self):
+        """Test NONE event when all payload values are None."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        for agent in sorted(self.participants):
+            payload = PrepareTxPayload(
+                sender=agent,
+                tx_submitter=None,
+                tx_hash=None,
+            )
+            test_round.process_payload(payload)
+
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.NONE
+
+    def test_no_majority_event(self):
+        """Test NO_MAJORITY event."""
+        test_round = self.round_cls(
+            synchronized_data=self.synchronized_data,
+            context=MagicMock(),
+        )
+        self._test_no_majority_event(test_round)
