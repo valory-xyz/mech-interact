@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -19,11 +19,8 @@
 
 """This package contains round behaviours of MechInteractAbciApp."""
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Hashable, Optional, Type
-
-import pytest
+from typing import Any, Dict, Optional, Type
 
 from packages.valory.skills.abstract_round_abci.base import AbciAppDB
 from packages.valory.skills.abstract_round_abci.behaviours import BaseBehaviour
@@ -32,6 +29,15 @@ from packages.valory.skills.abstract_round_abci.test_tools.base import (
 )
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
+)
+from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
+    MechInformationBehaviour,
+)
+from packages.valory.skills.mech_interact_abci.behaviours.mech_version import (
+    MechVersionDetectionBehaviour,
+)
+from packages.valory.skills.mech_interact_abci.behaviours.purchase_subcription import (
+    MechPurchaseSubscriptionBehaviour,
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import (
     MechRequestBehaviour,
@@ -46,16 +52,17 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     SynchronizedData,
 )
-
-
-@dataclass
-class BehaviourTestCase:
-    """BehaviourTestCase"""
-
-    name: str
-    initial_data: Dict[str, Hashable]
-    event: Event
-    kwargs: Dict[str, Any] = field(default_factory=dict)
+from packages.valory.skills.mech_interact_abci.states.mech_info import (
+    MechInformationRound,
+)
+from packages.valory.skills.mech_interact_abci.states.mech_version import (
+    MechVersionDetectionRound,
+)
+from packages.valory.skills.mech_interact_abci.states.purchase_subscription import (
+    MechPurchaseSubscriptionRound,
+)
+from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
+from packages.valory.skills.mech_interact_abci.states.response import MechResponseRound
 
 
 class BaseMechInteractTest(FSMBehaviourBaseCase):
@@ -65,7 +72,7 @@ class BaseMechInteractTest(FSMBehaviourBaseCase):
 
     behaviour: MechInteractRoundBehaviour
     behaviour_class: Type[MechInteractBaseBehaviour]
-    next_behaviour_class: Type[MechInteractBaseBehaviour]
+    next_behaviour_class: Optional[Type[MechInteractBaseBehaviour]] = None
     synchronized_data: SynchronizedData
     done_event = Event.DONE
 
@@ -93,40 +100,80 @@ class BaseMechInteractTest(FSMBehaviourBaseCase):
         self.mock_a2a_transaction()
         self._test_done_flag_set()
         self.end_round(done_event=event)
-        assert self.current_behaviour_id == self.next_behaviour_class.behaviour_id
+        if self.next_behaviour_class is not None:
+            assert self.current_behaviour_id == self.next_behaviour_class.behaviour_id
+
+
+class TestMechVersionDetectionBehaviour(BaseMechInteractTest):
+    """Tests MechVersionDetectionBehaviour"""
+
+    behaviour_class: Type[BaseBehaviour] = MechVersionDetectionBehaviour
+    next_behaviour_class: Type[BaseBehaviour] = MechInformationBehaviour
+
+    def test_matching_round(self):
+        """Test that the behaviour is matched to the correct round."""
+        assert MechVersionDetectionBehaviour.matching_round == MechVersionDetectionRound
+
+
+class TestMechInformationBehaviour(BaseMechInteractTest):
+    """Tests MechInformationBehaviour"""
+
+    behaviour_class: Type[BaseBehaviour] = MechInformationBehaviour
+
+    def test_matching_round(self):
+        """Test that the behaviour is matched to the correct round."""
+        assert MechInformationBehaviour.matching_round == MechInformationRound
 
 
 class TestMechRequestBehaviour(BaseMechInteractTest):
     """Tests MechRequestBehaviour"""
 
-    # TODO: set next_behaviour_class
     behaviour_class: Type[BaseBehaviour] = MechRequestBehaviour
-    next_behaviour_class: Type[BaseBehaviour] = ...
 
-    # TODO: provide test cases
-    @pytest.mark.parametrize("test_case", [])
-    def test_run(self, test_case: BehaviourTestCase) -> None:
-        """Run tests."""
+    def test_matching_round(self):
+        """Test that the behaviour is matched to the correct round."""
+        assert MechRequestBehaviour.matching_round == MechRequestRound
 
-        self.fast_forward(test_case.initial_data)
-        # TODO: mock the necessary calls
-        # self.mock_ ...
-        self.complete(test_case.event)
+
+class TestMechPurchaseSubscriptionBehaviour(BaseMechInteractTest):
+    """Tests MechPurchaseSubscriptionBehaviour"""
+
+    behaviour_class: Type[BaseBehaviour] = MechPurchaseSubscriptionBehaviour
+
+    def test_matching_round(self):
+        """Test that the behaviour is matched to the correct round."""
+        assert (
+            MechPurchaseSubscriptionBehaviour.matching_round
+            == MechPurchaseSubscriptionRound
+        )
 
 
 class TestMechResponseBehaviour(BaseMechInteractTest):
     """Tests MechResponseBehaviour"""
 
-    # TODO: set next_behaviour_class
     behaviour_class: Type[BaseBehaviour] = MechResponseBehaviour
-    next_behaviour_class: Type[BaseBehaviour] = ...
 
-    # TODO: provide test cases
-    @pytest.mark.parametrize("test_case", [])
-    def test_run(self, test_case: BehaviourTestCase) -> None:
-        """Run tests."""
+    def test_matching_round(self):
+        """Test that the behaviour is matched to the correct round."""
+        assert MechResponseBehaviour.matching_round == MechResponseRound
 
-        self.fast_forward(test_case.initial_data)
-        # TODO: mock the necessary calls
-        # self.mock_ ...
-        self.complete(test_case.event)
+
+class TestMechInteractRoundBehaviour(BaseMechInteractTest):
+    """Tests for the MechInteractRoundBehaviour."""
+
+    behaviour_class: Type[BaseBehaviour] = MechRequestBehaviour
+
+    def test_all_behaviours_registered(self):
+        """Test that all behaviours are registered."""
+        expected = {
+            MechVersionDetectionBehaviour,
+            MechInformationBehaviour,
+            MechRequestBehaviour,
+            MechPurchaseSubscriptionBehaviour,
+            MechResponseBehaviour,
+        }
+        assert MechInteractRoundBehaviour.behaviours == expected
+
+    def test_initial_behaviour(self):
+        """Test that the initial behaviour is correct."""
+        assert MechInteractRoundBehaviour.initial_behaviour_cls == MechRequestBehaviour
