@@ -49,32 +49,32 @@ fingerprint:
 fingerprint_ignore_patterns: []
 connections: []
 contracts:
-- valory/gnosis_safe:0.1.0:bafybeiamcgebbdbm3kzcvpeio4pjobzduz2cdlxrs7ufe4ere2zuompgwe
-- valory/mech:0.1.0:bafybeieg4sb4c6fdqrluctuee4of3lhcfoioddh6lrllmhyxmxpb67kjty
-- valory/mech_mm:0.1.0:bafybeicy7xi3aj6k43jzzxsndf7eokkwbownqa3nt63dpzce5xnov7qe6e
+- valory/gnosis_safe:0.1.0:bafybeicdxmqeojifvejur3n464palfdgazhjnzrb7d6rbawyw6vop4ppuy
+- valory/mech:0.1.0:bafybeian74rifshzpwst2nupoud4vg26pixsluifbxzowe3h7awh3gscxa
+- valory/mech_mm:0.1.0:bafybeignd7oxu6232zbgfcekrz6mjfuogvsguvyv4qql2bhmgjddpfugmi
 - valory/multisend:0.1.0:bafybeiaf3hapi3prgpjeugwhq64k7lqelo6kibhol5rkajt7id3knomp5q
-- valory/erc20:0.1.0:bafybeifnavtn55w7t3j6de34nc7o3pxmoydoc5u6flocfaflqzurvpch2m
-- valory/agent_mech:0.1.0:bafybeifamjf76fn3f7qjdv7jm5skrd4xcsnt43kq3zy6e5hnh6kwsjbjvq
-- valory/mech_marketplace_legacy:0.1.0:bafybeidafub7e4n2sl2xc5ziffldycctovb55fucobiprs3btjprn56uvm
-- valory/agent_registry:0.1.0:bafybeihes4w25gs4xdsmkwxg3mi5fmgfk5apa4ilpg3jy3hw4lkrearaii
-- valory/ierc1155:0.1.0:bafybeibrnetdx3qn7xy5tb4c3gyx4nijakdy67poqw27xu65dnivknnhr4
-- valory/nvm_balance_tracker_token:0.1.0:bafybeiddsiji6lzb7tykdhmpv7vsoqnvrgajr5op3ddzsm376jcnbst7qe
-- valory/nvm_balance_tracker_native:0.1.0:bafybeicia7pddgvtfbp2uhb6fhzsceanor5jjbafk32ppb6yfrkzgd3pa4
-- valory/escrow_payment_condition:0.1.0:bafybeieknsr2z5z3x2nifmsfwvugq7hkotnphaeewydcq3mz4p3q6ogbrq
-- valory/did_registry:0.1.0:bafybeialk5be667aezuwnwmpzojswnxtowus5dkhvsayjhqlaf67mpnp74
-- valory/nft_sales:0.1.0:bafybeiecsicd4cv26xtrwv2li4rtyua6ppq3o4kpw3ek2nl3ar3v45tkvq
-- valory/lock_payment_condition:0.1.0:bafybeifhgwbgitqfmpwah556ncmtuopaamiht26w3vmljoh5qcfas3hotu
-- valory/agreement_store_manager:0.1.0:bafybeibm2oqx2ar36q7lcjkfsf3vrrfsi6r6owa363xopzgnlgmietgcjm
-- valory/transfer_nft_condition:0.1.0:bafybeicrux44vkxndr35kc3cpy7s2jpjztd2x3tm6aec3cylenubchu62u
-- valory/subscription_provider:0.1.0:bafybeihtl4gn3tqapxcnu56w3zo3bgo6yg5s5i72mrld7k6rtacpxvcnae
+- valory/erc20:0.1.0:bafybeiglz5lbgaygxgpqtvcggr6cxsbw5wldw2xc3srijm2jap3jv3vlyi
+- valory/agent_mech:0.1.0:bafybeielgw42wh6sucnquowlqqf3dbvzd7gj4r6vfn322t3i5pkxbbrwz4
+- valory/mech_marketplace_legacy:0.1.0:bafybeihienamp7ex53drhe7ler7htcaxatpatajk3isamhdy7mwtpx3eca
+- valory/agent_registry:0.1.0:bafybeia5l4slzchvgsbovkrb4hktzsp7go3kry5vetgcmmwq63r67uznha
+- valory/ierc1155:0.1.0:bafybeicculy2cfhvcrz3n5j6zadkro7ylbvitetlda3pkufkcf65cs2uty
+- valory/nvm_balance_tracker_token:0.1.0:bafybeibte5igiqmq77ddx4mojqyvma4wuutqru3d7rrbopm6tkdp737iyq
+- valory/nvm_balance_tracker_native:0.1.0:bafybeifcpdhuq7pgt2ok544q7tlqw3sitrh3yspmfog7ofhernnouwebfe
+- valory/escrow_payment_condition:0.1.0:bafybeid6zubhypua6z4bhzfnca3xn3myzky6hy2yu7jdxi2zpgnft54szm
+- valory/did_registry:0.1.0:bafybeidxeah5o3dcah2vhowbi7tzczqgein2ugpbykgzwht7dgdc6gigj4
+- valory/nft_sales:0.1.0:bafybeicywcizdrpqxjclow2qrowaipeaics3ntfchfftgk4a26wbhb2ggu
+- valory/lock_payment_condition:0.1.0:bafybeien46lgw4uheo5d5yekw67nhximjsajjckweyfytyo33w26x6u6cm
+- valory/agreement_store_manager:0.1.0:bafybeihhrzm4rpfq54376hs5zft5g4mvqtv5hzzl67lpw7pgg3ja5dtmsu
+- valory/transfer_nft_condition:0.1.0:bafybeif37we6t5hes72m2txc2upssmhynefhavkuvcqjkmvybqclophnnm
+- valory/subscription_provider:0.1.0:bafybeiciopqd3vrqbmoq26ndnde5txdklpwyqioevfp2nu2mrdyjrjrfje
 protocols:
 - valory/contract_api:1.0.0:bafybeibld2xb5m7kyluiptkamp4nrt6oeomkohz7a3yppbv2oo7qw2e4la
 - valory/ledger_api:1.0.0:bafybeiecq56phjfws36rgrefw6niyo4ezesloodsfis647mpm5ygqo4ysi
 - valory/acn_data_share:0.1.0:bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i
 - valory/http:1.0.0:bafybeidxkp3vga7t6x2pbt2tpkgyaxa5bgpdgryao54py7w3yxyzr7neoy
 skills:
-- valory/abstract_round_abci:0.1.0:bafybeicehi2yqab3lldm7qzoqev3tmqrdk275sbtcabneyorhmzft76z7m
-- valory/transaction_settlement_abci:0.1.0:bafybeigivknq755rbnelrdemaz3vm4x7jkofvaskm34uh36pbbg6uiquo4
+- valory/abstract_round_abci:0.1.0:bafybeignxomufl7xwd23gtnmdezgbc4ufjsn2npchvqlomd7hxsfxf6ahq
+- valory/transaction_settlement_abci:0.1.0:bafybeifwkty66c2uxuusjwql4abjgnndsiu4gqgbugrn2dcmnziil7yoiq
 behaviours:
   main:
     args: {}
@@ -272,5 +272,5 @@ dependencies:
   py-multicodec: {}
   py-multibase: {}
   open-autonomy:
-    version: ==0.21.12rc4
+    version: ==0.21.12
 is_abstract: true
