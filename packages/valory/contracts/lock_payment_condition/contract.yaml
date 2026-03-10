@@ -17,4 +17,4 @@ contract_interface_paths:
   ethereum: build/lock_payment_condition.json
 dependencies:
   open-aea-ledger-ethereum:
-    version: ==2.1.0rc6
+    version: ==2.1.0
