@@ -284,6 +284,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             self.context.logger.error(
                 "Accessing `_agreement_tx_data` before they have been built."
             )
+            return None
         return HexBytes(self._agreement_tx_data)
 
     @property
@@ -293,6 +294,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             self.context.logger.error(
                 "Accessing `_subscription_token_approval_tx_data` before they have been built."
             )
+            return None
         return HexBytes(self._subscription_token_approval_tx_data)
 
     @property
@@ -302,6 +304,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             self.context.logger.error(
                 "Accessing `_fulfill_tx_data` before they have been built."
             )
+            return None
         return HexBytes(self._fulfill_tx_data)
 
     @property
