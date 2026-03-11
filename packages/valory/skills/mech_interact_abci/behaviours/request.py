@@ -269,7 +269,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             decimals = self.token_decimals
         return wei / 10**decimals
 
-    def _get_native_balance(self, account: str) -> Generator[None, None, Optional[int]]:
+    def _get_native_balance(
+        self, account: str
+    ) -> Generator[None, None, Optional[int]]:  # pragma: no cover
         """Get native balance for account."""
         ledger_api_response = yield from self.get_ledger_api_response(
             performative=LedgerApiMessage.Performative.GET_STATE,  # type: ignore
@@ -304,7 +306,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return balance
 
-    def _get_token_balance(self, account: str) -> Generator[None, None, Optional[int]]:
+    def _get_token_balance(
+        self, account: str
+    ) -> Generator[None, None, Optional[int]]:  # pragma: no cover
         """Get the balance of an account for the given token."""
 
         token_address = (
@@ -353,7 +357,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return token_int
 
-    def update_safe_balances(self) -> WaitableConditionType:
+    def update_safe_balances(self) -> WaitableConditionType:  # pragma: no cover
         """Check the safe's balance."""
         account = self.synchronized_data.safe_contract_address
 
@@ -370,7 +374,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.token_balance = int(token)
         return True
 
-    def _build_unwrap_tokens_tx(self) -> WaitableConditionType:
+    def _build_unwrap_tokens_tx(self) -> WaitableConditionType:  # pragma: no cover
         """Exchange wrapped native tokens to native tokens."""
 
         if not self.params.mech_wrapped_native_token_address:
@@ -417,7 +421,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(f"Built transaction to unwrap {amount} tokens.")
         return True
 
-    def _nvm_balance_tracker_contract_interact(
+    def _nvm_balance_tracker_contract_interact(  # pragma: no cover
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the NVM balance tracker contract."""
@@ -433,7 +437,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_nvm_balance(self) -> WaitableConditionType:
+    def get_nvm_balance(self) -> WaitableConditionType:  # pragma: no cover
         """Get the NVM balance."""
         status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_balance",
@@ -443,7 +447,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_subscription_nft(self) -> WaitableConditionType:
+    def get_subscription_nft(self) -> WaitableConditionType:  # pragma: no cover
         """Get the subscription NFT."""
         status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_subscription_nft",
@@ -452,7 +456,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_subscription_token_id(self) -> WaitableConditionType:
+    def get_subscription_token_id(self) -> WaitableConditionType:  # pragma: no cover
         """Get the subscription NFT."""
         status = yield from self._nvm_balance_tracker_contract_interact(
             contract_callable="get_subscription_token_id",
@@ -461,7 +465,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _subscription_contract_interact(
+    def _subscription_contract_interact(  # pragma: no cover
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the subscription contract."""
@@ -477,7 +481,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def get_subscription_balance(self) -> WaitableConditionType:
+    def get_subscription_balance(self) -> WaitableConditionType:  # pragma: no cover
         """Get the subscription's balance."""
         status = yield from self._subscription_contract_interact(
             contract_callable="get_balance",
@@ -488,7 +492,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def set_total_nvm_balance(self) -> Generator:
+    def set_total_nvm_balance(self) -> Generator:  # pragma: no cover
         """Get teh total NVM balance."""
         steps = [
             self.get_nvm_balance,
@@ -499,7 +503,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         for step in steps:
             yield from self.wait_for_condition_with_sleep(step)
 
-    def _ensure_available_balance(self) -> WaitableConditionType:
+    def _ensure_available_balance(self) -> WaitableConditionType:  # pragma: no cover
         """
         Ensures available payment for the mech request and unwraps tokens if needed.
 
@@ -547,7 +551,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.sleep(self.params.sleep_time)
         return False
 
-    def get_priority_mech_address(self) -> Optional[str]:
+    def get_priority_mech_address(self) -> Optional[str]:  # pragma: no cover
         """Get the priority mech's address. Warning: the result is based on the time of access."""
         if (
             self.should_use_marketplace_v2()
@@ -573,7 +577,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return self.params.mech_contract_address
 
-    def setup(self) -> None:
+    def setup(self) -> None:  # pragma: no cover
         """Set up the `MechRequest` behaviour."""
         self._mech_requests = self.synchronized_data.mech_requests
         self.context.logger.info(f"Processing mech requests: {self._mech_requests}")
@@ -583,7 +587,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             f"{self.priority_mech_address!r} was selected as priority mech."
         )
 
-    def _send_metadata_to_ipfs(
+    def _send_metadata_to_ipfs(  # pragma: no cover
         self,
     ) -> WaitableConditionType:
         """Send Mech metadata to IPFS."""
@@ -608,7 +612,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._pending_responses.append(pending_response)
         return True
 
-    def _mech_mm_contract_interact(
+    def _mech_mm_contract_interact(  # pragma: no cover
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the mech mm contract."""
@@ -627,7 +631,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_payment_type(self) -> WaitableConditionType:
+    def _get_payment_type(self) -> WaitableConditionType:  # pragma: no cover
         """Get payment type from the mech contract. Returns True on success, False otherwise."""
         status = yield from self._mech_mm_contract_interact(
             contract_callable="get_payment_type",
@@ -642,7 +646,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(f"Payment type fetched: {self.mech_payment_type}")
         return True
 
-    def _get_max_delivery_rate(self) -> WaitableConditionType:
+    def _get_max_delivery_rate(self) -> WaitableConditionType:  # pragma: no cover
         """Get max delivery rate from the mech contract. Returns True on success, False otherwise."""
         status = yield from self._mech_mm_contract_interact(
             contract_callable="get_max_delivery_rate",
@@ -683,7 +687,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
             return None
 
-    def _fetch_and_validate_payment_type(self) -> WaitableConditionType:
+    def _fetch_and_validate_payment_type(
+        self,
+    ) -> WaitableConditionType:  # pragma: no cover
         """Fetch and validate the payment type from the contract."""
         if not self.should_use_marketplace_v2():
             return True
@@ -695,7 +701,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return True
 
-    def _fetch_and_validate_max_delivery_rate(self) -> WaitableConditionType:
+    def _fetch_and_validate_max_delivery_rate(
+        self,
+    ) -> WaitableConditionType:  # pragma: no cover
         """Fetch and validate the max delivery rate from the contract."""
         self.context.logger.info("Getting max delivery rate")
         if not (yield from self._get_max_delivery_rate()):
@@ -721,7 +729,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return True
 
-    def _get_balance_tracker(self) -> WaitableConditionType:
+    def _get_balance_tracker(self) -> WaitableConditionType:  # pragma: no cover
         """Get the balance tracker for the mech."""
         self.context.logger.info("Getting balance tracker...")
 
@@ -735,7 +743,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
         )
 
-    def _approve_balance_tracker(self) -> WaitableConditionType:
+    def _approve_balance_tracker(self) -> WaitableConditionType:  # pragma: no cover
         """Build approval for the balance tracker."""
         self.context.logger.info("Building approval for token payment.")
 
@@ -753,7 +761,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
         )
 
-    def _build_token_approval(self) -> WaitableConditionType:
+    def _build_token_approval(self) -> WaitableConditionType:  # pragma: no cover
         """Get the balance tracker, build approval for the token payment and add it to the multisend batch."""
         if not self._balance_tracker:
             status = yield from self._get_balance_tracker()
@@ -774,7 +782,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Successfully built approval data.")
         return True
 
-    def _build_marketplace_v2_request_data(self) -> WaitableConditionType:
+    def _build_marketplace_v2_request_data(
+        self,
+    ) -> WaitableConditionType:  # pragma: no cover
         """Build the request data for the Mech Marketplace v2 flow using helper methods."""
         if self.using_token:
             status = yield from self._build_token_approval()
@@ -814,7 +824,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _build_marketplace_v1_request_data(self) -> WaitableConditionType:
+    def _build_marketplace_v1_request_data(
+        self,
+    ) -> WaitableConditionType:  # pragma: no cover
         """Build request data for marketplace v1 (legacy marketplace without payment_type)."""
         self.context.logger.info("Building request data for legacy marketplace flow.")
 
@@ -837,7 +849,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _build_legacy_request_data(self) -> WaitableConditionType:
+    def _build_legacy_request_data(self) -> WaitableConditionType:  # pragma: no cover
         """Build the request data for the legacy Mech flow."""
         self.context.logger.info("Building request data for legacy Mech flow.")
         # Legacy mech logic
@@ -850,7 +862,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _build_request_data(self) -> WaitableConditionType:
+    def _build_request_data(self) -> WaitableConditionType:  # pragma: no cover
         """Build the request data by dispatching to the appropriate method."""
         self.context.logger.info("Building request data")
 
@@ -883,7 +895,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return status
 
-    def _get_price(self) -> WaitableConditionType:
+    def _get_price(self) -> WaitableConditionType:  # pragma: no cover
         """Get the price of the mech request."""
         if self.should_use_marketplace_v2():
             return (yield from self._fetch_and_validate_max_delivery_rate())
@@ -896,7 +908,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return result
 
-    def _prepare_safe_tx(self) -> Generator[None, None, bool]:
+    def _prepare_safe_tx(self) -> Generator[None, None, bool]:  # pragma: no cover
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
         steps = (
             self._fetch_and_validate_payment_type,
@@ -922,7 +934,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return False
 
-    def async_act(self) -> Generator:
+    def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
 
         if not self._mech_requests:

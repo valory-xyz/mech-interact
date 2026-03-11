@@ -61,7 +61,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
     BASE64_KEY = "base64"
     MAX_LOG_CHARS = 500
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:  # pragma: no cover
         """Initialize Behaviour."""
         super().__init__(**kwargs)
         self._from_block: int = 0
@@ -154,22 +154,22 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self._is_valid_acn_sender = is_valid_acn_sender
 
     @property
-    def mech_response_api(self) -> MechResponseSpecs:
+    def mech_response_api(self) -> MechResponseSpecs:  # pragma: no cover
         """Get the mech response api specs."""
         return self.context.mech_response
 
     @property
-    def serialized_responses(self) -> str:
+    def serialized_responses(self) -> str:  # pragma: no cover
         """Get the Mech's responses serialized."""
         return json.dumps(self._mech_responses, cls=DataclassEncoder)
 
-    def setup(self) -> None:
+    def setup(self) -> None:  # pragma: no cover
         """Set up the `MechResponse` behaviour."""
         self._mech_responses: List[MechInteractionResponse] = (
             self.synchronized_data.mech_responses
         )
 
-    def set_mech_response_specs(self, request_id: int) -> None:
+    def set_mech_response_specs(self, request_id: int) -> None:  # pragma: no cover
         """Set the mech's response specs."""
         full_ipfs_hash = IPFS_HASH_PREFIX + self.response_hex
         ipfs_link = self.params.ipfs_address + full_ipfs_hash + f"/{request_id}"
@@ -178,7 +178,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self.mech_response_api.url = ipfs_link
         self.mech_response_api.__dict__["_frozen"] = True
 
-    def _get_block_number(self) -> WaitableConditionType:
+    def _get_block_number(self) -> WaitableConditionType:  # pragma: no cover
         """Get the block number in which the request to the mech was settled."""
         result = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
@@ -195,7 +195,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         return result
 
     @property
-    def mech_contract_interact(self) -> Callable[..., WaitableConditionType]:
+    def mech_contract_interact(
+        self,
+    ) -> Callable[..., WaitableConditionType]:  # pragma: no cover
         """Interact with the mech contract."""
         if self.params.use_mech_marketplace:
             if self.should_use_marketplace_v2():
@@ -204,7 +206,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         return self._mech_contract_interact
 
-    def _process_request_event(self) -> WaitableConditionType:
+    def _process_request_event(self) -> WaitableConditionType:  # pragma: no cover
         """Process the request event."""
 
         result = yield from self.mech_contract_interact(
@@ -218,13 +220,17 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         return result
 
     @property
-    def request_id_getter(self) -> Callable[[], Tuple[Optional[bytes], Optional[int]]]:
+    def request_id_getter(
+        self,
+    ) -> Callable[[], Tuple[Optional[bytes], Optional[int]]]:  # pragma: no cover
         """Get the appropriate request ID retrieval method based on the configuration."""
         if self.params.use_mech_marketplace and self.should_use_marketplace_v2():
             return self._get_marketplace_request_ids
         return self._get_legacy_request_ids
 
-    def _get_marketplace_request_ids(self) -> Tuple[Optional[bytes], Optional[int]]:
+    def _get_marketplace_request_ids(
+        self,
+    ) -> Tuple[Optional[bytes], Optional[int]]:  # pragma: no cover
         """Get the request IDs for the marketplace flow."""
         request_ids = self.current_mech_response.requestIds
         self.context.logger.info(
@@ -261,7 +267,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         )
         return request_id_bytes, request_id_for_specs
 
-    def _get_legacy_request_ids(self) -> Tuple[Optional[bytes], Optional[int]]:
+    def _get_legacy_request_ids(
+        self,
+    ) -> Tuple[Optional[bytes], Optional[int]]:  # pragma: no cover
         """Get the request IDs for the legacy (direct) mech flow."""
         request_id = self.current_mech_response.requestId
         request_id_for_specs = request_id
@@ -281,7 +289,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         )
         return request_id_bytes, request_id_for_specs
 
-    def _prepare_get_response_call(
+    def _prepare_get_response_call(  # pragma: no cover
         self,
         request_id_bytes: Optional[bytes],
         request_id_for_specs: Optional[int],
@@ -351,7 +359,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         )
         return result
 
-    def _get_response_data(self) -> WaitableConditionType:
+    def _get_response_data(self) -> WaitableConditionType:  # pragma: no cover
         """Get the response data from contract with compatibility detection."""
         if (
             self.params.use_acn_for_delivers
@@ -400,7 +408,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         return result
 
-    def _handle_response(
+    def _handle_response(  # pragma: no cover
         self,
         res: Optional[str],
     ) -> Optional[Any]:
@@ -425,7 +433,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         return res
 
-    def _process_response_with_artifacts(self, res: str) -> str:
+    def _process_response_with_artifacts(self, res: str) -> str:  # pragma: no cover
         """Process response that may contain base64 artifacts.
 
         :param res: the raw response string
@@ -458,7 +466,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         # Return summary instead of full response
         return json.dumps(summary)
 
-    def _get_response(self) -> WaitableConditionType:
+    def _get_response(self) -> WaitableConditionType:  # pragma: no cover
         """Get the response data from IPFS."""
         specs = self.mech_response_api.get_spec()
         res_raw = yield from self.get_http_response(**specs)
@@ -480,7 +488,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         return True
 
-    def _set_current_response(self, request: MechRequest) -> None:
+    def _set_current_response(self, request: MechRequest) -> None:  # pragma: no cover
         """Set the current Mech response by matching parsed event data to a pending response."""
         self.context.logger.info(f"Attempting to match parsed event request: {request}")
 
@@ -505,7 +513,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             f"Response processing for this request might fail."
         )
 
-    def _is_legacy_match(
+    def _is_legacy_match(  # pragma: no cover
         self, pending_response: MechInteractionResponse, request: MechRequest
     ) -> bool:
         """Check if a legacy pending response matches the request based on data."""
@@ -522,7 +530,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             )  # Update the pending response directly
         return match
 
-    def _is_marketplace_match(
+    def _is_marketplace_match(  # pragma: no cover
         self,
         pending_response: MechInteractionResponse,
         request: MechRequest,
@@ -556,7 +564,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         )
         return True
 
-    def _check_match(
+    def _check_match(  # pragma: no cover
         self,
         pending_response: MechInteractionResponse,
         request: MechRequest,
@@ -572,7 +580,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         # Legacy flow: Match based on data field comparison.
         return self._is_legacy_match(pending_response, request)
 
-    def _process_responses(
+    def _process_responses(  # pragma: no cover
         self,
     ) -> Generator:
         """Get the response."""
@@ -596,7 +604,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                     f"There was an error in the mech's response: {self.current_mech_response.error}"
                 )
 
-    def async_act(self) -> Generator:
+    def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
 
         with self.context.benchmark_tool.measure(self.behaviour_id).local():

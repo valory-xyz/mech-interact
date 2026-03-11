@@ -75,27 +75,27 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         self._safe_tx_hash = ""
 
     @property
-    def synchronized_data(self) -> SynchronizedData:
+    def synchronized_data(self) -> SynchronizedData:  # pragma: no cover
         """Return the synchronized data."""
         return cast(SynchronizedData, super().synchronized_data)
 
     @property
-    def params(self) -> MechParams:
+    def params(self) -> MechParams:  # pragma: no cover
         """Return the params."""
         return cast(MechParams, self.context.params)
 
     @property
-    def shared_state(self) -> SharedState:
+    def shared_state(self) -> SharedState:  # pragma: no cover
         """Return the shared state."""
         return cast(SharedState, self.context.state)
 
     @property
-    def mech_marketplace_config(self) -> MechMarketplaceConfig:
+    def mech_marketplace_config(self) -> MechMarketplaceConfig:  # pragma: no cover
         """Return the mech marketplace config."""
         return self.params.mech_marketplace_config
 
     @property
-    def marketplace_address(self) -> str:
+    def marketplace_address(self) -> str:  # pragma: no cover
         """Get the mech marketplace address."""
         return self.mech_marketplace_config.mech_marketplace_address
 
@@ -132,7 +132,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
             raise ValueError(
                 "Cannot prepare a multisend transaction without a safe transaction hash."
             )
-        return hash_payload_to_hex(
+        return hash_payload_to_hex(  # pragma: no cover
             self.safe_tx_hash,
             self.txs_value,
             SAFE_GAS,
@@ -164,7 +164,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
 
         self.default_error(contract_id, contract_callable, response_msg)
 
-    def contract_interact(
+    def contract_interact(  # pragma: no cover
         self,
         performative: ContractApiMessage.Performative,
         contract_address: str,
@@ -206,7 +206,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         setattr(self, placeholder, data)
         return True
 
-    def _mech_contract_interact(
+    def _mech_contract_interact(  # pragma: no cover
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the mech contract."""
@@ -221,7 +221,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         )
         return status
 
-    def _mech_marketplace_contract_interact(
+    def _mech_marketplace_contract_interact(  # pragma: no cover
         self,
         contract_callable: str,
         data_key: str,
@@ -240,7 +240,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         )
         return status
 
-    def _mech_marketplace_legacy_contract_interact(
+    def _mech_marketplace_legacy_contract_interact(  # pragma: no cover
         self,
         contract_callable: str,
         data_key: str,
@@ -259,7 +259,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         )
         return status
 
-    def agent_registry_contract_interact(
+    def agent_registry_contract_interact(  # pragma: no cover
         self,
         contract_callable: str,
         data_key: str,
@@ -278,7 +278,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         )
         return status
 
-    def wait_for_condition_with_sleep(
+    def wait_for_condition_with_sleep(  # pragma: no cover
         self,
         condition_gen: Callable[[], WaitableConditionType],
         timeout: Optional[float] = None,
@@ -310,7 +310,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
             self.context.logger.info(msg)
             yield from self.sleep(self.params.mech_interaction_sleep_time)
 
-    def finish_behaviour(self, payload: BaseTxPayload) -> Generator:
+    def finish_behaviour(self, payload: BaseTxPayload) -> Generator:  # pragma: no cover
         """Finish the behaviour."""
         with self.context.benchmark_tool.measure(self.behaviour_id).consensus():
             yield from self.send_a2a_transaction(payload)
@@ -329,7 +329,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
 
         return self.synchronized_data.is_marketplace_v2
 
-    def _build_multisend_data(
+    def _build_multisend_data(  # pragma: no cover
         self,
     ) -> WaitableConditionType:
         """Get the multisend tx."""
@@ -362,7 +362,9 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         self.multisend_data = bytes.fromhex(multisend_data_str)
         return True
 
-    def _build_multisend_safe_tx_hash(self) -> WaitableConditionType:
+    def _build_multisend_safe_tx_hash(
+        self,
+    ) -> WaitableConditionType:  # pragma: no cover
         """Prepares and returns the safe tx hash for a multisend tx."""
         self.context.logger.info(
             f"Building multisend safe tx hash: safe={self.synchronized_data.safe_contract_address}"

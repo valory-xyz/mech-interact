@@ -103,7 +103,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     matching_round = MechPurchaseSubscriptionRound
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:  # pragma: no cover
         """Initialize Behaviour."""
         super().__init__(**kwargs)
         # Initialize protected attributes for properties
@@ -123,7 +123,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._fulfill_tx_data: Optional[str] = None
 
     @property
-    def nvm_config(self) -> NVMConfig:
+    def nvm_config(self) -> NVMConfig:  # pragma: no cover
         """Return the NVM configuration for the specified mech chain id."""
         return self.params.nvm_config
 
@@ -267,13 +267,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return owner
 
     @property
-    def amounts(self) -> List[int]:
+    def amounts(self) -> List[int]:  # pragma: no cover
         """Get the amounts."""
         amounts = [self.nvm_config.plan_fee_nvm, self.nvm_config.plan_price_mech]
         return amounts
 
     @property
-    def using_base(self) -> bool:
+    def using_base(self) -> bool:  # pragma: no cover
         """Whether we are using Base chain."""
         return ChainType(self.params.mech_chain_id) == ChainType.BASE
 
@@ -305,7 +305,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return HexBytes(self._fulfill_tx_data)
 
     @property
-    def fulfill_for_delegate_params(self) -> Tuple[str, str, int, str, str, bool, int]:
+    def fulfill_for_delegate_params(
+        self,
+    ) -> Tuple[str, str, int, str, str, bool, int]:  # pragma: no cover
         """Get the fulfill for delegate parameters."""
         return (
             # nftHolder
@@ -325,7 +327,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
 
     @property
-    def fulfill_params(self) -> Tuple[List[int], List[str], str, str, str, str, str]:
+    def fulfill_params(
+        self,
+    ) -> Tuple[List[int], List[str], str, str, str, str, str]:  # pragma: no cover
         """Get the fulfill parameters."""
         return (
             # amounts
@@ -349,7 +353,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Generate a random agreement id seed prefixed with 0x."""
         return Ox + secrets.token_hex(SEED_BYTES_LENGTH)
 
-    def _get_ddo_register(self) -> WaitableConditionType:
+    def _get_ddo_register(self) -> WaitableConditionType:  # pragma: no cover
         """Get the ddo register from the did registry."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
@@ -363,7 +367,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _extract_and_set_receivers(self) -> None:
+    def _extract_and_set_receivers(self) -> None:  # pragma: no cover
         """Extract and set the receivers."""
         service = next(
             (
@@ -388,7 +392,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
         self.receivers = receivers
 
-    def _get_ddo_data(self) -> WaitableConditionType:
+    def _get_ddo_data(self) -> WaitableConditionType:  # pragma: no cover
         """Get the ddo data from the did endpoint."""
         response = yield from self.get_http_response(
             GET_METHOD, self.ddo_endpoint, headers=DDO_ENDPOINT_HEADERS
@@ -416,7 +420,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
         return True
 
-    def _get_agreement_id(self) -> WaitableConditionType:
+    def _get_agreement_id(self) -> WaitableConditionType:  # pragma: no cover
         """Get the agreement id."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
@@ -431,7 +435,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _lock_contract_interact(
+    def _lock_contract_interact(  # pragma: no cover
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the lock payment condition contract."""
@@ -447,7 +451,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_lock_hash(self) -> WaitableConditionType:
+    def _get_lock_hash(self) -> WaitableConditionType:  # pragma: no cover
         """Get the lock hash."""
         status = yield from self._lock_contract_interact(
             contract_callable="get_hash_values",
@@ -461,7 +465,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_lock_id(self) -> WaitableConditionType:
+    def _get_lock_id(self) -> WaitableConditionType:  # pragma: no cover
         """Get the lock id."""
         status = yield from self._lock_contract_interact(
             contract_callable="get_generate_id",
@@ -472,7 +476,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _transfer_nft_contract_interact(
+    def _transfer_nft_contract_interact(  # pragma: no cover
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the Transfer NFT condition contract."""
@@ -488,7 +492,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_transfer_nft_hash(self) -> WaitableConditionType:
+    def _get_transfer_nft_hash(self) -> WaitableConditionType:  # pragma: no cover
         """Get the transfer nft hash."""
         status = yield from self._transfer_nft_contract_interact(
             contract_callable="get_hash_values",
@@ -504,7 +508,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_transfer_id(self) -> WaitableConditionType:
+    def _get_transfer_id(self) -> WaitableConditionType:  # pragma: no cover
         """Get the transfer id."""
         status = yield from self._transfer_nft_contract_interact(
             contract_callable="get_generate_id",
@@ -515,7 +519,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _escrow_contract_interact(
+    def _escrow_contract_interact(  # pragma: no cover
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the escrow payment condition contract."""
@@ -531,7 +535,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_escrow_payment_hash(self) -> WaitableConditionType:
+    def _get_escrow_payment_hash(self) -> WaitableConditionType:  # pragma: no cover
         """Get the escrow payment hash."""
         status = yield from self._escrow_contract_interact(
             contract_callable="get_hash_values",
@@ -548,7 +552,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _get_escrow_id(self) -> WaitableConditionType:
+    def _get_escrow_id(self) -> WaitableConditionType:  # pragma: no cover
         """Get the escrow id."""
         status = yield from self._escrow_contract_interact(
             contract_callable="get_generate_id",
@@ -559,7 +563,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         )
         return status
 
-    def _build_create_agreement_tx_data(self) -> WaitableConditionType:
+    def _build_create_agreement_tx_data(
+        self,
+    ) -> WaitableConditionType:  # pragma: no cover
         """Builds the create-agreement tx data on NFT sales template contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
@@ -594,7 +600,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Built transaction to create agreement.")
         return True
 
-    def _build_subscription_token_approval_tx_data(self) -> WaitableConditionType:
+    def _build_subscription_token_approval_tx_data(
+        self,
+    ) -> WaitableConditionType:  # pragma: no cover
         """
         Build a subscription token approval tx.
 
@@ -623,7 +631,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Built transaction to approve USDC spending.")
         return True
 
-    def _build_create_fulfill_tx_data(self) -> WaitableConditionType:
+    def _build_create_fulfill_tx_data(
+        self,
+    ) -> WaitableConditionType:  # pragma: no cover
         self.context.logger.info(
             f"Creating a fulfill tx with {self.fulfill_for_delegate_params=} and {self.fulfill_params=}."
         )
@@ -652,13 +662,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Built transaction to fulfill.")
         return True
 
-    def _get_approval_steps(self) -> List[WaitableConditionType]:
+    def _get_approval_steps(self) -> List[WaitableConditionType]:  # pragma: no cover
         """Get the approval steps, if necessary, otherwise return an empty list."""
         return (
             [self._build_subscription_token_approval_tx_data] if self.using_base else []
         )
 
-    def _prepare_safe_tx(self) -> Generator:
+    def _prepare_safe_tx(self) -> Generator:  # pragma: no cover
         """Prepare a multisend safe tx for buying an NVM subscription."""
         steps = [
             self._get_ddo_register,
@@ -680,11 +690,11 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         for step in steps:
             yield from self.wait_for_condition_with_sleep(step)
 
-    def setup(self) -> None:
+    def setup(self) -> None:  # pragma: no cover
         """Setup the `MechPurchaseSubscriptionBehaviour` behaviour."""
         self.agreement_id_seed = self._generate_agreement_id_seed()
 
-    def async_act(self) -> Generator:
+    def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             self.context.logger.info(

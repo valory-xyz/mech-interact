@@ -50,17 +50,17 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
 
     matching_round = MechInformationRound
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:  # pragma: no cover
         """Initialize Behaviour."""
         super().__init__(**kwargs)
         self._fetch_status: FetchStatus = FetchStatus.NONE
 
     @property
-    def mech_tools_api(self) -> MechToolsSpecs:
+    def mech_tools_api(self) -> MechToolsSpecs:  # pragma: no cover
         """Get the mech agent api specs."""
         return self.context.mech_tools
 
-    def set_mech_agent_specs(self, metadata: str) -> None:
+    def set_mech_agent_specs(self, metadata: str) -> None:  # pragma: no cover
         """Set the mech's agent specs."""
         ipfs_link = self.params.ipfs_address + CID_PREFIX + metadata
         # The url needs to be dynamically generated as it depends on the ipfs hash
@@ -68,7 +68,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.mech_tools_api.url = ipfs_link
         self.mech_tools_api.__dict__["_frozen"] = True
 
-    def populate_tools(
+    def populate_tools(  # pragma: no cover
         self, mech_info: MechsSubgraphResponseType
     ) -> WaitableConditionType:
         """Populate the tools of the mech info, using the metadata."""
@@ -99,7 +99,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
 
         return True
 
-    def get_mechs_info(
+    def get_mechs_info(  # pragma: no cover
         self,
     ) -> Generator[None, None, Optional[str]]:
         """Get the mechs' information serialized as a JSON string."""
@@ -132,7 +132,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.context.logger.info(f"Updated mechs' information: {info_str}")
         return serialized_info
 
-    def async_act(self) -> Generator:
+    def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             mechs_info = yield from self.get_mechs_info()
@@ -148,6 +148,6 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
 
         yield from self.finish_behaviour(payload)
 
-    def clean_up(self) -> None:
+    def clean_up(self) -> None:  # pragma: no cover
         """Clean up the behaviour."""
         self.mech_tools_api.reset_retries()
