@@ -139,9 +139,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         elif isinstance(response_hash, str):
             self._response_hex = response_hash
         else:
-            msg = f"Response hash {response_hash!r} is not valid hex bytes or string!"
-            self.context.logger.error(msg)
-            self._response_hex = ""
+            raise TypeError(
+                f"Response hash {response_hash!r} is not valid hex bytes or string!"
+            )
 
     @property
     def is_valid_acn_sender(self) -> bool:
@@ -236,7 +236,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(
             f"Using Mech Marketplace. Request ids (hex): {request_ids}"
         )
-        if not request_ids or len(request_ids) == 0:
+        if not request_ids:
             self.context.logger.warning(
                 "Mech Marketplace is enabled, but no request IDs found."
             )

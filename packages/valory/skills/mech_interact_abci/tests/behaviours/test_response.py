@@ -21,6 +21,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from packages.valory.skills.mech_interact_abci.behaviours.response import (
     MechResponseBehaviour,
 )
@@ -127,11 +129,10 @@ class TestMechResponseBehaviourProperties:
         assert behaviour.response_hex == "0xabcd"
 
     def test_response_hex_setter_invalid(self) -> None:
-        """Test response_hex setter with invalid type."""
+        """Test response_hex setter with invalid type raises TypeError."""
         behaviour = _make_response_behaviour()
-        behaviour.response_hex = 12345  # type: ignore
-        assert behaviour.response_hex == ""
-        behaviour.context.logger.error.assert_called_once()
+        with pytest.raises(TypeError, match="not valid hex bytes or string"):
+            behaviour.response_hex = 12345  # type: ignore
 
     def test_is_valid_acn_sender_getter_setter(self) -> None:
         """Test is_valid_acn_sender getter and setter."""
