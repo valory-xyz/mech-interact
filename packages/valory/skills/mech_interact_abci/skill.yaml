@@ -32,9 +32,9 @@ fingerprint:
   states/base.py: bafybeiaskrqu4zpqw22grxokcmaenemoi2cw6ijfzafz6dwytedwgehziy
   states/final_states.py: bafybeiaclul6oq3wtktpwwutgnzw4qi3untxqgnc34cofsxl3ejampou6q
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
-  states/mech_version.py: bafybeidqdva7j7u2755ehho5tpy6xmxeftdswq46qrj7e2nqdkltz7sf5u
+  states/mech_version.py: bafybeifdnph64y52d2rqvvgneuabtrjv7iddu37bqvzziwjprl56yna3zu
   states/purchase_subscription.py: bafybeiaz2zpnpsww6p2z5aqxuonowiril4vxbj3twvqwe36gwmihn6uvwm
-  states/request.py: bafybeidgs72sq6gjd6gclm7bu6kh3tax3onq3rvvvi26fcsmjrkuy3432u
+  states/request.py: bafybeibczs336sb7zfdcfzqaz3wgnz2sdnaoe2qpxnzkrfgmheych2365m
   states/response.py: bafybeige4x7reiynwwzd3h6uxi3k7lfiobndmhrlvy6s3dgqjmyi2tal3i
   tests/__init__.py: bafybeiaxfprhthhmkvbh6ntfcu5q2lotazaokacgbbsw7taahfivmrqzoy
   tests/behaviours/__init__.py: bafybeidwk7ocq4hyppoo6vr64sadxoxa4yo23362ofizlkmf2ti7pdq3sq
@@ -50,7 +50,7 @@ fingerprint:
   tests/test_dialogues.py: bafybeihdwligor2vsh3itoa5fmvc7j3jc6dcdi3etohf3bs2skvrqawoae
   tests/test_graph_tooling.py: bafybeihvo2pidfpnejmf2qklp62m62qnbsn7ukumiwvxnodsjnlvgufuri
   tests/test_handlers.py: bafybeidlq2axtx4yzylchketoozwjtcjk7afvdrmaua2kwq4byweernsea
-  tests/test_models.py: bafybeig2miru6ua7phj2ufdpjv2j4hggepbsb63crgifya7nufu5tmkvtm
+  tests/test_models.py: bafybeigg3of4oanaa5njy5nbjfzgurmdzae6fd7li7oypkj6jblhx3uw5m
   tests/test_payloads.py: bafybeiakvwpq2n6yyueu4kigopmeqnvdmaxanhpr46oahiykolnw5ignsq
   tests/test_rounds.py: bafybeib2z35le44fqgu4dwwf5wl5zrsfb5xyby6mahfi5udgvxbcqwnaxm
   tests/test_utils.py: bafybeibpvhaqaq7cmehkdgy3vszmnljp3aacq4vcm7q4ajokcrm53uzx3q
@@ -62,7 +62,7 @@ contracts:
 - valory/mech:0.1.0:bafybeibghe6rlswzgnhe6pfw2mf47f7gdwosyguutvdjhigyluy7ey3j5y
 - valory/mech_mm:0.1.0:bafybeifjijtixjzzob4tno4rt2jtqvscv6nyrx72eitiajsdn3hxj3tfua
 - valory/multisend:0.1.0:bafybeiaf3hapi3prgpjeugwhq64k7lqelo6kibhol5rkajt7id3knomp5q
-- valory/erc20:0.1.0:bafybeifjxcdboskdfpzvbpqyyi42wglrfomhd22nbid5uy2h3bghywm76m
+- valory/erc20:0.1.0:bafybeiarjzqvrx65kvfjte2wedlqvmkli7ll5hr4o3kwuc3c6zbeewwcyu
 - valory/agent_mech:0.1.0:bafybeig5wont3wn5kc6bpwapg7ngswmqzdwdfreoi7qbo2xqil3k6p4vpm
 - valory/mech_marketplace_legacy:0.1.0:bafybeidq6zaeafgg3azwpcpy6ahf32ffvt7haijua3c4rdjdb4srr3dvpu
 - valory/agent_registry:0.1.0:bafybeiera7snkcp4p356vcicc33zmphajj54ajxlb5kmhphfx7bb7qttxa

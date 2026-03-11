@@ -50,7 +50,7 @@ class TestNVMConfig:
 
     def _make_config(self, **overrides: object) -> NVMConfig:
         """Create an NVMConfig with sensible defaults."""
-        defaults = dict(
+        defaults = dict(  # nosec B106
             balance_tracker_address="0xabc",
             did_registry_address="0xdef",
             agreement_store_manager_address="0x123",
