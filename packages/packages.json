@@ -1,8 +1,8 @@
 {
     "dev": {
-        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeihienamp7ex53drhe7ler7htcaxatpatajk3isamhdy7mwtpx3eca",
-        "contract/valory/mech/0.1.0": "bafybeian74rifshzpwst2nupoud4vg26pixsluifbxzowe3h7awh3gscxa",
-        "contract/valory/mech_mm/0.1.0": "bafybeignd7oxu6232zbgfcekrz6mjfuogvsguvyv4qql2bhmgjddpfugmi",
+        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeidq6zaeafgg3azwpcpy6ahf32ffvt7haijua3c4rdjdb4srr3dvpu",
+        "contract/valory/mech/0.1.0": "bafybeibghe6rlswzgnhe6pfw2mf47f7gdwosyguutvdjhigyluy7ey3j5y",
+        "contract/valory/mech_mm/0.1.0": "bafybeifjijtixjzzob4tno4rt2jtqvscv6nyrx72eitiajsdn3hxj3tfua",
         "contract/valory/ierc1155/0.1.0": "bafybeicculy2cfhvcrz3n5j6zadkro7ylbvitetlda3pkufkcf65cs2uty",
         "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeibte5igiqmq77ddx4mojqyvma4wuutqru3d7rrbopm6tkdp737iyq",
         "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeifcpdhuq7pgt2ok544q7tlqw3sitrh3yspmfog7ofhernnouwebfe",
@@ -13,7 +13,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeihhrzm4rpfq54376hs5zft5g4mvqtv5hzzl67lpw7pgg3ja5dtmsu",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeif37we6t5hes72m2txc2upssmhynefhavkuvcqjkmvybqclophnnm",
         "contract/valory/subscription_provider/0.1.0": "bafybeiciopqd3vrqbmoq26ndnde5txdklpwyqioevfp2nu2mrdyjrjrfje",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeiduf3h73xhv4q5vbdn6ek2tyal3haym5of4mq2ucm2zhqbclr35le"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeig5unsmxaswnee2n7onrh4ik2bpfhwth22rskszdc72bfajgiauqy"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i",
@@ -29,9 +29,9 @@
         "contract/valory/service_registry/0.1.0": "bafybeifc4gpaz6vlpgvghsm64tkbukt744rpeoqpxijglxrv46gb7sbda4",
         "contract/valory/gnosis_safe/0.1.0": "bafybeico3uzjdwumf2jg2e627ut4rwzwmedjavenw6e2hshi2m6yw642bq",
         "contract/valory/multisend/0.1.0": "bafybeiaf3hapi3prgpjeugwhq64k7lqelo6kibhol5rkajt7id3knomp5q",
-        "contract/valory/agent_mech/0.1.0": "bafybeielgw42wh6sucnquowlqqf3dbvzd7gj4r6vfn322t3i5pkxbbrwz4",
+        "contract/valory/agent_mech/0.1.0": "bafybeig5wont3wn5kc6bpwapg7ngswmqzdwdfreoi7qbo2xqil3k6p4vpm",
         "contract/valory/agent_registry/0.1.0": "bafybeiera7snkcp4p356vcicc33zmphajj54ajxlb5kmhphfx7bb7qttxa",
-        "contract/valory/erc20/0.1.0": "bafybeif37n2xmh6xkn3vzybty7q37fq4f5rsey5ep33vvobh2yofeao5ae",
+        "contract/valory/erc20/0.1.0": "bafybeifjxcdboskdfpzvbpqyyi42wglrfomhd22nbid5uy2h3bghywm76m",
         "connection/valory/http_client/0.23.0": "bafybeihel6sg2yayxu7lqygaswdgciaxpqrgsbl5rwx74c6znu5qz2edd4",
         "connection/valory/ledger/0.19.0": "bafybeid5uwx4uqxkiibw6kazr7my5mk5kcqg2dx2owtcf7kcpbs2jrns2e",
         "connection/valory/p2p_libp2p_client/0.1.0": "bafybeielj3jso3wvrarp5n5rq7llpw4vgxybqiyensgjalb5ubfiawwhhu",
