@@ -117,7 +117,7 @@ class AcnDialogues(Model, BaseAcnDataShareDialogues):
 
         def role_from_first_message(  # pylint: disable=unused-argument
             message: Message, receiver_address: Address
-        ) -> BaseDialogue.Role:
+        ) -> BaseDialogue.Role:  # pragma: no cover
             """Infer the role of the agent from an incoming/outgoing first message
 
             :param message: an incoming/outgoing first message

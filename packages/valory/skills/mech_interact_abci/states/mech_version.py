@@ -49,7 +49,7 @@ class MechVersionDetectionRound(VotingRound):
         """Process the end of the block."""
         res = super().end_block()
         if res is None:
-            return None
+            return None  # pragma: no cover
 
         synced_data, event = cast(Tuple[SynchronizedData, Enum], res)
 
