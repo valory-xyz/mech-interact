@@ -30,44 +30,33 @@ from packages.valory.skills.mech_interact_abci.graph_tooling.requests import (
 class TestToContent:
     """Tests for the to_content function."""
 
-    def test_basic_query(self) -> None:
-        """Test converting a basic query string to content bytes."""
-        query = "{ mechs { id } }"
-        result = to_content(query)
-        assert isinstance(result, bytes)
+    def test_wraps_query_in_json(self) -> None:
+        """Test converting a query string to JSON-encoded bytes."""
+        result = to_content("{ mechs { id } }")
         parsed = json.loads(result)
         assert parsed == {"query": "{ mechs { id } }"}
 
     def test_empty_query(self) -> None:
         """Test converting an empty query string."""
-        result = to_content("")
-        parsed = json.loads(result)
+        parsed = json.loads(to_content(""))
         assert parsed == {"query": ""}
 
-    def test_sorted_keys(self) -> None:
-        """Test that the JSON output has sorted keys."""
-        result = to_content("test")
-        decoded = result.decode("utf-8")
-        assert '"query"' in decoded
-
-    def test_utf8_encoding(self) -> None:
-        """Test that the result is UTF-8 encoded."""
+    def test_returns_utf8_bytes(self) -> None:
+        """Test that the result is valid UTF-8 bytes."""
         query = '{ mechs(where: {name: "test"}) { id } }'
         result = to_content(query)
-        assert result.decode("utf-8")  # Should not raise
+        assert isinstance(result, bytes)
+        result.decode("utf-8")  # should not raise
 
 
 class TestFetchStatus:
     """Tests for the FetchStatus enum."""
 
-    def test_all_statuses(self) -> None:
-        """Test that all expected statuses exist."""
-        assert FetchStatus.SUCCESS is not None
-        assert FetchStatus.IN_PROGRESS is not None
-        assert FetchStatus.FAIL is not None
-        assert FetchStatus.NONE is not None
+    def test_has_exactly_four_members(self) -> None:
+        """Test that FetchStatus has exactly 4 unique members."""
+        assert len(FetchStatus) == 4
 
-    def test_enum_values_are_unique(self) -> None:
+    def test_values_are_unique(self) -> None:
         """Test that enum values are unique."""
         values = [s.value for s in FetchStatus]
         assert len(values) == len(set(values))

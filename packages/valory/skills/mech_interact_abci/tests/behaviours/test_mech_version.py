@@ -21,6 +21,8 @@
 
 import logging
 
+import pytest
+
 from packages.valory.skills.mech_interact_abci.behaviours.mech_version import (
     V1,
     V2,
@@ -32,18 +34,13 @@ from packages.valory.skills.mech_interact_abci.behaviours.mech_version import (
 class TestSuppressLogs:
     """Tests for the suppress_logs context manager."""
 
-    def test_suppresses_logs(self) -> None:
-        """Test that logs are suppressed inside the context."""
-        logging.getLogger("test_suppress")
+    def test_suppresses_at_critical_level(self) -> None:
+        """Test that logs are suppressed at CRITICAL level inside the context."""
         with suppress_logs():
-            # Inside the context, logging should be disabled at CRITICAL level
             assert logging.root.manager.disable >= logging.CRITICAL
 
-        # After the context, logging should be restored
-        assert logging.root.manager.disable < logging.CRITICAL
-
     def test_restores_previous_level(self) -> None:
-        """Test that the previous logging level is restored."""
+        """Test that the previous logging level is restored after exit."""
         previous = logging.root.manager.disable
         with suppress_logs():
             pass
@@ -52,11 +49,9 @@ class TestSuppressLogs:
     def test_restores_on_exception(self) -> None:
         """Test that logging is restored even if an exception occurs."""
         previous = logging.root.manager.disable
-        try:
+        with pytest.raises(ValueError):
             with suppress_logs():
                 raise ValueError("test error")
-        except ValueError:
-            pass
         assert logging.root.manager.disable == previous
 
     def test_custom_level(self) -> None:
@@ -68,10 +63,10 @@ class TestSuppressLogs:
 class TestGetVersionName:
     """Tests for the get_version_name function."""
 
-    def test_v2_true(self) -> None:
-        """Test that True returns V2."""
-        assert get_version_name(True) == V2
-
-    def test_v1_false(self) -> None:
-        """Test that False returns V1."""
-        assert get_version_name(False) == V1
+    @pytest.mark.parametrize(
+        "is_v2,expected",
+        [(True, V2), (False, V1)],
+    )
+    def test_returns_correct_version(self, is_v2, expected) -> None:
+        """Test get_version_name maps booleans to version strings."""
+        assert get_version_name(is_v2) == expected
