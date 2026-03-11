@@ -19,15 +19,24 @@
 
 """This package contains tests for the base module of the states."""
 
+import json
 import time
 from typing import Any, Dict, List
 
 import pytest
 
+from packages.valory.skills.abstract_round_abci.base import AbciAppDB
 from packages.valory.skills.mech_interact_abci.states.base import (
+    COLD_START_LIVENESS,
+    Event,
     HALF_LIFE_SECONDS,
     MechInfo,
+    MechInfoEncoder,
+    MechInteractionResponse,
+    MechMetadata,
+    MechRequest,
     Service,
+    SynchronizedData,
 )
 
 TWO_MIN_IN_SEC = 2 * 60
@@ -475,3 +484,664 @@ class TestMechInfo:
         assert [i.id for i in instances] == [
             i.id for i in sorted(instances, reverse=True)
         ]
+
+    def test_init_with_snake_case_fields(self) -> None:
+        """Test init when snake_case fields are provided directly (non-zero)."""
+        instance = MechInfo(
+            id="mech_snake",
+            address="0x1",
+            service=Service(
+                metadata=[{"metadata": "metadata"}],
+                deliveries=[{"blockTimestamp": 100}],
+            ),
+            karma=5,
+            received_requests=10,
+            self_delivered=8,
+            max_delivery_rate=100,
+        )
+        assert instance.received_requests == 10
+        assert instance.self_delivered == 8
+        assert instance.max_delivery_rate == 100
+
+    def test_init_with_list_relevant_tools(self) -> None:
+        """Test init when relevant_tools is a list."""
+        instance = MechInfo(
+            id="mech_tools",
+            address="0x1",
+            service=Service(metadata=[{"metadata": "m"}], deliveries=[]),
+            karma=1,
+            receivedRequests=1,
+            selfDeliveredFromReceived=1,
+            maxDeliveryRate=1,
+            relevant_tools=["tool1", "tool2"],
+        )
+        assert instance.relevant_tools == {"tool1", "tool2"}
+
+    def test_init_invalid_karma(self) -> None:
+        """Test init raises ValueError for invalid karma."""
+        with pytest.raises(ValueError, match="non-int"):
+            MechInfo(
+                id="bad",
+                address="0x1",
+                service=Service(metadata=[], deliveries=[]),
+                karma="not_a_number",
+                receivedRequests="1",
+                selfDeliveredFromReceived="1",
+                maxDeliveryRate="1",
+            )
+
+    def test_init_invalid_received_requests(self) -> None:
+        """Test init raises ValueError for invalid receivedRequests."""
+        with pytest.raises(ValueError, match="non-int"):
+            MechInfo(
+                id="bad",
+                address="0x1",
+                service=Service(metadata=[], deliveries=[]),
+                karma="1",
+                receivedRequests="invalid",
+                selfDeliveredFromReceived="1",
+                maxDeliveryRate="1",
+            )
+
+    def test_empty_metadata(self) -> None:
+        """Test empty_metadata property."""
+        instance = MechInfo(
+            id="empty",
+            address="0x1",
+            service=Service(metadata=[], deliveries=[]),
+            karma=1,
+            receivedRequests=1,
+            selfDeliveredFromReceived=1,
+            maxDeliveryRate=1,
+        )
+        assert instance.empty_metadata is True
+
+    def test_non_empty_metadata(self) -> None:
+        """Test empty_metadata property when metadata exists."""
+        instance = MechInfo(
+            id="non_empty",
+            address="0x1",
+            service=Service(metadata=[{"metadata": "0xabc"}], deliveries=[]),
+            karma=1,
+            receivedRequests=1,
+            selfDeliveredFromReceived=1,
+            maxDeliveryRate=1,
+        )
+        assert instance.empty_metadata is False
+
+    def test_liveness_zero_requests(self) -> None:
+        """Test liveness returns cold start value when no requests."""
+        instance = MechInfo(
+            id="cold",
+            address="0x1",
+            service=Service(metadata=[{"metadata": "m"}], deliveries=[]),
+            karma=1,
+            receivedRequests=0,
+            selfDeliveredFromReceived=0,
+            maxDeliveryRate=1,
+        )
+        assert instance.liveness == COLD_START_LIVENESS
+
+    def test_delivered_ratio_zero_requests(self) -> None:
+        """Test delivered_ratio returns 0 when no requests."""
+        instance = MechInfo(
+            id="zero",
+            address="0x1",
+            service=Service(metadata=[{"metadata": "m"}], deliveries=[]),
+            karma=1,
+            receivedRequests=0,
+            selfDeliveredFromReceived=0,
+            maxDeliveryRate=1,
+        )
+        assert instance.delivered_ratio == 0.0
+
+    def test_delivered_ratio_smoothed(self) -> None:
+        """Test delivered_ratio_smoothed with Laplace smoothing."""
+        instance = MechInfo(
+            id="smooth",
+            address="0x1",
+            service=Service(metadata=[{"metadata": "m"}], deliveries=[]),
+            karma=1,
+            receivedRequests=10,
+            selfDeliveredFromReceived=8,
+            maxDeliveryRate=1,
+        )
+        assert instance.delivered_ratio_smoothed > 0
+        assert instance.delivered_ratio_smoothed < 1
+
+    def test_lt_tiebreak_by_karma(self) -> None:
+        """Test __lt__ tiebreak uses karma when scores are equal."""
+        common = dict(
+            address="0x1",
+            service=Service(metadata=[{"metadata": "m"}], deliveries=[]),
+            receivedRequests=10,
+            selfDeliveredFromReceived=8,
+            maxDeliveryRate=1,
+        )
+        low_karma = MechInfo(id="low", karma=5, **common)
+        high_karma = MechInfo(id="high", karma=50, **common)
+        # same score, so tiebreak by karma: low_karma < high_karma
+        assert low_karma < high_karma
+
+    def test_delivery_rate_metric(self) -> None:
+        """Test delivery_rate_metric property."""
+        instance = MechInfo(
+            id="rate",
+            address="0x1",
+            service=Service(metadata=[{"metadata": "m"}], deliveries=[]),
+            karma=1,
+            receivedRequests=1,
+            selfDeliveredFromReceived=1,
+            maxDeliveryRate=1,
+        )
+        assert instance.delivery_rate_metric > 0
+
+
+class TestService:
+    """Test the Service class."""
+
+    def test_metadata_str_with_data(self) -> None:
+        """Test metadata_str when metadata exists."""
+        service = Service(
+            metadata=[{"metadata": "0xabc123"}],
+            deliveries=[],
+        )
+        assert service.metadata_str == "abc123"
+
+    def test_metadata_str_none(self) -> None:
+        """Test metadata_str when metadata is empty list."""
+        service = Service(metadata=[], deliveries=[])
+        assert service.metadata_str is None
+
+    def test_metadata_str_missing_field(self) -> None:
+        """Test metadata_str when field is missing from dict."""
+        service = Service(metadata=[{"other": "value"}], deliveries=[])
+        assert service.metadata_str is None
+
+    def test_last_delivered_with_value(self) -> None:
+        """Test last_delivered when deliveries exist."""
+        service = Service(
+            metadata=[],
+            deliveries=[{"blockTimestamp": "12345"}],
+        )
+        assert service.last_delivered == 12345
+
+    def test_last_delivered_none(self) -> None:
+        """Test last_delivered when no deliveries."""
+        service = Service(metadata=[], deliveries=[])
+        assert service.last_delivered is None
+
+    def test_last_delivered_invalid_value(self) -> None:
+        """Test last_delivered when timestamp is invalid."""
+        service = Service(metadata=[], deliveries=[{"blockTimestamp": "not_a_number"}])
+        assert service.last_delivered is None
+
+    def test_liveness_no_deliveries(self) -> None:
+        """Test liveness when no deliveries."""
+        service = Service(metadata=[], deliveries=[])
+        assert service.liveness == 0
+
+    def test_liveness_recent_delivery(self) -> None:
+        """Test liveness for a recent delivery."""
+        service = Service(
+            metadata=[],
+            deliveries=[{"blockTimestamp": str(int(time.time()) - 60)}],
+        )
+        assert service.liveness > 0.9
+
+    def test_liveness_old_delivery(self) -> None:
+        """Test liveness for an old delivery."""
+        service = Service(
+            metadata=[],
+            deliveries=[
+                {"blockTimestamp": str(int(time.time()) - HALF_LIFE_SECONDS * 10)}
+            ],
+        )
+        assert service.liveness < 0.01
+
+
+class TestMechMetadata:
+    """Test the MechMetadata class."""
+
+    def test_init(self) -> None:
+        """Test init."""
+        metadata = MechMetadata(prompt="test prompt", tool="test_tool", nonce="abc123")
+        assert metadata.prompt == "test prompt"
+        assert metadata.tool == "test_tool"
+        assert metadata.nonce == "abc123"
+
+
+class TestMechRequest:
+    """Test the MechRequest class."""
+
+    def test_defaults(self) -> None:
+        """Test default values."""
+        request = MechRequest()
+        assert request.data == ""
+        assert request.requestId == 0
+        assert request.requestIds == []
+        assert request.numRequests == 0
+
+
+class TestMechInteractionResponse:
+    """Test the MechInteractionResponse class."""
+
+    def test_defaults(self) -> None:
+        """Test default values."""
+        response = MechInteractionResponse()
+        assert response.nonce == ""
+        assert response.result is None
+        assert response.error == "Unknown"
+        assert response.response_data is None
+        assert response.sender_address is None
+
+    def test_retries_exceeded(self) -> None:
+        """Test retries_exceeded method."""
+        response = MechInteractionResponse()
+        response.retries_exceeded()
+        assert "Retries were exceeded" in response.error
+
+    def test_incorrect_format(self) -> None:
+        """Test incorrect_format method."""
+        response = MechInteractionResponse()
+        response.incorrect_format("bad data")
+        assert "unexpected" in response.error.lower()
+        assert "bad data" in response.error
+
+
+class TestMechInfoEncoder:
+    """Test the MechInfoEncoder class."""
+
+    def test_encode_mech_info(self) -> None:
+        """Test encoding a MechInfo object."""
+        info = MechInfo(
+            id="1",
+            address="0x1",
+            service=Service(metadata=[{"metadata": "m"}], deliveries=[]),
+            karma=1,
+            receivedRequests=1,
+            selfDeliveredFromReceived=1,
+            maxDeliveryRate=1,
+            relevant_tools={"tool1", "tool2"},
+        )
+        result = json.dumps(info, cls=MechInfoEncoder)
+        parsed = json.loads(result)
+        assert parsed["id"] == "1"
+        assert parsed["address"] == "0x1"
+        assert set(parsed["relevant_tools"]) == {"tool1", "tool2"}
+
+    def test_encode_set(self) -> None:
+        """Test encoding a plain set."""
+        encoder = MechInfoEncoder()
+        result = encoder.default({"a", "b"})
+        assert set(result) == {"a", "b"}
+
+    def test_encode_unknown_type(self) -> None:
+        """Test encoding an unknown type raises TypeError."""
+        encoder = MechInfoEncoder()
+        with pytest.raises(TypeError):
+            encoder.default(object())
+
+
+class TestEvent:
+    """Test the Event enum."""
+
+    def test_all_events(self) -> None:
+        """Test all events exist."""
+        assert Event.DONE.value == "done"
+        assert Event.NONE.value == "none"
+        assert Event.V1.value == "v1"
+        assert Event.V2.value == "v2"
+        assert Event.NO_MARKETPLACE.value == "no_marketplace"
+        assert Event.NO_MAJORITY.value == "no_majority"
+        assert Event.ROUND_TIMEOUT.value == "round_timeout"
+        assert Event.SKIP_REQUEST.value == "skip_request"
+        assert Event.BUY_SUBSCRIPTION.value == "buy_subscription"
+
+
+def _make_synced_data(**db_data: Any) -> SynchronizedData:
+    """Create a SynchronizedData with given db values."""
+    return SynchronizedData(db=AbciAppDB(setup_data=AbciAppDB.data_to_lists(db_data)))
+
+
+class TestSynchronizedData:
+    """Test SynchronizedData properties."""
+
+    def test_mechs_info_from_serialized(self) -> None:
+        """Test mechs_info when data is a JSON string."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0x1",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+            }
+        ]
+        sd = _make_synced_data(mechs_info=json.dumps(info_data))
+        result = sd.mechs_info
+        assert len(result) == 1
+        assert result[0].id == "1"
+
+    def test_mechs_info_empty(self) -> None:
+        """Test mechs_info when no data in db."""
+        sd = _make_synced_data()
+        result = sd.mechs_info
+        assert result == []
+
+    def test_mech_tool(self) -> None:
+        """Test mech_tool property."""
+        sd = _make_synced_data(mech_tool="openai-gpt-4")
+        assert sd.mech_tool == "openai-gpt-4"
+
+    def test_relevant_mechs_info(self) -> None:
+        """Test relevant_mechs_info filters by mech_tool."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0x1",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a", "tool_b"],
+            },
+            {
+                "id": "2",
+                "address": "0x2",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_c"],
+            },
+        ]
+        sd = _make_synced_data(mechs_info=json.dumps(info_data), mech_tool="tool_a")
+        result = sd.relevant_mechs_info
+        assert len(result) == 1
+        assert result[0].id == "1"
+
+    def test_mech_tools(self) -> None:
+        """Test mech_tools aggregates all tools."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0x1",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a", "tool_b"],
+            },
+            {
+                "id": "2",
+                "address": "0x2",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_b", "tool_c"],
+            },
+        ]
+        sd = _make_synced_data(mechs_info=json.dumps(info_data))
+        assert sd.mech_tools == {"tool_a", "tool_b", "tool_c"}
+
+    def test_priority_mech_returns_best(self) -> None:
+        """Test priority_mech returns the mech with highest ranking."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0x1",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "10",
+                "receivedRequests": "100",
+                "selfDeliveredFromReceived": "50",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+            {
+                "id": "2",
+                "address": "0x2",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "100",
+                "receivedRequests": "100",
+                "selfDeliveredFromReceived": "99",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+        ]
+        sd = _make_synced_data(mechs_info=json.dumps(info_data), mech_tool="tool_a")
+        priority = sd.priority_mech
+        assert priority is not None
+        assert priority.id == "2"
+
+    def test_priority_mech_none_when_empty(self) -> None:
+        """Test priority_mech returns None when no relevant mechs."""
+        sd = _make_synced_data(mech_tool="nonexistent")
+        assert sd.priority_mech is None
+
+    def test_priority_mech_address(self) -> None:
+        """Test priority_mech_address property."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0xbest",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "10",
+                "receivedRequests": "10",
+                "selfDeliveredFromReceived": "9",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+        ]
+        sd = _make_synced_data(mechs_info=json.dumps(info_data), mech_tool="tool_a")
+        assert sd.priority_mech_address == "0xbest"
+
+    def test_priority_mech_address_none(self) -> None:
+        """Test priority_mech_address returns None when no relevant mechs."""
+        sd = _make_synced_data(mech_tool="none")
+        assert sd.priority_mech_address is None
+
+    def test_ranked_mechs(self) -> None:
+        """Test ranked_mechs returns sorted list."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0x1",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "10",
+                "receivedRequests": "100",
+                "selfDeliveredFromReceived": "50",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["t"],
+            },
+            {
+                "id": "2",
+                "address": "0x2",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "100",
+                "receivedRequests": "100",
+                "selfDeliveredFromReceived": "99",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["t"],
+            },
+        ]
+        sd = _make_synced_data(mechs_info=json.dumps(info_data), mech_tool="t")
+        ranked = sd.ranked_mechs
+        assert len(ranked) == 2
+        assert ranked[0].id == "2"  # higher karma/delivery ratio
+
+    def test_ranked_mechs_empty(self) -> None:
+        """Test ranked_mechs returns empty list when no relevant mechs."""
+        sd = _make_synced_data(mech_tool="none")
+        assert sd.ranked_mechs == []
+
+    def test_ranked_mechs_addresses(self) -> None:
+        """Test ranked_mechs_addresses returns addresses in order."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0xworse",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "10",
+                "receivedRequests": "100",
+                "selfDeliveredFromReceived": "50",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["t"],
+            },
+            {
+                "id": "2",
+                "address": "0xbetter",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "100",
+                "receivedRequests": "100",
+                "selfDeliveredFromReceived": "99",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["t"],
+            },
+        ]
+        sd = _make_synced_data(mechs_info=json.dumps(info_data), mech_tool="t")
+        addresses = sd.ranked_mechs_addresses
+        assert addresses[0] == "0xbetter"
+
+    def test_ranked_mechs_addresses_empty(self) -> None:
+        """Test ranked_mechs_addresses returns empty list."""
+        sd = _make_synced_data(mech_tool="none")
+        assert sd.ranked_mechs_addresses == []
+
+    def test_mech_price(self) -> None:
+        """Test mech_price property."""
+        sd = _make_synced_data(mech_price=12345)
+        assert sd.mech_price == 12345
+
+    def test_mech_requests(self) -> None:
+        """Test mech_requests property."""
+        requests = [{"prompt": "test", "tool": "t1", "nonce": "n1"}]
+        sd = _make_synced_data(mech_requests=json.dumps(requests))
+        result = sd.mech_requests
+        assert len(result) == 1
+        assert result[0].prompt == "test"
+
+    def test_mech_requests_empty(self) -> None:
+        """Test mech_requests when no data."""
+        sd = _make_synced_data()
+        assert sd.mech_requests == []
+
+    def test_mech_responses(self) -> None:
+        """Test mech_responses property."""
+        responses = [{"nonce": "n1", "result": "r1"}]
+        sd = _make_synced_data(mech_responses=json.dumps(responses))
+        result = sd.mech_responses
+        assert len(result) == 1
+        assert result[0].nonce == "n1"
+
+    def test_mech_responses_empty(self) -> None:
+        """Test mech_responses when no data."""
+        sd = _make_synced_data()
+        assert sd.mech_responses == []
+
+    def test_final_tx_hash(self) -> None:
+        """Test final_tx_hash property."""
+        sd = _make_synced_data(final_tx_hash="0xhash")
+        assert sd.final_tx_hash == "0xhash"
+
+    def test_final_tx_hash_none(self) -> None:
+        """Test final_tx_hash when not set."""
+        sd = _make_synced_data()
+        assert sd.final_tx_hash is None
+
+    def test_chain_id(self) -> None:
+        """Test chain_id property."""
+        sd = _make_synced_data(chain_id="gnosis")
+        assert sd.chain_id == "gnosis"
+
+    def test_chain_id_none(self) -> None:
+        """Test chain_id when not set."""
+        sd = _make_synced_data()
+        assert sd.chain_id is None
+
+    def test_tx_submitter(self) -> None:
+        """Test tx_submitter property."""
+        sd = _make_synced_data(tx_submitter="MechRequestRound")
+        assert sd.tx_submitter == "MechRequestRound"
+
+    def test_versioning_check_performed_true(self) -> None:
+        """Test versioning_check_performed when is_marketplace_v2 is set."""
+        sd = _make_synced_data(is_marketplace_v2=True)
+        assert sd.versioning_check_performed is True
+
+    def test_versioning_check_performed_false(self) -> None:
+        """Test versioning_check_performed when is_marketplace_v2 is not set."""
+        sd = _make_synced_data()
+        assert sd.versioning_check_performed is False
+
+    def test_is_marketplace_v2(self) -> None:
+        """Test is_marketplace_v2 property."""
+        sd = _make_synced_data(is_marketplace_v2=True)
+        assert sd.is_marketplace_v2 is True
+
+    def _make_collection_data(
+        self, payload_cls: type, **payload_kwargs: Any
+    ) -> Dict[str, Any]:
+        """Create a serialized collection with one agent."""
+        payload = payload_cls(sender="agent1", **payload_kwargs)
+        return {"agent1": payload.json}
+
+    def test_participant_to_info(self) -> None:
+        """Test participant_to_info property."""
+        from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
+
+        collection = self._make_collection_data(
+            JSONPayload, information='{"key": "val"}'
+        )
+        sd = _make_synced_data(participant_to_info=collection)
+        result = sd.participant_to_info
+        assert "agent1" in result
+
+    def test_participant_to_requests(self) -> None:
+        """Test participant_to_requests property."""
+        from packages.valory.skills.mech_interact_abci.payloads import (
+            MechRequestPayload,
+        )
+
+        collection = self._make_collection_data(
+            MechRequestPayload,
+            tx_submitter="test",
+            tx_hash="0xhash",
+            price=100,
+            chain_id="gnosis",
+            safe_contract_address="0xsafe",
+            mech_requests="[]",
+            mech_responses="[]",
+        )
+        sd = _make_synced_data(participant_to_requests=collection)
+        result = sd.participant_to_requests
+        assert "agent1" in result
+
+    def test_participant_to_responses(self) -> None:
+        """Test participant_to_responses property."""
+        from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
+
+        collection = self._make_collection_data(
+            JSONPayload, information='{"resp": true}'
+        )
+        sd = _make_synced_data(participant_to_responses=collection)
+        result = sd.participant_to_responses
+        assert "agent1" in result
+
+    def test_participant_to_purchase(self) -> None:
+        """Test participant_to_purchase property."""
+        from packages.valory.skills.mech_interact_abci.payloads import PrepareTxPayload
+
+        collection = self._make_collection_data(
+            PrepareTxPayload, tx_submitter="test", tx_hash="0x123"
+        )
+        sd = _make_synced_data(participant_to_purchase=collection)
+        result = sd.participant_to_purchase
+        assert "agent1" in result
