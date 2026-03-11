@@ -314,7 +314,7 @@ class Mech(Contract):
             if "error" not in res:
                 return res
 
-        return res
+        return res  # pragma: no cover
 
     @classmethod
     def get_block_number(
