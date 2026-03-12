@@ -21,8 +21,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from packages.valory.contracts.mech_marketplace_legacy.contract import (
     MechMarketplaceLegacy,
     TOPIC_CHARS,
@@ -34,19 +32,6 @@ SENDER_ADDRESS = "0xaabbccddee1234567890abcdef1234567890abcd"
 PRIORITY_MECH = "0x3333333333333333333333333333333333333333"
 TX_HASH = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 REQUESTER = "0x5555555555555555555555555555555555555555"
-
-
-@pytest.fixture
-def ledger_api():
-    """Create a mock ledger API."""
-    mock_api = MagicMock()
-    mock_api.api.to_checksum_address = lambda addr: addr
-    mock_api.api.eth.get_transaction_receipt.return_value = {
-        "blockNumber": 100,
-        "logs": [],
-    }
-    mock_api.api.eth.get_block.return_value = {"number": 100}
-    return mock_api
 
 
 class TestPadAddressForTopic:

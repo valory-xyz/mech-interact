@@ -21,26 +21,11 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from packages.valory.contracts.mech.contract import Mech
 
 CONTRACT_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678"
 SENDER_ADDRESS = "0xaabbccddee1234567890abcdef1234567890abcd"
 TX_HASH = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-
-
-@pytest.fixture
-def ledger_api():
-    """Create a mock ledger API."""
-    mock_api = MagicMock()
-    mock_api.api.to_checksum_address = lambda addr: addr
-    mock_api.api.eth.get_transaction_receipt.return_value = {
-        "blockNumber": 100,
-        "logs": [],
-    }
-    mock_api.api.eth.get_block.return_value = {"number": 100}
-    return mock_api
 
 
 class TestMechExecuteWithTimeout:

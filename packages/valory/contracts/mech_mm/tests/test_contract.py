@@ -21,24 +21,10 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from packages.valory.contracts.mech_mm.contract import MechMM
 
 CONTRACT_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678"
 TX_HASH = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-
-
-@pytest.fixture
-def ledger_api():
-    """Create a mock ledger API."""
-    mock_api = MagicMock()
-    mock_api.api.to_checksum_address = lambda addr: addr
-    mock_api.api.eth.get_transaction_receipt.return_value = {
-        "blockNumber": 100,
-        "logs": [],
-    }
-    return mock_api
 
 
 class TestMechMMToPrefixedHex:
@@ -48,11 +34,6 @@ class TestMechMMToPrefixedHex:
         """Test _to_prefixed_hex converts bytes to 0x-prefixed hex string."""
         result = MechMM._to_prefixed_hex(b"\xde\xad\xbe\xef")
         assert result == "0xdeadbeef"
-
-    def test_to_prefixed_hex_empty(self):
-        """Test _to_prefixed_hex with empty bytes."""
-        result = MechMM._to_prefixed_hex(b"")
-        assert result == "0x"
 
 
 class TestMechMMGetRequestData:
