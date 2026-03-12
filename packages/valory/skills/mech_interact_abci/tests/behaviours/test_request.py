@@ -29,6 +29,9 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import (
     PaymentType,
     TOKEN_PAYMENT_TYPES,
 )
+from packages.valory.skills.mech_interact_abci.tests.behaviours.conftest import (
+    assert_unset_property_logs,
+)
 
 
 class TestPaymentType:
@@ -154,10 +157,7 @@ class TestNonePropertyLogging:
     )
     def test_none_logs_message(self, request_behaviour, prop, log_method) -> None:
         """Test that accessing unset properties logs the appropriate message."""
-        result = getattr(request_behaviour, prop)
-        assert result is None
-        logger = getattr(request_behaviour.context.logger, log_method)
-        logger.assert_called_once()
+        assert_unset_property_logs(request_behaviour, prop, log_method)
 
     def test_subscription_balance_returns_value_when_set(
         self, request_behaviour

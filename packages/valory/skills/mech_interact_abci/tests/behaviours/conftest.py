@@ -20,10 +20,11 @@
 """Shared fixtures for behaviour tests."""
 
 from typing import Generator
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from packages.valory.skills.abstract_round_abci.behaviour_utils import BaseBehaviour
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
 )
@@ -32,14 +33,9 @@ from packages.valory.skills.mech_interact_abci.behaviours.purchase_subcription i
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import (
     MechRequestBehaviour,
-    PaymentType,
 )
 from packages.valory.skills.mech_interact_abci.behaviours.response import (
     MechResponseBehaviour,
-)
-from packages.valory.skills.mech_interact_abci.states.base import (
-    MECH_RESPONSE,
-    MechInteractionResponse,
 )
 
 
@@ -53,82 +49,56 @@ class ConcreteBehaviour(MechInteractBaseBehaviour):
         yield
 
 
-def _init_base_attrs(behaviour: MechInteractBaseBehaviour) -> None:
-    """Initialize the common base behaviour attributes."""
-    behaviour.multisend_batches = []
-    behaviour.multisend_data = b""
-    behaviour._safe_tx_hash = ""
-    behaviour._context = MagicMock()
+def _noop_base_init(self, **kwargs):  # type: ignore
+    """No-op replacement for the framework-level BaseBehaviour.__init__."""
+
+
+def assert_unset_property_logs(behaviour, prop, log_method="error"):
+    """Assert that accessing an unset property returns None and logs."""
+    result = getattr(behaviour, prop)
+    assert result is None
+    logger = getattr(behaviour.context.logger, log_method)
+    logger.assert_called_once()
 
 
 @pytest.fixture
 def base_behaviour() -> ConcreteBehaviour:
-    """Create a ConcreteBehaviour with mocked internals."""
-    behaviour = ConcreteBehaviour.__new__(ConcreteBehaviour)
-    _init_base_attrs(behaviour)
+    """Create a ConcreteBehaviour via its real __init__."""
+    with patch.object(BaseBehaviour, "__init__", _noop_base_init):
+        behaviour = ConcreteBehaviour()
+    behaviour._context = MagicMock()
     return behaviour
 
 
 @pytest.fixture
 def request_behaviour() -> MechRequestBehaviour:
-    """Create a MechRequestBehaviour with mocked internals."""
-    behaviour = MechRequestBehaviour.__new__(MechRequestBehaviour)
-    _init_base_attrs(behaviour)
-    behaviour._v1_hex_truncated = ""
-    behaviour._request_data = b""
-    behaviour._price = 0
-    behaviour._mech_requests = []
-    behaviour._pending_responses = []
-    behaviour.priority_mech_address = ""
-    behaviour.token_balance = 0
-    behaviour.wallet_balance = 0
-    behaviour._mech_payment_type = PaymentType.NATIVE
-    behaviour._mech_max_delivery_rate = None
-    behaviour._subscription_balance = None
-    behaviour._nvm_balance = None
-    behaviour._subscription_address = None
-    behaviour._subscription_id = None
-    behaviour._balance_tracker = None
-    behaviour._approval_data = None
+    """Create a MechRequestBehaviour via its real __init__."""
+    with patch.object(BaseBehaviour, "__init__", _noop_base_init):
+        behaviour = MechRequestBehaviour()
+    behaviour._context = MagicMock()
     return behaviour
 
 
 @pytest.fixture
 def response_behaviour() -> MechResponseBehaviour:
-    """Create a MechResponseBehaviour with mocked internals."""
-    behaviour = MechResponseBehaviour.__new__(MechResponseBehaviour)
-    _init_base_attrs(behaviour)
-    behaviour._context.shared_state = {}
-    behaviour._from_block = 0
-    behaviour._requests = []
-    behaviour._response_hex = ""
-    behaviour._request_info = []
-    behaviour._is_valid_acn_sender = False
-    behaviour.context.shared_state[MECH_RESPONSE] = MechInteractionResponse(
-        error="The mech's response has not been set!"
-    )
+    """Create a MechResponseBehaviour via its real __init__.
+
+    Note: _context must be set before __init__ because the
+    current_mech_response setter accesses self.context.shared_state
+    during initialization.
+    """
+    with patch.object(BaseBehaviour, "__init__", _noop_base_init):
+        behaviour = MechResponseBehaviour.__new__(MechResponseBehaviour)
+        behaviour._context = MagicMock()
+        behaviour._context.shared_state = {}
+        behaviour.__init__()
     return behaviour
 
 
 @pytest.fixture
 def purchase_behaviour() -> MechPurchaseSubscriptionBehaviour:
-    """Create a MechPurchaseSubscriptionBehaviour with mocked internals."""
-    behaviour = MechPurchaseSubscriptionBehaviour.__new__(
-        MechPurchaseSubscriptionBehaviour
-    )
-    _init_base_attrs(behaviour)
-    behaviour._agreement_id = None
-    behaviour._agreement_id_seed = None
-    behaviour._ddo_register = None
-    behaviour._ddo_values = None
-    behaviour._receivers = None
-    behaviour._lock_hash = None
-    behaviour._lock_id = None
-    behaviour._transfer_hash = None
-    behaviour._transfer_id = None
-    behaviour._escrow_hash = None
-    behaviour._escrow_id = None
-    behaviour._agreement_tx_data = None
-    behaviour._subscription_token_approval_tx_data = None
-    behaviour._fulfill_tx_data = None
+    """Create a MechPurchaseSubscriptionBehaviour via its real __init__."""
+    with patch.object(BaseBehaviour, "__init__", _noop_base_init):
+        behaviour = MechPurchaseSubscriptionBehaviour()
+    behaviour._context = MagicMock()
     return behaviour
