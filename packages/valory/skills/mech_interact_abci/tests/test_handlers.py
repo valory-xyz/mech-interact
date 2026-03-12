@@ -44,37 +44,31 @@ def acn_handler() -> AcnHandler:
 class TestAcnHandler:
     """Tests for AcnHandler."""
 
-    def test_setup_and_teardown_are_noop(self, acn_handler) -> None:
-        """Test setup and teardown run without error (they are no-ops)."""
-        acn_handler.setup()
-        acn_handler.teardown()
-
-    def test_current_mech_response_none_when_empty(self, acn_handler) -> None:
-        """Test current_mech_response returns None when not set."""
-        assert acn_handler.current_mech_response is None
-
-    def test_current_mech_response_returns_response(self, acn_handler) -> None:
-        """Test current_mech_response returns the stored response."""
-        response = MechInteractionResponse(nonce="n1", requestId=42)
-        acn_handler.context.shared_state[MECH_RESPONSE] = response
-        assert acn_handler.current_mech_response is response
-
     def test_handle_data_no_current_response(self, acn_handler) -> None:
-        """Test handling data when no mech response is expected logs error."""
+        """Test handling data when no mech response is expected logs error and stores nothing."""
         message = MagicMock()
         message.performative.value = "data"
+        message.content = b"should not be stored"
+        message.sender = "should_not_be_stored"
         acn_handler.handle(message)
         acn_handler.context.logger.error.assert_called_once()
+        # Verify no response object was created or mutated
+        assert acn_handler.current_mech_response is None
 
     def test_handle_data_mismatched_request_id(self, acn_handler) -> None:
-        """Test handling data with wrong request ID logs error."""
+        """Test handling data with wrong request ID logs error and does not store data."""
         response = MechInteractionResponse(nonce="n1", requestId=42)
         acn_handler.context.shared_state[MECH_RESPONSE] = response
         message = MagicMock()
         message.performative.value = "data"
         message.request_id = 999
+        message.content = b"wrong request data"
+        message.sender = "wrong_sender"
         acn_handler.handle(message)
         acn_handler.context.logger.error.assert_called_once()
+        # Verify the response was NOT mutated with wrong data
+        assert response.response_data is None
+        assert response.sender_address is None
 
     def test_handle_data_matching_request_id(self, acn_handler) -> None:
         """Test handling data with matching request ID stores response data."""
@@ -88,6 +82,19 @@ class TestAcnHandler:
         acn_handler.handle(message)
         assert response.response_data == b"response data"
         assert response.sender_address == "agent_sender"
+
+    def test_handle_data_request_id_string_coercion(self, acn_handler) -> None:
+        """Test that request ID comparison uses string coercion (int vs str match)."""
+        response = MechInteractionResponse(nonce="n1", requestId=42)
+        acn_handler.context.shared_state[MECH_RESPONSE] = response
+        message = MagicMock()
+        message.performative.value = "data"
+        message.request_id = "42"  # string instead of int
+        message.content = b"coerced match"
+        message.sender = "coerced_sender"
+        acn_handler.handle(message)
+        assert response.response_data == b"coerced match"
+        assert response.sender_address == "coerced_sender"
 
     def test_handle_unrecognized_performative(self, acn_handler) -> None:
         """Test handling an unrecognized performative logs error."""

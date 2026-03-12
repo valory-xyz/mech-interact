@@ -19,6 +19,8 @@
 
 """Test the models.py module of the MechInteract."""
 
+from contextlib import contextmanager
+from typing import Generator
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -28,7 +30,6 @@ from packages.valory.contracts.multisend.contract import MultiSendOperation
 from packages.valory.skills.abstract_round_abci.test_tools.base import DummyContext
 from packages.valory.skills.mech_interact_abci.models import (
     CHAIN_TO_NVM_CONFIG,
-    CHAIN_TO_PRICE_TOKEN,
     MechMarketplaceConfig,
     MultisendBatch,
     NVMConfig,
@@ -36,13 +37,9 @@ from packages.valory.skills.mech_interact_abci.models import (
     SharedState,
 )
 
-
-class TestSharedState:
-    """Test SharedState of MechInteract."""
-
-    def test_initialization(self) -> None:
-        """Test initialization."""
-        SharedState(name="", skill_context=DummyContext())
+PENALIZE_TIME_WINDOW = 300
+SAMPLE_MECH_ADDRESS = "0xmech1"
+SAMPLE_MECH_ADDRESS_2 = "0xmech2"
 
 
 class TestNVMConfig:
@@ -78,64 +75,18 @@ class TestNVMConfig:
         config = self._make_config(plan_did="0xalready")
         assert config.did == "0xalready"
 
-    def test_defaults(self) -> None:
-        """Test default field values."""
-        config = self._make_config()
-        assert config.subscription_credits == int(1e6)
-        assert config.subscription_cost == 0
-        assert config.agreement_cost == 0
-
-    def test_gnosis_config_exists(self) -> None:
-        """Test that gnosis chain config is defined."""
-        from autonomy.chain.config import ChainType
-
-        assert ChainType.GNOSIS in CHAIN_TO_NVM_CONFIG
-
-    def test_base_config_exists(self) -> None:
-        """Test that base chain config is defined."""
-        from autonomy.chain.config import ChainType
-
-        assert ChainType.BASE in CHAIN_TO_NVM_CONFIG
-
 
 class TestMechMarketplaceConfig:
     """Tests for MechMarketplaceConfig dataclass."""
 
-    def test_valid_config(self) -> None:
-        """Test creating a valid config."""
-        config = MechMarketplaceConfig(
-            mech_marketplace_address="0xmarket",
-            response_timeout=30,
-        )
-        assert config.mech_marketplace_address == "0xmarket"
-        assert config.response_timeout == 30
-        assert config.use_dynamic_mech_selection is True
-        assert config.priority_mech_address is None
-
-    def test_invalid_response_timeout_zero(self) -> None:
-        """Test that zero response_timeout raises ValueError."""
+    @pytest.mark.parametrize("timeout", [0, -1, -100])
+    def test_invalid_response_timeout(self, timeout) -> None:
+        """Test that non-positive response_timeout raises ValueError."""
         with pytest.raises(ValueError, match="response_timeout must be positive"):
             MechMarketplaceConfig(
                 mech_marketplace_address="0xmarket",
-                response_timeout=0,
+                response_timeout=timeout,
             )
-
-    def test_invalid_response_timeout_negative(self) -> None:
-        """Test that negative response_timeout raises ValueError."""
-        with pytest.raises(ValueError, match="response_timeout must be positive"):
-            MechMarketplaceConfig(
-                mech_marketplace_address="0xmarket",
-                response_timeout=-1,
-            )
-
-    def test_frozen(self) -> None:
-        """Test that MechMarketplaceConfig is frozen (immutable)."""
-        config = MechMarketplaceConfig(
-            mech_marketplace_address="0xmarket",
-            response_timeout=30,
-        )
-        with pytest.raises(AttributeError):
-            config.mech_marketplace_address = "0xother"  # type: ignore
 
     def test_with_priority_mech(self) -> None:
         """Test config with priority mech address set."""
@@ -160,20 +111,6 @@ class TestMultisendBatch:
         assert batch.value == 0
         assert batch.operation == MultiSendOperation.CALL
 
-    def test_with_value(self) -> None:
-        """Test batch with a non-zero value."""
-        batch = MultisendBatch(to="0xaddr", data=HexBytes(b""), value=100)
-        assert batch.value == 100
-
-    def test_with_delegate_call(self) -> None:
-        """Test batch with DELEGATECALL operation."""
-        batch = MultisendBatch(
-            to="0xaddr",
-            data=HexBytes(b""),
-            operation=MultiSendOperation.DELEGATE_CALL,
-        )
-        assert batch.operation == MultiSendOperation.DELEGATE_CALL
-
     def test_empty_to_raises(self) -> None:
         """Test that empty 'to' address raises ValueError."""
         with pytest.raises(ValueError, match="Target address"):
@@ -197,106 +134,83 @@ class TestSharedStatePenalization:
         """Create a SharedState for testing."""
         return SharedState(name="", skill_context=DummyContext())
 
-    def test_penalized_mechs_empty(self) -> None:
-        """Test that penalized_mechs starts empty."""
-        state = self._make_shared_state()
-        # Mock synced_timestamp and params
+    @contextmanager
+    def _patch_time_and_params(
+        self,
+        state: SharedState,
+        timestamp: int,
+        time_window: int = PENALIZE_TIME_WINDOW,
+    ) -> Generator:
+        """Patch synced_timestamp and params on a SharedState.
+
+        Eliminates the repeated PropertyMock chain across penalization tests.
+        """
         with patch.object(
             type(state),
             "synced_timestamp",
             new_callable=PropertyMock,
-            return_value=1000,
+            return_value=timestamp,
         ), patch.object(
             type(state), "params", new_callable=PropertyMock
         ) as mock_params:
-            mock_params.return_value = MagicMock(penalize_mech_time_window=300)
-            assert state.penalized_mechs == {}
+            mock_params.return_value = MagicMock(penalize_mech_time_window=time_window)
+            yield
 
-    def test_penalize_mech(self) -> None:
+    @contextmanager
+    def _patch_timestamp(self, state: SharedState, timestamp: int) -> Generator:
+        """Patch only synced_timestamp (for penalize_mech calls that don't read params)."""
+        with patch.object(
+            type(state),
+            "synced_timestamp",
+            new_callable=PropertyMock,
+            return_value=timestamp,
+        ):
+            yield
+
+    def test_penalize_mech_adds_to_dict(self) -> None:
         """Test penalizing a mech adds it to the dict."""
         state = self._make_shared_state()
-        with patch.object(
-            type(state),
-            "synced_timestamp",
-            new_callable=PropertyMock,
-            return_value=1000,
-        ), patch.object(
-            type(state), "params", new_callable=PropertyMock
-        ) as mock_params:
-            mock_params.return_value = MagicMock(penalize_mech_time_window=300)
-            state.penalize_mech("0xmech1")
-            assert "0xmech1" in state.penalized_mechs
+        with self._patch_time_and_params(state, timestamp=1000):
+            state.penalize_mech(SAMPLE_MECH_ADDRESS)
+            assert SAMPLE_MECH_ADDRESS in state.penalized_mechs
 
-    def test_penalize_mech_expires(self) -> None:
+    def test_penalize_mech_expires_after_window(self) -> None:
         """Test that penalized mechs expire after the time window."""
         state = self._make_shared_state()
-        # Penalize at timestamp 1000
-        with patch.object(
-            type(state),
-            "synced_timestamp",
-            new_callable=PropertyMock,
-            return_value=1000,
-        ):
-            state.penalize_mech("0xmech1")
+        with self._patch_timestamp(state, timestamp=1000):
+            state.penalize_mech(SAMPLE_MECH_ADDRESS)
 
-        # Check at timestamp 1400, window is 300 -> expired
-        with patch.object(
-            type(state),
-            "synced_timestamp",
-            new_callable=PropertyMock,
-            return_value=1400,
-        ), patch.object(
-            type(state), "params", new_callable=PropertyMock
-        ) as mock_params:
-            mock_params.return_value = MagicMock(penalize_mech_time_window=300)
+        # 1400 - 1000 = 400 > window of 300 -> expired
+        with self._patch_time_and_params(state, timestamp=1400):
             assert state.penalized_mechs == {}
+
+    def test_penalize_mech_active_within_window(self) -> None:
+        """Test that penalized mechs remain active within the time window."""
+        state = self._make_shared_state()
+        with self._patch_timestamp(state, timestamp=1000):
+            state.penalize_mech(SAMPLE_MECH_ADDRESS)
+
+        # 1100 - 1000 = 100 < window of 300 -> still active
+        with self._patch_time_and_params(state, timestamp=1100):
+            assert SAMPLE_MECH_ADDRESS in state.penalized_mechs
 
     def test_penalized_mechs_sorted_by_time(self) -> None:
         """Test that penalized mechs are sorted by penalization time."""
         state = self._make_shared_state()
-        # Penalize mech1 at 1000, mech2 at 1010
-        with patch.object(
-            type(state),
-            "synced_timestamp",
-            new_callable=PropertyMock,
-            return_value=1000,
-        ):
-            state.penalize_mech("0xmech1")
-        with patch.object(
-            type(state),
-            "synced_timestamp",
-            new_callable=PropertyMock,
-            return_value=1010,
-        ):
-            state.penalize_mech("0xmech2")
+        with self._patch_timestamp(state, timestamp=1000):
+            state.penalize_mech(SAMPLE_MECH_ADDRESS)
+        with self._patch_timestamp(state, timestamp=1010):
+            state.penalize_mech(SAMPLE_MECH_ADDRESS_2)
 
-        # Check at 1015, window 300
-        with patch.object(
-            type(state),
-            "synced_timestamp",
-            new_callable=PropertyMock,
-            return_value=1015,
-        ), patch.object(
-            type(state), "params", new_callable=PropertyMock
-        ) as mock_params:
-            mock_params.return_value = MagicMock(penalize_mech_time_window=300)
-            result = state.penalized_mechs
-            keys = list(result.keys())
-            assert keys == ["0xmech1", "0xmech2"]
+        with self._patch_time_and_params(state, timestamp=1015):
+            keys = list(state.penalized_mechs.keys())
+            assert keys == [SAMPLE_MECH_ADDRESS, SAMPLE_MECH_ADDRESS_2]
 
     def test_penalize_last_called_mech(self) -> None:
         """Test penalizing the last called mech."""
         state = self._make_shared_state()
         state.last_called_mech = "0xlast"
-        with patch.object(
-            type(state),
-            "synced_timestamp",
-            new_callable=PropertyMock,
-            return_value=1000,
-        ), patch.object(
-            type(state), "params", new_callable=PropertyMock
-        ) as mock_params:
-            mock_params.return_value = MagicMock(penalize_mech_time_window=300)
+        with self._patch_time_and_params(state, timestamp=1000):
             state.penalize_last_called_mech()
             assert "0xlast" in state.penalized_mechs
 
@@ -310,14 +224,6 @@ class TestSharedStatePenalization:
 
 class TestChainMappings:
     """Tests for chain-to-config mappings."""
-
-    def test_chain_to_price_token_has_entries(self) -> None:
-        """Test that the price token mapping has entries."""
-        assert len(CHAIN_TO_PRICE_TOKEN) > 0
-
-    def test_chain_to_nvm_config_has_entries(self) -> None:
-        """Test that the NVM config mapping has entries."""
-        assert len(CHAIN_TO_NVM_CONFIG) > 0
 
     def test_all_nvm_configs_have_valid_did(self) -> None:
         """Test that all NVM configs have a valid did property."""

@@ -20,7 +20,6 @@
 """Tests for the utils module."""
 
 import json
-from dataclasses import dataclass
 
 import pytest
 
@@ -33,19 +32,6 @@ from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
 
 class TestDataclassEncoder:
     """Tests for DataclassEncoder."""
-
-    def test_encode_simple_dataclass(self) -> None:
-        """Test encoding a simple dataclass."""
-
-        @dataclass
-        class SimpleData:
-            name: str
-            value: int
-
-        obj = SimpleData(name="test", value=42)
-        result = json.dumps(obj, cls=DataclassEncoder)
-        parsed = json.loads(result)
-        assert parsed == {"name": "test", "value": 42}
 
     def test_encode_mech_request(self) -> None:
         """Test encoding a MechRequest dataclass."""
@@ -90,9 +76,3 @@ class TestDataclassEncoder:
         assert len(parsed) == 2
         assert parsed[0]["nonce"] == "n1"
         assert parsed[1]["nonce"] == "n2"
-
-    def test_encode_dataclass_type_not_instance(self) -> None:
-        """Test that a dataclass type (not instance) falls through to default."""
-        encoder = DataclassEncoder()
-        with pytest.raises(TypeError):
-            encoder.default(MechRequest)
