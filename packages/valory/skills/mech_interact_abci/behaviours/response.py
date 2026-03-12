@@ -139,9 +139,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         elif isinstance(response_hash, str):
             self._response_hex = response_hash
         else:
-            raise TypeError(
-                f"Response hash {response_hash!r} is not valid hex bytes or string!"
-            )
+            msg = f"Response hash {response_hash!r} is not valid hex bytes or string!"
+            self.context.logger.error(msg)
+            self._response_hex = ""
 
     @property
     def is_valid_acn_sender(self) -> bool:

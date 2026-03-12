@@ -23,8 +23,6 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from packages.valory.skills.mech_interact_abci.behaviours.response import (
     MechResponseBehaviour,
 )
@@ -66,11 +64,14 @@ class TestResponseHexSetter:
         behaviour.response_hex = "abcdef01"
         assert behaviour._response_hex == "abcdef01"
 
-    def test_invalid_type_raises(self) -> None:
-        """Test setting response_hex with invalid type raises TypeError."""
+    def test_invalid_type_logs_error_and_sets_empty(self) -> None:
+        """Test setting response_hex with invalid type logs error and sets empty string."""
         behaviour = _make_response_behaviour()
-        with pytest.raises(TypeError, match="not valid hex bytes or string"):
-            behaviour.response_hex = 12345
+        behaviour.response_hex = 12345
+        assert behaviour._response_hex == ""
+        behaviour.context.logger.error.assert_called_once()
+        log_msg = behaviour.context.logger.error.call_args[0][0]
+        assert "not valid hex bytes or string" in log_msg
 
 
 class TestDeliveryMech:
