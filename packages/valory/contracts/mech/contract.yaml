@@ -11,7 +11,8 @@ fingerprint:
   build/mech.json: bafybeibrocnkmfe46ylcso7245qq5ysl5z6ydr4xumjt6zl4satc7uqt4m
   contract.py: bafybeihdqt2pwbjmvtx745kvfl43zg5tupyxiegubcnatn27zgp6z437k4
   tests/__init__.py: bafybeigfcyuw2qwiztn5c2ilm7haopnpqvbroxjix4slaho4syj7y5apga
-  tests/test_contract.py: bafybeif7liwlpzhl5abtp7ond77vvkrw6fyiteev4q5t3ieul356rfga2i
+  tests/conftest.py: bafybeid734tc2f2qotcwp5wfx5qndzbheuiwewaz7tvw4s5wxxthut7b6q
+  tests/test_contract.py: bafybeidofla6guw34woc5nfyq46ryfevxgjpgnxxvkkcvvsrs6yxtehzui
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: Mech
