@@ -1,8 +1,8 @@
 {
     "dev": {
-        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeibyokqjrexwm7i5ptibiq5gixhvmfbmtgejrbvpsoibreohrg4m2u",
-        "contract/valory/mech/0.1.0": "bafybeidzccjnk4bh4c2w5lt43hgu44nnzmc3qelku2omixbjyeztc5noeu",
-        "contract/valory/mech_mm/0.1.0": "bafybeifjijtixjzzob4tno4rt2jtqvscv6nyrx72eitiajsdn3hxj3tfua",
+        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeifbrb6zdwon7a4rfdzypy5sjepbx7iyebebhaq5ydx2kdcbmdnba4",
+        "contract/valory/mech/0.1.0": "bafybeihquknpac6bgrj5dhynjqnmnugzg6tq72hmj3rxnmgz5ohbirpqj4",
+        "contract/valory/mech_mm/0.1.0": "bafybeidglyk3ceukmrrfh2abi25ypqhycet4ihlsjigilrv7j6pnt4aroy",
         "contract/valory/ierc1155/0.1.0": "bafybeicculy2cfhvcrz3n5j6zadkro7ylbvitetlda3pkufkcf65cs2uty",
         "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeibte5igiqmq77ddx4mojqyvma4wuutqru3d7rrbopm6tkdp737iyq",
         "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeifcpdhuq7pgt2ok544q7tlqw3sitrh3yspmfog7ofhernnouwebfe",
@@ -13,7 +13,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeihhrzm4rpfq54376hs5zft5g4mvqtv5hzzl67lpw7pgg3ja5dtmsu",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeif37we6t5hes72m2txc2upssmhynefhavkuvcqjkmvybqclophnnm",
         "contract/valory/subscription_provider/0.1.0": "bafybeiciopqd3vrqbmoq26ndnde5txdklpwyqioevfp2nu2mrdyjrjrfje",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeihtcnuu7hyncogx7cuup4ty6jrhyuca4hptg3ofdfmwmbiq4vb2zu"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeihsoqxegem4gartymdwhe4p4vricsk6foroz2qyiek6yvoiir654q"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i",

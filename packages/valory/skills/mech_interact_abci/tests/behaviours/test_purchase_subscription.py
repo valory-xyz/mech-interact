@@ -26,6 +26,9 @@ from packages.valory.skills.mech_interact_abci.behaviours.purchase_subcription i
     OWNER_PATH,
     dig,
 )
+from packages.valory.skills.mech_interact_abci.tests.behaviours.conftest import (
+    assert_unset_property_logs,
+)
 
 
 class TestDig:
@@ -93,9 +96,7 @@ class TestNonePropertyLogging:
         self, purchase_behaviour, prop
     ) -> None:
         """Test that accessing an unset property returns None and logs error."""
-        result = getattr(purchase_behaviour, prop)
-        assert result is None
-        purchase_behaviour.context.logger.error.assert_called_once()
+        assert_unset_property_logs(purchase_behaviour, prop)
 
 
 class TestDdoEndpoint:
@@ -162,9 +163,7 @@ class TestTxDataProperties:
     )
     def test_returns_none_when_unset(self, purchase_behaviour, prop) -> None:
         """Test returns None and logs error when backing field is None."""
-        result = getattr(purchase_behaviour, prop)
-        assert result is None
-        purchase_behaviour.context.logger.error.assert_called_once()
+        assert_unset_property_logs(purchase_behaviour, prop)
 
     @pytest.mark.parametrize(
         "attr,prop",

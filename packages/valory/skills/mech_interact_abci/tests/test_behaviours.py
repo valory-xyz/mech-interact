@@ -52,17 +52,6 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     SynchronizedData,
 )
-from packages.valory.skills.mech_interact_abci.states.mech_info import (
-    MechInformationRound,
-)
-from packages.valory.skills.mech_interact_abci.states.mech_version import (
-    MechVersionDetectionRound,
-)
-from packages.valory.skills.mech_interact_abci.states.purchase_subscription import (
-    MechPurchaseSubscriptionRound,
-)
-from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
-from packages.valory.skills.mech_interact_abci.states.response import MechResponseRound
 
 
 class BaseMechInteractTest(FSMBehaviourBaseCase):
@@ -104,60 +93,6 @@ class BaseMechInteractTest(FSMBehaviourBaseCase):
             assert self.current_behaviour_id == self.next_behaviour_class.behaviour_id
 
 
-class TestMechVersionDetectionBehaviour(BaseMechInteractTest):
-    """Tests MechVersionDetectionBehaviour"""
-
-    behaviour_class: Type[BaseBehaviour] = MechVersionDetectionBehaviour
-    next_behaviour_class: Type[BaseBehaviour] = MechInformationBehaviour
-
-    def test_matching_round(self):
-        """Test that the behaviour is matched to the correct round."""
-        assert MechVersionDetectionBehaviour.matching_round == MechVersionDetectionRound
-
-
-class TestMechInformationBehaviour(BaseMechInteractTest):
-    """Tests MechInformationBehaviour"""
-
-    behaviour_class: Type[BaseBehaviour] = MechInformationBehaviour
-
-    def test_matching_round(self):
-        """Test that the behaviour is matched to the correct round."""
-        assert MechInformationBehaviour.matching_round == MechInformationRound
-
-
-class TestMechRequestBehaviour(BaseMechInteractTest):
-    """Tests MechRequestBehaviour"""
-
-    behaviour_class: Type[BaseBehaviour] = MechRequestBehaviour
-
-    def test_matching_round(self):
-        """Test that the behaviour is matched to the correct round."""
-        assert MechRequestBehaviour.matching_round == MechRequestRound
-
-
-class TestMechPurchaseSubscriptionBehaviour(BaseMechInteractTest):
-    """Tests MechPurchaseSubscriptionBehaviour"""
-
-    behaviour_class: Type[BaseBehaviour] = MechPurchaseSubscriptionBehaviour
-
-    def test_matching_round(self):
-        """Test that the behaviour is matched to the correct round."""
-        assert (
-            MechPurchaseSubscriptionBehaviour.matching_round
-            == MechPurchaseSubscriptionRound
-        )
-
-
-class TestMechResponseBehaviour(BaseMechInteractTest):
-    """Tests MechResponseBehaviour"""
-
-    behaviour_class: Type[BaseBehaviour] = MechResponseBehaviour
-
-    def test_matching_round(self):
-        """Test that the behaviour is matched to the correct round."""
-        assert MechResponseBehaviour.matching_round == MechResponseRound
-
-
 class TestMechInteractRoundBehaviour(BaseMechInteractTest):
     """Tests for the MechInteractRoundBehaviour."""
 
@@ -173,7 +108,3 @@ class TestMechInteractRoundBehaviour(BaseMechInteractTest):
             MechResponseBehaviour,
         }
         assert MechInteractRoundBehaviour.behaviours == expected
-
-    def test_initial_behaviour(self):
-        """Test that the initial behaviour is correct."""
-        assert MechInteractRoundBehaviour.initial_behaviour_cls == MechRequestBehaviour

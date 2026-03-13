@@ -551,7 +551,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.sleep(self.params.sleep_time)
         return False
 
-    def get_priority_mech_address(self) -> Optional[str]:  # pragma: no cover
+    def get_priority_mech_address(self) -> Optional[str]:
         """Get the priority mech's address. Warning: the result is based on the time of access."""
         if (
             self.should_use_marketplace_v2()

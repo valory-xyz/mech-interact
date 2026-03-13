@@ -164,7 +164,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
 
         self.default_error(contract_id, contract_callable, response_msg)
 
-    def contract_interact(  # pragma: no cover
+    def contract_interact(
         self,
         performative: ContractApiMessage.Performative,
         contract_address: str,
@@ -329,7 +329,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
 
         return self.synchronized_data.is_marketplace_v2
 
-    def _build_multisend_data(  # pragma: no cover
+    def _build_multisend_data(
         self,
     ) -> WaitableConditionType:
         """Get the multisend tx."""

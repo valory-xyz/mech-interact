@@ -139,9 +139,9 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         elif isinstance(response_hash, str):
             self._response_hex = response_hash
         else:
-            raise TypeError(
-                f"Response hash {response_hash!r} is not valid hex bytes or string!"
-            )
+            msg = f"Response hash {response_hash!r} is not valid hex bytes or string!"
+            self.context.logger.error(msg)
+            self._response_hex = ""
 
     @property
     def is_valid_acn_sender(self) -> bool:
@@ -408,7 +408,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         return result
 
-    def _handle_response(  # pragma: no cover
+    def _handle_response(
         self,
         res: Optional[str],
     ) -> Optional[Any]:
@@ -433,7 +433,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         return res
 
-    def _process_response_with_artifacts(self, res: str) -> str:  # pragma: no cover
+    def _process_response_with_artifacts(self, res: str) -> str:
         """Process response that may contain base64 artifacts.
 
         :param res: the raw response string
@@ -513,7 +513,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             f"Response processing for this request might fail."
         )
 
-    def _is_legacy_match(  # pragma: no cover
+    def _is_legacy_match(
         self, pending_response: MechInteractionResponse, request: MechRequest
     ) -> bool:
         """Check if a legacy pending response matches the request based on data."""
@@ -530,7 +530,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             )  # Update the pending response directly
         return match
 
-    def _is_marketplace_match(  # pragma: no cover
+    def _is_marketplace_match(
         self,
         pending_response: MechInteractionResponse,
         request: MechRequest,
@@ -564,7 +564,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         )
         return True
 
-    def _check_match(  # pragma: no cover
+    def _check_match(
         self,
         pending_response: MechInteractionResponse,
         request: MechRequest,

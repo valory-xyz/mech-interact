@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2025-2026 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -17,18 +17,21 @@
 #
 # ------------------------------------------------------------------------------
 
-"""Tests for the graph_tooling module."""
+"""Shared fixtures for contract tests."""
 
-import json
+from unittest.mock import MagicMock
 
-from packages.valory.skills.mech_interact_abci.graph_tooling.requests import to_content
+import pytest
 
 
-class TestToContent:
-    """Tests for the to_content function."""
-
-    def test_wraps_query_in_json(self) -> None:
-        """Test converting a query string to JSON-encoded bytes."""
-        result = to_content("{ mechs { id } }")
-        parsed = json.loads(result)
-        assert parsed == {"query": "{ mechs { id } }"}
+@pytest.fixture
+def ledger_api():
+    """Create a mock ledger API with common Ethereum RPC stubs."""
+    mock_api = MagicMock()
+    mock_api.api.to_checksum_address = lambda addr: addr
+    mock_api.api.eth.get_transaction_receipt.return_value = {
+        "blockNumber": 100,
+        "logs": [],
+    }
+    mock_api.api.eth.get_block.return_value = {"number": 100}
+    return mock_api

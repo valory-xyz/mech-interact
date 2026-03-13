@@ -60,7 +60,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         """Get the mech agent api specs."""
         return self.context.mech_tools
 
-    def set_mech_agent_specs(self, metadata: str) -> None:  # pragma: no cover
+    def set_mech_agent_specs(self, metadata: str) -> None:
         """Set the mech's agent specs."""
         ipfs_link = self.params.ipfs_address + CID_PREFIX + metadata
         # The url needs to be dynamically generated as it depends on the ipfs hash
@@ -68,7 +68,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.mech_tools_api.url = ipfs_link
         self.mech_tools_api.__dict__["_frozen"] = True
 
-    def populate_tools(  # pragma: no cover
+    def populate_tools(
         self, mech_info: MechsSubgraphResponseType
     ) -> WaitableConditionType:
         """Populate the tools of the mech info, using the metadata."""
@@ -99,7 +99,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
 
         return True
 
-    def get_mechs_info(  # pragma: no cover
+    def get_mechs_info(
         self,
     ) -> Generator[None, None, Optional[str]]:
         """Get the mechs' information serialized as a JSON string."""
