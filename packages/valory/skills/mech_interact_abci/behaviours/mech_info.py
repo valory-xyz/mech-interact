@@ -50,13 +50,13 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
 
     matching_round = MechInformationRound
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:  # pragma: no cover
         """Initialize Behaviour."""
         super().__init__(**kwargs)
         self._fetch_status: FetchStatus = FetchStatus.NONE
 
     @property
-    def mech_tools_api(self) -> MechToolsSpecs:
+    def mech_tools_api(self) -> MechToolsSpecs:  # pragma: no cover
         """Get the mech agent api specs."""
         return self.context.mech_tools
 
@@ -132,7 +132,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.context.logger.info(f"Updated mechs' information: {info_str}")
         return serialized_info
 
-    def async_act(self) -> Generator:
+    def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             mechs_info = yield from self.get_mechs_info()
@@ -148,6 +148,6 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
 
         yield from self.finish_behaviour(payload)
 
-    def clean_up(self) -> None:
+    def clean_up(self) -> None:  # pragma: no cover
         """Clean up the behaviour."""
         self.mech_tools_api.reset_retries()

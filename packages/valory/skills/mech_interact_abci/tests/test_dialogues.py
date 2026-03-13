@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -19,8 +19,38 @@
 
 """Test the dialogues.py module of the MechInteract."""
 
-import packages.valory.skills.mech_interact_abci.dialogues  # noqa
+import pytest
+
+from packages.valory.skills.mech_interact_abci import dialogues
+
+EXPECTED_RE_EXPORTS = [
+    "AbciDialogue",
+    "AbciDialogues",
+    "HttpDialogue",
+    "HttpDialogues",
+    "SigningDialogue",
+    "SigningDialogues",
+    "LedgerApiDialogue",
+    "LedgerApiDialogues",
+    "ContractApiDialogue",
+    "ContractApiDialogues",
+    "TendermintDialogue",
+    "TendermintDialogues",
+    "IpfsDialogue",
+    "IpfsDialogues",
+    "AcnDialogue",
+    "AcnDialogues",
+]
 
 
-def test_import() -> None:
-    """Test that the 'dialogues.py' of the MechInteract can be imported."""
+@pytest.mark.parametrize("name", EXPECTED_RE_EXPORTS)
+def test_dialogue_exports_exist(name: str) -> None:
+    """Test that all expected dialogue classes are exported."""
+    assert hasattr(dialogues, name), f"Missing expected export: {name}"
+
+
+def test_acn_dialogues_is_model_subclass() -> None:
+    """Test that AcnDialogues is a Model subclass (not just a re-export)."""
+    from aea.skills.base import Model
+
+    assert issubclass(dialogues.AcnDialogues, Model)

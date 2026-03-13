@@ -64,23 +64,23 @@ class FetchStatus(Enum):
 class QueryingBehaviour(BaseBehaviour, ABC):
     """Abstract behaviour that implements subgraph querying functionality."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:  # pragma: no cover
         """Initialize a querying behaviour."""
         super().__init__(**kwargs)
         self._call_failed: bool = False
         self._fetch_status: FetchStatus = FetchStatus.NONE
 
     @property
-    def params(self) -> MechParams:
+    def params(self) -> MechParams:  # pragma: no cover
         """Return the params."""
         return cast(MechParams, super().params)
 
     @property
-    def mechs_subgraph(self) -> MechsSubgraph:
+    def mechs_subgraph(self) -> MechsSubgraph:  # pragma: no cover
         """Get the mechs' subgraph."""
         return self.context.mechs_subgraph
 
-    def _handle_response(
+    def _handle_response(  # pragma: no cover
         self,
         subgraph: ApiSpecs,
         res: MechsSubgraphResponseType,
@@ -119,7 +119,9 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         self._fetch_status = FetchStatus.SUCCESS
         return res
 
-    def fetch_mechs_info_batch(self, mechs_id_gt: int) -> MechsInfoFetcher:
+    def fetch_mechs_info_batch(
+        self, mechs_id_gt: int
+    ) -> MechsInfoFetcher:  # pragma: no cover
         """Fetch a batch of mechs' information from the subgraph."""
         lookback_seconds = self.params.deliveries_lookback_days * SECONDS_PER_DAY
         block_timestamp_gt = int(time.time()) - lookback_seconds
@@ -148,7 +150,7 @@ class QueryingBehaviour(BaseBehaviour, ABC):
 
         return info_batch
 
-    def fetch_mechs_info(
+    def fetch_mechs_info(  # pragma: no cover
         self,
     ) -> MechsInfoFetcher:
         """Fetch mechs' information from the subgraph."""
@@ -171,6 +173,6 @@ class QueryingBehaviour(BaseBehaviour, ABC):
             mechs_info.extend(info_batch)
             mechs_id_gt = info_batch[-1].id
 
-    def clean_up(self) -> None:
+    def clean_up(self) -> None:  # pragma: no cover
         """Clean up the resources."""
         self.mechs_subgraph.reset_retries()

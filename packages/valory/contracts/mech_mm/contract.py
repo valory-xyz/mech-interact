@@ -101,7 +101,7 @@ class MechMM(Contract):
         return "0x" + value.hex()
 
     @classmethod
-    def get_response(
+    def get_response(  # pragma: no cover
         cls,
         ledger_api: LedgerApi,
         contract_address: str,

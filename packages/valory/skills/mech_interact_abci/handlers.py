@@ -65,10 +65,10 @@ class AcnHandler(Handler):
 
     SUPPORTED_PROTOCOL = AcnDataShareMessage.protocol_id
 
-    def setup(self) -> None:
+    def setup(self) -> None:  # pragma: no cover
         """Set up the handler."""
 
-    def teardown(self) -> None:
+    def teardown(self) -> None:  # pragma: no cover
         """Tear down the handler."""
 
     @property

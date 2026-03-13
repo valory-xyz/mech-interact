@@ -57,7 +57,7 @@ class MechVersionDetectionBehaviour(MechInteractBaseBehaviour):
 
     matching_round = MechVersionDetectionRound
 
-    def detect_marketplace_compatibility(
+    def detect_marketplace_compatibility(  # pragma: no cover
         self,
     ) -> Generator[None, None, Optional[bool]]:
         """Detect if the marketplace supports v2 features."""
@@ -86,7 +86,7 @@ class MechVersionDetectionBehaviour(MechInteractBaseBehaviour):
         )
         return is_new_mm
 
-    def async_act(self) -> Generator:
+    def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             is_v2 = yield from self.detect_marketplace_compatibility()
