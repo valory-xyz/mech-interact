@@ -79,6 +79,8 @@ class MechMetadata:
     prompt: str
     tool: str
     nonce: str
+    schema_version: str = "2.0"
+    request_context: Optional[Dict[str, Any]] = None
 
 
 @dataclass

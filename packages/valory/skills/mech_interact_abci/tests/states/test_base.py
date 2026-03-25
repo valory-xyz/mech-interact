@@ -21,6 +21,7 @@
 
 import json
 import time
+from dataclasses import asdict
 from typing import Any, Dict, List
 
 import pytest
@@ -709,6 +710,70 @@ class TestMechMetadata:
         assert metadata.prompt == "test prompt"
         assert metadata.tool == "test_tool"
         assert metadata.nonce == "abc123"
+
+    def test_default_schema_version(self) -> None:
+        """Test that schema_version defaults to '2.0'."""
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1")
+        assert meta.schema_version == "2.0"
+
+    def test_default_request_context_is_none(self) -> None:
+        """Test that request_context defaults to None."""
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1")
+        assert meta.request_context is None
+
+    def test_explicit_request_context(self) -> None:
+        """Test constructing with an explicit request_context."""
+        ctx = {"market_id": "0xabc", "type": "omen", "market_prob": 0.4}
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", request_context=ctx)
+        assert meta.request_context == ctx
+
+    def test_explicit_schema_version_override(self) -> None:
+        """Test that schema_version can be explicitly overridden."""
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", schema_version="3.0")
+        assert meta.schema_version == "3.0"
+
+    def test_asdict_includes_new_fields(self) -> None:
+        """Test that asdict() output includes schema_version and request_context."""
+        ctx = {"market_id": "0xabc", "type": "omen"}
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", request_context=ctx)
+        d = asdict(meta)
+        assert d["schema_version"] == "2.0"
+        assert d["request_context"] == ctx
+
+    def test_asdict_none_request_context(self) -> None:
+        """Test that asdict() with no request_context produces null."""
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1")
+        d = asdict(meta)
+        assert d["schema_version"] == "2.0"
+        assert d["request_context"] is None
+
+    def test_serialization_round_trip(self) -> None:
+        """Test that MechMetadata survives JSON serialization round-trip."""
+        ctx = {"market_id": "0xabc", "type": "omen", "market_prob": 0.65}
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", request_context=ctx)
+        serialized = json.dumps(asdict(meta), sort_keys=True)
+        deserialized = json.loads(serialized)
+        restored = MechMetadata(**deserialized)
+        assert restored.prompt == meta.prompt
+        assert restored.tool == meta.tool
+        assert restored.nonce == meta.nonce
+        assert restored.schema_version == meta.schema_version
+        assert restored.request_context == meta.request_context
+
+    def test_backward_compatible_deserialization(self) -> None:
+        """Test that old payloads without schema_version/request_context still deserialize."""
+        old_payload = {"prompt": "q?", "tool": "t1", "nonce": "n1"}
+        meta = MechMetadata(**old_payload)
+        assert meta.schema_version == "2.0"
+        assert meta.request_context is None
+
+    def test_positional_construction_still_works(self) -> None:
+        """Test that positional construction (prompt, tool, nonce) is backward compatible."""
+        meta = MechMetadata("q?", "t1", "n1")
+        assert meta.prompt == "q?"
+        assert meta.tool == "t1"
+        assert meta.nonce == "n1"
+        assert meta.schema_version == "2.0"
 
 
 class TestMechRequest:
