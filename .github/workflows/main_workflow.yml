@@ -10,12 +10,17 @@ on:
 jobs:
   lock_check:
     continue-on-error: False
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2025]
         python-version: ["3.10"]
+        poetry-version: ["2.3.2"]
+
+    defaults:
+      run:
+        shell: bash
 
     timeout-minutes: 10
 
@@ -24,15 +29,18 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: |
-          pip install pipenv==2024.4.1
-      - name: Pipenv install requirements
-        run: |
-          pipenv install --dev --skip-lock
-      - name: Pipenv lock
-        run: |
-          pipenv lock
+      - name: Install and configure Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ matrix.poetry-version }}
+          virtualenvs-create: true
+          virtualenvs-in-project: false
+          virtualenvs-path: ~/my-custom-path
+          installer-parallel: true
+      - name: Check if dependencies can be locked
+        run: poetry lock
+      - name: Poetry install requirements and check they can be locked
+        run: poetry install --all-extras --no-interaction -vvv
 
   copyright_and_doc_check:
     continue-on-error: False
