@@ -145,14 +145,17 @@ class TestSharedStatePenalization:
 
         Eliminates the repeated PropertyMock chain across penalization tests.
         """
-        with patch.object(
-            type(state),
-            "synced_timestamp",
-            new_callable=PropertyMock,
-            return_value=timestamp,
-        ), patch.object(
-            type(state), "params", new_callable=PropertyMock
-        ) as mock_params:
+        with (
+            patch.object(
+                type(state),
+                "synced_timestamp",
+                new_callable=PropertyMock,
+                return_value=timestamp,
+            ),
+            patch.object(
+                type(state), "params", new_callable=PropertyMock
+            ) as mock_params,
+        ):
             mock_params.return_value = MagicMock(penalize_mech_time_window=time_window)
             yield
 
