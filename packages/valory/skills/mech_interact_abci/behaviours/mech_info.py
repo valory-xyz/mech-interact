@@ -21,7 +21,7 @@
 """This module contains the behaviour responsible for gathering information about the mech marketplace."""
 
 import json
-from typing import Any, Generator, Optional
+from typing import Any, Generator, Optional, Set
 
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
@@ -54,6 +54,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         """Initialize Behaviour."""
         super().__init__(**kwargs)
         self._fetch_status: FetchStatus = FetchStatus.NONE
+        self._failed_mechs: Set[str] = set()
 
     @property
     def mech_tools_api(self) -> MechToolsSpecs:  # pragma: no cover
@@ -73,7 +74,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
     ) -> WaitableConditionType:
         """Populate the tools of the mech info, using the metadata."""
         for mech in mech_info:
-            if mech.relevant_tools:
+            if mech.relevant_tools or mech.address in self._failed_mechs:
                 continue
 
             self.set_mech_agent_specs(mech.service.metadata_str)
@@ -85,12 +86,25 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                 msg = f"Could not get the {mech.address} mech agent's tools from {self.mech_tools_api.url}."
                 self.context.logger.warning(msg)
                 self.mech_tools_api.increment_retries()
+                if self.mech_tools_api.is_retries_exceeded():
+                    self.context.logger.error(
+                        f"Quarantining mech {mech.address}: could not fetch "
+                        f"tools manifest from {self.mech_tools_api.url} "
+                        f"after retries exhausted."
+                    )
+                    self._failed_mechs.add(mech.address)
+                    self.mech_tools_api.reset_retries()
                 return False
 
             if len(res) == 0:
                 self.context.logger.warning(
-                    f"The {mech.address} mech agent's tools are empty!"
+                    f"Quarantining mech {mech.address}: tools manifest at "
+                    f"{self.mech_tools_api.url} is empty. Empty lists are "
+                    f"deterministic per-CID; will retry on next round entry."
                 )
+                self._failed_mechs.add(mech.address)
+                self.mech_tools_api.reset_retries()
+                continue
 
             # store only the relevant mech tools
             relevant_tools = set(res) - self.params.irrelevant_tools
@@ -113,17 +127,20 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             return None
 
         while True:
-            # fails even if a single mech's set of tools cannot be fetched
             tools_populated = yield from self.populate_tools(mech_info)
             if tools_populated:
                 break
 
-            if not self.mech_tools_api.is_retries_exceeded():
-                continue
+        if self._failed_mechs:
+            self.context.logger.warning(
+                f"Skipped {len(self._failed_mechs)} mech(s) with unreachable "
+                f"tools manifests: {sorted(self._failed_mechs)}"
+            )
 
-            msg = "Retries were exceeded while trying to get the mech tools."
-            self.context.logger.warning(msg)
-            self.mech_tools_api.reset_retries()
+        if not any(mech.relevant_tools for mech in mech_info):
+            self.context.logger.warning(
+                "No mechs have usable tools after fetch; emitting NONE to retry."
+            )
             return None
 
         # truncate the information, otherwise logs get too big
@@ -151,3 +168,4 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
     def clean_up(self) -> None:  # pragma: no cover
         """Clean up the behaviour."""
         self.mech_tools_api.reset_retries()
+        self._failed_mechs.clear()
