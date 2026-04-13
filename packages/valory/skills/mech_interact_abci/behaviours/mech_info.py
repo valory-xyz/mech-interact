@@ -85,6 +85,17 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             if res is None:
                 msg = f"Could not get the {mech.address} mech agent's tools from {self.mech_tools_api.url}."
                 self.context.logger.warning(msg)
+
+                if self.mech_tools_api.is_permanent_error(res_raw):
+                    self.context.logger.error(
+                        f"Quarantining mech {mech.address}: permanent content "
+                        f"error at {self.mech_tools_api.url} "
+                        f"(status={res_raw.status_code}); retries skipped."
+                    )
+                    self._failed_mechs.add(mech.address)
+                    self.mech_tools_api.reset_retries()
+                    return False
+
                 self.mech_tools_api.increment_retries()
                 if self.mech_tools_api.is_retries_exceeded():
                     self.context.logger.error(

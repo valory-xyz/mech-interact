@@ -20,7 +20,7 @@
 """This module contains the models for the abci skill of MechInteractAbciApp."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, FrozenSet, List, Optional, cast
+from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Tuple, cast
 
 from aea.exceptions import enforce
 from aea.skills.base import SkillContext
@@ -53,6 +53,39 @@ Ox = "0x"
 
 class MechToolsSpecs(ApiSpecs):
     """A model that wraps ApiSpecs for the Mech agent's tools specifications."""
+
+    # Substrings (case-insensitive) in a 5xx response body that indicate the
+    # CID is structurally invalid and will never resolve. 5xx without any
+    # marker is treated as transient (gateway flake).
+    PERMANENT_ERROR_BODY_MARKERS: ClassVar[Tuple[str, ...]] = (
+        "invalid wiretype",
+        "protobuf:",
+        "malformed",
+        "failed to resolve",
+        "cid not found",
+    )
+
+    def is_permanent_error(self, response: HttpMessage) -> bool:
+        """Classify a failed response as permanent (never retry) or transient.
+
+        Called by populate_tools only when process_response returned None.
+        Permanent means quarantine immediately; transient means defer to the
+        retry counter.
+
+        :param response: the HTTP response whose body/status is classified.
+        :return: True if the error is permanent and retries should be skipped.
+        """
+        status = response.status_code
+        if 200 <= status < 300:
+            # 2xx + process_response failed => malformed content, not a flake.
+            return True
+        if 400 <= status < 500:
+            # Gateway rejected the request (404 CID not found, etc.).
+            return True
+        if 500 <= status < 600:
+            body = response.body.decode(errors="ignore").lower()
+            return any(marker in body for marker in self.PERMANENT_ERROR_BODY_MARKERS)
+        return False
 
 
 class MechsSubgraph(ApiSpecs):
