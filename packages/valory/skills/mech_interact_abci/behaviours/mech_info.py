@@ -98,8 +98,13 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
 
             if len(res) == 0:
                 self.context.logger.warning(
-                    f"The {mech.address} mech agent's tools are empty!"
+                    f"Quarantining mech {mech.address}: tools manifest at "
+                    f"{self.mech_tools_api.url} is empty. Empty lists are "
+                    f"deterministic per-CID; will retry on next round entry."
                 )
+                self._failed_mechs.add(mech.address)
+                self.mech_tools_api.reset_retries()
+                continue
 
             # store only the relevant mech tools
             relevant_tools = set(res) - self.params.irrelevant_tools

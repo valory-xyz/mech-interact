@@ -169,8 +169,8 @@ class TestPopulateTools:
         mock_api.increment_retries.assert_called_once()
         behaviour.context.logger.warning.assert_called()
 
-    def test_warns_on_empty_tools(self) -> None:
-        """Test that empty tools list logs a warning but still succeeds."""
+    def test_quarantines_on_empty_tools(self) -> None:
+        """Empty tools list is deterministic per-CID; mech is quarantined."""
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
@@ -182,7 +182,7 @@ class TestPopulateTools:
         mock_api.process_response.return_value = []  # empty
         behaviour._context.mech_tools = mock_api
 
-        mech = _make_mech_info(relevant_tools=set())
+        mech = _make_mech_info(address="0xempty", relevant_tools=set())
 
         def mock_get_http_response(**kwargs):
             yield
@@ -198,9 +198,11 @@ class TestPopulateTools:
             result = e.value
 
         assert result is True
-        # Check the empty tools warning was logged
+        assert "0xempty" in behaviour._failed_mechs
+        assert mech.relevant_tools == set()
         warning_calls = behaviour.context.logger.warning.call_args_list
         assert any("empty" in str(call) for call in warning_calls)
+        mock_api.reset_retries.assert_called_once()
 
     def test_multiple_mechs_processes_all(self) -> None:
         """Test that populate_tools processes all mechs without existing tools."""
