@@ -276,6 +276,9 @@ class MechParams(BaseParams):
             "use_acn_for_delivers", kwargs, bool
         )
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
+        self.mech_tools_parallel_timeout: float = self._ensure(
+            "mech_tools_parallel_timeout", kwargs, float
+        )
         self.ignored_mechs: FrozenSet[str] = frozenset(
             self._ensure("ignored_mechs", kwargs, List[str])
         )

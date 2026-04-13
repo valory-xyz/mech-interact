@@ -66,6 +66,21 @@ def _wire_parallel_fetch(
     return behaviour
 
 
+def _install_fake_parallel_fetch(behaviour, responses):
+    """Replace behaviour._fetch_http_parallel with a generator returning responses.
+
+    Each element of `responses` maps 1:1 to a pending mech in populate_tools.
+    A value of None represents a timed-out request.
+    """
+
+    def _fake_fetch(specs, timeout, poll_interval=0.1):
+        yield
+        return list(responses)
+
+    behaviour._fetch_http_parallel = _fake_fetch
+    return behaviour
+
+
 def _make_mech_info(
     address: str = "0xmech1",
     metadata_str: str = "abc123",
@@ -130,6 +145,7 @@ class TestPopulateTools:
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
         behaviour._context.params.irrelevant_tools = {"irrelevant_tool"}
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
@@ -138,22 +154,9 @@ class TestPopulateTools:
         behaviour._context.mech_tools = mock_api
 
         mech = _make_mech_info(relevant_tools=set())
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
 
-        # Mock get_http_response as a generator
-        http_response = MagicMock()
-
-        def mock_get_http_response(**kwargs):
-            yield
-            return http_response
-
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.populate_tools([mech])
-        try:
-            next(gen)  # yield from get_http_response
-            gen.send(None)
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.populate_tools([mech]))
 
         assert result is True
         assert mech.relevant_tools == {"tool_a", "tool_b"}
@@ -164,6 +167,7 @@ class TestPopulateTools:
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
@@ -175,19 +179,9 @@ class TestPopulateTools:
         behaviour._context.mech_tools = mock_api
 
         mech = _make_mech_info(relevant_tools=set())
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
-
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.populate_tools([mech])
-        try:
-            next(gen)
-            gen.send(None)
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.populate_tools([mech]))
 
         assert result is False
         mock_api.increment_retries.assert_called_once()
@@ -199,6 +193,7 @@ class TestPopulateTools:
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
         behaviour._context.params.irrelevant_tools = set()
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
@@ -207,19 +202,9 @@ class TestPopulateTools:
         behaviour._context.mech_tools = mock_api
 
         mech = _make_mech_info(address="0xempty", relevant_tools=set())
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
-
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.populate_tools([mech])
-        try:
-            next(gen)
-            gen.send(None)
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.populate_tools([mech]))
 
         assert result is True
         assert "0xempty" in behaviour._failed_mechs
@@ -229,37 +214,24 @@ class TestPopulateTools:
         mock_api.reset_retries.assert_called_once()
 
     def test_multiple_mechs_processes_all(self) -> None:
-        """Test that populate_tools processes all mechs without existing tools."""
+        """Test that populate_tools processes all mechs in parallel in one pass."""
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
         behaviour._context.params.irrelevant_tools = set()
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
-        # Return different tools for each call
         mock_api.process_response.side_effect = [["tool_1"], ["tool_2"]]
         behaviour._context.mech_tools = mock_api
 
         mech1 = _make_mech_info(address="0xmech1", relevant_tools=set())
         mech2 = _make_mech_info(address="0xmech2", relevant_tools=set())
+        _install_fake_parallel_fetch(behaviour, [MagicMock(), MagicMock()])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
-
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.populate_tools([mech1, mech2])
-        try:
-            next(gen)  # first mech: yield from get_http_response
-            gen.send(
-                None
-            )  # first mech completes, second mech: yield from get_http_response
-            gen.send(None)  # second mech completes, generator returns True
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.populate_tools([mech1, mech2]))
 
         assert result is True
         assert mech1.relevant_tools == {"tool_1"}
@@ -315,10 +287,11 @@ class TestQuarantine:
     """Tests for per-mech quarantine on IPFS fetch failure."""
 
     def test_populate_tools_quarantines_mech_after_retries_exhausted(self) -> None:
-        """A mech whose fetch fails with retries exhausted is added to _failed_mechs."""
+        """A transient mech whose retries are exhausted is added to _failed_mechs."""
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
@@ -330,30 +303,21 @@ class TestQuarantine:
         behaviour._context.mech_tools = mock_api
 
         mech = _make_mech_info(address="0xbroken", relevant_tools=set())
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
+        result = _drive(behaviour.populate_tools([mech]))
 
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.populate_tools([mech])
-        try:
-            next(gen)
-            gen.send(None)
-        except StopIteration as e:
-            result = e.value
-
-        assert result is False
+        assert result is True  # mech now quarantined, no more work
         assert "0xbroken" in behaviour._failed_mechs
         mock_api.reset_retries.assert_called_once()
         behaviour.context.logger.error.assert_called()
 
     def test_populate_tools_does_not_quarantine_before_retries_exceeded(self) -> None:
-        """A single failure with retries not yet exceeded leaves _failed_mechs empty."""
+        """Transient failure with retries remaining leaves _failed_mechs empty."""
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
@@ -365,19 +329,9 @@ class TestQuarantine:
         behaviour._context.mech_tools = mock_api
 
         mech = _make_mech_info(address="0xtransient", relevant_tools=set())
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
-
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.populate_tools([mech])
-        try:
-            next(gen)
-            gen.send(None)
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.populate_tools([mech]))
 
         assert result is False
         assert behaviour._failed_mechs == set()
@@ -385,10 +339,11 @@ class TestQuarantine:
         mock_api.reset_retries.assert_not_called()
 
     def test_quarantine_only_fires_on_final_retry(self) -> None:
-        """populate_tools is invoked multiple times; quarantine fires only when retries exhaust."""
+        """Across N passes, retry counter advances once per pass; quarantine only on exhaustion."""
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         retries_limit = 3
         call_count = {"n": 0}
@@ -411,34 +366,21 @@ class TestQuarantine:
 
         mech = _make_mech_info(address="0xflaky", relevant_tools=set())
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
-
-        behaviour.get_http_response = mock_get_http_response
-
-        # Simulate get_mechs_info's outer while-loop: call populate_tools until True.
+        # Each populate_tools pass sees one transient failure.
+        # The fake is re-used across passes.
         iterations = 0
         while True:
             iterations += 1
-            gen = behaviour.populate_tools([mech])
-            try:
-                next(gen)
-                gen.send(None)
-            except StopIteration as e:
-                outcome = e.value
+            _install_fake_parallel_fetch(behaviour, [MagicMock()])
+            outcome = _drive(behaviour.populate_tools([mech]))
             if outcome:
                 break
-
-            # Before the final (quarantining) iteration, the mech must not yet
-            # be quarantined. This asserts the guard actually gates on the
-            # retries-exceeded flag, not just "first failure".
             if iterations < retries_limit:
                 assert behaviour._failed_mechs == set()
 
-        assert (
-            iterations == retries_limit + 1
-        )  # N failures + 1 final pass returning True
+        # Quarantine fires on the pass that exhausts retries (same iteration
+        # as the Nth increment), so we expect exactly retries_limit passes.
+        assert iterations == retries_limit
         assert "0xflaky" in behaviour._failed_mechs
         assert mock_api.increment_retries.call_count == retries_limit
 
@@ -478,6 +420,7 @@ class TestQuarantine:
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
         behaviour._context.params.irrelevant_tools = set()
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         good = _make_mech_info(address="0xgood", relevant_tools=set())
         broken = _make_mech_info(address="0xbroken", relevant_tools=set())
@@ -492,27 +435,14 @@ class TestQuarantine:
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
-        # good -> tools list; broken -> None repeatedly until retries exceeded.
         mock_api.process_response.side_effect = [["tool_good"], None]
         mock_api.is_retries_exceeded.return_value = True
         mock_api.is_permanent_error.return_value = False
         mock_api.url = "http://test/broken"
         behaviour._context.mech_tools = mock_api
+        _install_fake_parallel_fetch(behaviour, [MagicMock(), MagicMock()])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
-
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.get_mechs_info()
-        result = None
-        try:
-            while True:
-                next(gen)
-                gen.send(None)
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.get_mechs_info())
 
         assert result is not None
         assert "0xgood" in result
@@ -527,6 +457,7 @@ class TestQuarantine:
         behaviour._fetch_status = FetchStatus.SUCCESS
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mech = _make_mech_info(address="0xbroken", relevant_tools=set())
 
@@ -545,21 +476,9 @@ class TestQuarantine:
         mock_api.is_permanent_error.return_value = False
         mock_api.url = "http://test/broken"
         behaviour._context.mech_tools = mock_api
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
-
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.get_mechs_info()
-        result = "unset"
-        try:
-            while True:
-                next(gen)
-                gen.send(None)
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.get_mechs_info())
 
         assert result is None
         assert "0xbroken" in behaviour._failed_mechs
@@ -585,6 +504,7 @@ class TestPermanentErrorClassification:
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
@@ -598,37 +518,26 @@ class TestPermanentErrorClassification:
 
         http_message = MagicMock()
         http_message.status_code = 500
+        _install_fake_parallel_fetch(behaviour, [http_message])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return http_message
+        result = _drive(behaviour.populate_tools([mech]))
 
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.populate_tools([mech])
-        try:
-            next(gen)
-            gen.send(None)
-        except StopIteration as e:
-            result = e.value
-
-        assert result is False
+        assert result is True  # quarantined; nothing more to do
         assert "0xpermanent" in behaviour._failed_mechs
         mock_api.increment_retries.assert_not_called()
         mock_api.reset_retries.assert_called_once()
-        # Classifier was invoked on the received response.
         mock_api.is_permanent_error.assert_called_once_with(http_message)
-        # Error log mentions permanent content error for ops telemetry.
         error_calls = behaviour.context.logger.error.call_args_list
         assert any("permanent content error" in str(call) for call in error_calls)
 
     def test_transient_error_still_increments_retries_and_does_not_quarantine(
         self,
     ) -> None:
-        """Transient path is byte-identical to pre-Fix-2 behaviour."""
+        """Transient path keeps the existing retry semantics."""
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
@@ -640,19 +549,9 @@ class TestPermanentErrorClassification:
         behaviour._context.mech_tools = mock_api
 
         mech = _make_mech_info(address="0xtransient", relevant_tools=set())
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
 
-        def mock_get_http_response(**kwargs):
-            yield
-            return MagicMock()
-
-        behaviour.get_http_response = mock_get_http_response
-
-        gen = behaviour.populate_tools([mech])
-        try:
-            next(gen)
-            gen.send(None)
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.populate_tools([mech]))
 
         assert result is False
         assert behaviour._failed_mechs == set()
@@ -660,16 +559,20 @@ class TestPermanentErrorClassification:
         mock_api.reset_retries.assert_not_called()
 
     def test_get_mechs_info_permanent_error_needs_only_one_http_call(self) -> None:
-        """End-to-end: permanent broken mech quarantined on first attempt.
+        """Permanent broken mech quarantined on first attempt.
 
-        Before Fix 2 the broken mech would consume `retries+1` HTTP calls
-        (6 attempts) before quarantine. After Fix 2 it takes exactly 1.
+        Before Fix 2 the broken mech would consume 6 attempts before
+        quarantine. Fix 2 made it 1 attempt. Fix 4 (this change) runs
+        the good + broken fetches in parallel, so total wall time =
+        max(per-mech) instead of sum. Asserts one parallel pass, two
+        HTTP sends.
         """
         behaviour = _make_mech_info_behaviour()
         behaviour._fetch_status = FetchStatus.SUCCESS
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
         behaviour._context.params.irrelevant_tools = set()
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
         good = _make_mech_info(address="0xgood", relevant_tools=set())
         broken = _make_mech_info(address="0xbroken", relevant_tools=set())
@@ -681,9 +584,6 @@ class TestPermanentErrorClassification:
 
         behaviour.fetch_mechs_info = mock_fetch_mechs_info
 
-        # Order the good mech first so it's populated before the broken one
-        # triggers the return-False path. Broken then gets classified on its
-        # first attempt.
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
@@ -692,23 +592,19 @@ class TestPermanentErrorClassification:
         mock_api.url = "http://test/broken"
         behaviour._context.mech_tools = mock_api
 
-        http_call_count = {"n": 0}
+        parallel_call_count = {"n": 0}
+        total_requests = {"n": 0}
 
-        def mock_get_http_response(**kwargs):
-            http_call_count["n"] += 1
+        def _fake_fetch(specs, timeout, poll_interval=0.1):
+            parallel_call_count["n"] += 1
+            total_requests["n"] += len(specs)
             yield
-            return MagicMock()
+            # good first, broken second (per pending order)
+            return [MagicMock(), MagicMock()]
 
-        behaviour.get_http_response = mock_get_http_response
+        behaviour._fetch_http_parallel = _fake_fetch
 
-        gen = behaviour.get_mechs_info()
-        result = None
-        try:
-            while True:
-                next(gen)
-                gen.send(None)
-        except StopIteration as e:
-            result = e.value
+        result = _drive(behaviour.get_mechs_info())
 
         assert result is not None
         assert "0xgood" in result
@@ -716,9 +612,9 @@ class TestPermanentErrorClassification:
         assert good.relevant_tools == {"tool_good"}
         assert broken.relevant_tools == set()
         assert "0xbroken" in behaviour._failed_mechs
-        # Key assertion: exactly 2 HTTP calls — 1 good + 1 permanent broken.
-        # Pre-Fix-2 this would be 7 (1 good + 6 broken retries).
-        assert http_call_count["n"] == 2
+        # One parallel pass, two total HTTP sends (one per mech).
+        assert parallel_call_count["n"] == 1
+        assert total_requests["n"] == 2
         mock_api.increment_retries.assert_not_called()
 
 
@@ -783,7 +679,11 @@ class TestFetchHttpParallel:
         self._install_counting_sleep(behaviour)
 
         gen = behaviour._fetch_http_parallel(
-            [{"method": "GET", "url": "u1"}, {"method": "GET", "url": "u2"}, {"method": "GET", "url": "u3"}],
+            [
+                {"method": "GET", "url": "u1"},
+                {"method": "GET", "url": "u2"},
+                {"method": "GET", "url": "u3"},
+            ],
             timeout=10.0,
         )
         # Drive just to the first yield (first sleep call).
@@ -807,7 +707,11 @@ class TestFetchHttpParallel:
         )
         _step(gen)  # fan-out done; first sleep yielded
 
-        msg1, msg2, msg3 = MagicMock(name="m1"), MagicMock(name="m2"), MagicMock(name="m3")
+        msg1, msg2, msg3 = (
+            MagicMock(name="m1"),
+            MagicMock(name="m2"),
+            MagicMock(name="m3"),
+        )
         # Fire in reverse arrival order.
         registry["n2"](msg2, behaviour)
         registry["n3"](msg3, behaviour)
@@ -898,3 +802,181 @@ class TestFetchHttpParallel:
         # No calls of any kind on current_behaviour — not try_send, not state.
         mock_current_behaviour.assert_not_called()
         assert not mock_current_behaviour.method_calls
+
+
+class TestPopulateToolsParallelSemantics:
+    """Tests for the parallel-batch semantics of populate_tools (Fix 4)."""
+
+    def _setup(self, behaviour, api_side_effects=None):
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.irrelevant_tools = set()
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
+        api = MagicMock()
+        api.__dict__["_frozen"] = True
+        api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        api.url = "http://test/hash"
+        if api_side_effects is not None:
+            api.process_response.side_effect = api_side_effects
+        behaviour._context.mech_tools = api
+        return api
+
+    def test_mixed_permanent_transient_good_in_one_batch(self) -> None:
+        """B3: three mechs with different outcomes; all handled in one pass."""
+        behaviour = _make_mech_info_behaviour()
+        api = self._setup(behaviour, api_side_effects=[["tool_x"], None, None])
+        api.is_permanent_error.side_effect = [
+            True,
+            False,
+        ]  # order: permanent, transient
+        api.is_retries_exceeded.return_value = False
+
+        mech_good = _make_mech_info(
+            address="0xgood", metadata_str="good", relevant_tools=set()
+        )
+        mech_permanent = _make_mech_info(
+            address="0xpermanent", metadata_str="permanent", relevant_tools=set()
+        )
+        mech_transient = _make_mech_info(
+            address="0xtransient", metadata_str="transient", relevant_tools=set()
+        )
+
+        perm_response = MagicMock()
+        perm_response.status_code = 500
+        _install_fake_parallel_fetch(
+            behaviour, [MagicMock(), perm_response, MagicMock()]
+        )
+
+        result = _drive(
+            behaviour.populate_tools([mech_good, mech_permanent, mech_transient])
+        )
+
+        assert result is False  # transient still has retries
+        assert mech_good.relevant_tools == {"tool_x"}
+        assert "0xpermanent" in behaviour._failed_mechs
+        assert "0xtransient" not in behaviour._failed_mechs
+        # Single increment for the batch, not per-mech.
+        api.increment_retries.assert_called_once()
+
+    def test_all_transient_batch_advances_shared_counter_once(self) -> None:
+        """B4: shared retry counter advances once per pass, not per mech."""
+        behaviour = _make_mech_info_behaviour()
+        api = self._setup(behaviour, api_side_effects=[None, None, None])
+        api.is_permanent_error.return_value = False
+        api.is_retries_exceeded.return_value = False
+
+        mechs = [
+            _make_mech_info(address=f"0x{i}", metadata_str=str(i), relevant_tools=set())
+            for i in range(3)
+        ]
+        _install_fake_parallel_fetch(behaviour, [MagicMock()] * 3)
+
+        result = _drive(behaviour.populate_tools(mechs))
+
+        assert result is False
+        assert behaviour._failed_mechs == set()
+        # Three transient failures in one pass -> ONE counter advance, not three.
+        assert api.increment_retries.call_count == 1
+
+    def test_retries_exhausted_during_batch_quarantines_all_pending(self) -> None:
+        """B5: on retries exhaustion, quarantine every still-unpopulated mech."""
+        behaviour = _make_mech_info_behaviour()
+        api = self._setup(behaviour, api_side_effects=[None, None, None])
+        api.is_permanent_error.return_value = False
+        api.is_retries_exceeded.return_value = True
+
+        mechs = [
+            _make_mech_info(address=f"0x{i}", metadata_str=str(i), relevant_tools=set())
+            for i in range(3)
+        ]
+        _install_fake_parallel_fetch(behaviour, [MagicMock()] * 3)
+
+        result = _drive(behaviour.populate_tools(mechs))
+
+        assert result is True  # every mech quarantined; no more work
+        for i in range(3):
+            assert f"0x{i}" in behaviour._failed_mechs
+        api.reset_retries.assert_called_once()
+
+    def test_timed_out_fetch_is_treated_as_transient(self) -> None:
+        """B6: None response (timeout) increments retries; no quarantine."""
+        behaviour = _make_mech_info_behaviour()
+        api = self._setup(behaviour)
+        api.is_permanent_error.return_value = False
+        api.is_retries_exceeded.return_value = False
+
+        mechs = [
+            _make_mech_info(address=f"0x{i}", metadata_str=str(i), relevant_tools=set())
+            for i in range(3)
+        ]
+        _install_fake_parallel_fetch(behaviour, [None, None, None])
+
+        result = _drive(behaviour.populate_tools(mechs))
+
+        assert result is False
+        assert behaviour._failed_mechs == set()
+        api.increment_retries.assert_called_once()
+
+    def test_zero_pending_mechs_returns_true_without_fetching(self) -> None:
+        """B2: all mechs pre-populated — no fetch, no put_message."""
+        behaviour = _make_mech_info_behaviour()
+        self._setup(behaviour)
+
+        mechs = [
+            _make_mech_info(address="0xm1", relevant_tools={"already"}),
+            _make_mech_info(address="0xm2", relevant_tools={"here"}),
+        ]
+
+        fetch_calls = []
+
+        def _fake_fetch(specs, timeout, poll_interval=0.1):
+            fetch_calls.append(specs)
+            yield
+            return [MagicMock() for _ in specs]
+
+        behaviour._fetch_http_parallel = _fake_fetch
+
+        result = _drive(behaviour.populate_tools(mechs))
+
+        assert result is True
+        assert fetch_calls == []
+
+    def test_specs_snapshotted_per_mech(self) -> None:
+        """B1: each mech's spec is snapshotted before the next mech's URL mutation."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.irrelevant_tools = set()
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
+
+        # Real ApiSpecs-style url mutation via set_mech_agent_specs.
+        api = MagicMock()
+        api.__dict__["_frozen"] = True
+        api.is_permanent_error.return_value = False
+        api.is_retries_exceeded.return_value = False
+        api.process_response.side_effect = [["tool_a"], ["tool_b"]]
+        # get_spec returns the current URL at the time of the call.
+        api.get_spec = lambda: {"url": api.url, "method": "GET"}
+        behaviour._context.mech_tools = api
+
+        mech_a = _make_mech_info(
+            address="0xa", metadata_str="aaa", relevant_tools=set()
+        )
+        mech_b = _make_mech_info(
+            address="0xb", metadata_str="bbb", relevant_tools=set()
+        )
+
+        captured_specs = []
+
+        def _fake_fetch(specs, timeout, poll_interval=0.1):
+            captured_specs.extend(specs)
+            yield
+            return [MagicMock(), MagicMock()]
+
+        behaviour._fetch_http_parallel = _fake_fetch
+
+        _drive(behaviour.populate_tools([mech_a, mech_b]))
+
+        # Each spec must carry its own mech's CID, not the last-mutated URL.
+        assert CID_PREFIX + "aaa" in captured_specs[0]["url"]
+        assert CID_PREFIX + "bbb" in captured_specs[1]["url"]

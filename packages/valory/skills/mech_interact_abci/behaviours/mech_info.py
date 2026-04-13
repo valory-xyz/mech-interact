@@ -136,20 +136,44 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
     def populate_tools(
         self, mech_info: MechsSubgraphResponseType
     ) -> WaitableConditionType:
-        """Populate the tools of the mech info, using the metadata."""
-        for mech in mech_info:
-            if mech.relevant_tools or mech.address in self._failed_mechs:
+        """Populate the tools of the mech info, using the metadata, in parallel."""
+        pending = [
+            mech
+            for mech in mech_info
+            if not mech.relevant_tools and mech.address not in self._failed_mechs
+        ]
+        if not pending:
+            return True
+
+        specs_per_mech: List[Dict[str, Any]] = []
+        for mech in pending:
+            # set_mech_agent_specs mutates mech_tools_api.url. Snapshot
+            # get_spec() BEFORE advancing to the next mech so each sent
+            # request carries its own mech's CID.
+            self.set_mech_agent_specs(mech.service.metadata_str)
+            specs_per_mech.append(dict(self.mech_tools_api.get_spec()))
+
+        responses = yield from self._fetch_http_parallel(
+            specs_per_mech,
+            timeout=self.params.mech_tools_parallel_timeout,
+        )
+
+        any_transient = False
+        for mech, res_raw in zip(pending, responses):
+            if res_raw is None:
+                self.context.logger.warning(
+                    f"Timed out fetching {mech.address} mech agent's tools."
+                )
+                any_transient = True
                 continue
 
-            self.set_mech_agent_specs(mech.service.metadata_str)
-            specs = self.mech_tools_api.get_spec()
-            res_raw = yield from self.get_http_response(**specs)
             res = self.mech_tools_api.process_response(res_raw)
 
             if res is None:
-                msg = f"Could not get the {mech.address} mech agent's tools from {self.mech_tools_api.url}."
-                self.context.logger.warning(msg)
-
+                self.context.logger.warning(
+                    f"Could not get the {mech.address} mech agent's tools "
+                    f"from {self.mech_tools_api.url}."
+                )
                 if self.mech_tools_api.is_permanent_error(res_raw):
                     self.context.logger.error(
                         f"Quarantining mech {mech.address}: permanent content "
@@ -157,19 +181,9 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                         f"(status={res_raw.status_code}); retries skipped."
                     )
                     self._failed_mechs.add(mech.address)
-                    self.mech_tools_api.reset_retries()
-                    return False
-
-                self.mech_tools_api.increment_retries()
-                if self.mech_tools_api.is_retries_exceeded():
-                    self.context.logger.error(
-                        f"Quarantining mech {mech.address}: could not fetch "
-                        f"tools manifest from {self.mech_tools_api.url} "
-                        f"after retries exhausted."
-                    )
-                    self._failed_mechs.add(mech.address)
-                    self.mech_tools_api.reset_retries()
-                return False
+                else:
+                    any_transient = True
+                continue
 
             if len(res) == 0:
                 self.context.logger.warning(
@@ -178,15 +192,34 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                     f"deterministic per-CID; will retry on next round entry."
                 )
                 self._failed_mechs.add(mech.address)
-                self.mech_tools_api.reset_retries()
                 continue
 
-            # store only the relevant mech tools
             relevant_tools = set(res) - self.params.irrelevant_tools
             mech.relevant_tools |= relevant_tools
+
+        # Advance the shared retry counter once per pass that had transient
+        # failures. On exhaustion, quarantine every still-unpopulated mech.
+        if any_transient:
+            self.mech_tools_api.increment_retries()
+            if self.mech_tools_api.is_retries_exceeded():
+                for mech in pending:
+                    if (
+                        not mech.relevant_tools
+                        and mech.address not in self._failed_mechs
+                    ):
+                        self.context.logger.error(
+                            f"Quarantining mech {mech.address}: retries "
+                            f"exhausted after transient failures."
+                        )
+                        self._failed_mechs.add(mech.address)
+                self.mech_tools_api.reset_retries()
+        else:
             self.mech_tools_api.reset_retries()
 
-        return True
+        return all(
+            mech.relevant_tools or mech.address in self._failed_mechs
+            for mech in pending
+        )
 
     def get_mechs_info(
         self,

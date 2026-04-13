@@ -12,7 +12,7 @@ fingerprint:
   __init__.py: bafybeic6zmplvwsgp5gh2rse2ushtaqnodvmb4kxooace5ghabz4exqbt4
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
   behaviours/base.py: bafybeieigufombqm2hmzbmhbkzxt6apnqns5y7gz627v74sffg6a2jyovi
-  behaviours/mech_info.py: bafybeie3glmx2hwtmeleudznkb3c6cjpvbhqslvp22nndx5uqz6gx2mwo4
+  behaviours/mech_info.py: bafybeigboahol6ipwxumkvjpt6bzwhh7mxtcxd5qbvpvpxq2qi7gdn6nua
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
   behaviours/purchase_subcription.py: bafybeignu6dmihcpn7ypbjtlv2z6mmo6uos2gkdn3m2bxydconalbdgkyu
   behaviours/request.py: bafybeic7rogh4ecofc36kymolnl6oxtqxvyioyhpjvovw3kplp2ihnxi44
@@ -25,7 +25,7 @@ fingerprint:
   graph_tooling/queries/mechs_info.py: bafybeigmk3y3uwlsmzommqwimirko6vph3j6mmymxbncshjdzebne4nija
   graph_tooling/requests.py: bafybeieebeky62sm2fzqy5egbg4fk5cbi2loywgl6x5dbfraatygmlqe4m
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
-  models.py: bafybeibcymkncmcom7actkhz6agwbbtjnwiell733lve4m6nt4bqxzstnu
+  models.py: bafybeiew5ul7qhwretunz6nmzhzhjyxdb4l5rmwbpmlj7lttplgklyspee
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeiewhynivpu72vzstzppmqedoytidmfgjszf7mb22ml7lhi5ep6eyy
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
@@ -51,7 +51,7 @@ fingerprint:
   tests/test_dialogues.py: bafybeicztq6kz273kpq6qtp4arh5btyovj7tiwcyy227bomblv52rx2rjq
   tests/test_graph_tooling.py: bafybeiaxihwxdhsjodefdbu42qibeqyhexdob3sqfs5hyo5ylgg7xzpzg4
   tests/test_handlers.py: bafybeic7jsbsnvmw7byuktnlhtkd7pav7xtl5nyxg266dwtzlbq75zayze
-  tests/test_mech_info_behaviour.py: bafybeiezfv2paan5vet5rl6ztmesxsxon2bj3ybcjecbskpnq7gzrvfybm
+  tests/test_mech_info_behaviour.py: bafybeicsgdz6gd3pptmjtr3ak2pk7cebj2gu2qgupyeknscugvh2itfuom
   tests/test_models.py: bafybeialgu2mdr4uba5m25x4xo4so6r2divklqiqmdokvk62ilxvmfwn64
   tests/test_payloads.py: bafybeihcllq2rgswue4w353e24ec42v62fkdm6l7ek3uzcxsmqk76skwba
   tests/test_request_behaviour.py: bafybeiheu4ohjxtibmk6qyju23nvbwie5iwrcjyjntumde7theocwxba7e
@@ -66,10 +66,10 @@ contracts:
 - valory/mech:0.1.0:bafybeihquknpac6bgrj5dhynjqnmnugzg6tq72hmj3rxnmgz5ohbirpqj4
 - valory/mech_mm:0.1.0:bafybeidglyk3ceukmrrfh2abi25ypqhycet4ihlsjigilrv7j6pnt4aroy
 - valory/multisend:0.1.0:bafybeihx7c3xj6c5v4tgvu3ipnj7seyc4dkmovoyzu4isgbwdrhj2oo6uq
-- valory/erc20:0.1.0:bafybeifq6zn2p5nafi6bmtf4xo3ctgymazr2udtlwyiwjf5g5mpndsthfy
+- valory/erc20:0.1.0:bafybeidzxzfkv4ttg6o3vyymd5u3jgqmomblkzh4sk6g5moscta5cikufu
 - valory/agent_mech:0.1.0:bafybeielgw42wh6sucnquowlqqf3dbvzd7gj4r6vfn322t3i5pkxbbrwz4
 - valory/mech_marketplace_legacy:0.1.0:bafybeifbrb6zdwon7a4rfdzypy5sjepbx7iyebebhaq5ydx2kdcbmdnba4
-- valory/agent_registry:0.1.0:bafybeifhwzocl6itefynfm4epcw6xhu7k3vnasx6tmfg4k7xv7hmsykgwi
+- valory/agent_registry:0.1.0:bafybeihid7crlp5yhivs2spf7shmxihchla3mozvq2yuopba34f3omwsqi
 - valory/ierc1155:0.1.0:bafybeicculy2cfhvcrz3n5j6zadkro7ylbvitetlda3pkufkcf65cs2uty
 - valory/nvm_balance_tracker_token:0.1.0:bafybeibte5igiqmq77ddx4mojqyvma4wuutqru3d7rrbopm6tkdp737iyq
 - valory/nvm_balance_tracker_native:0.1.0:bafybeifcpdhuq7pgt2ok544q7tlqw3sitrh3yspmfog7ofhernnouwebfe
@@ -224,6 +224,7 @@ models:
       - stabilityai-stable-diffusion-768-v2-1
       deliveries_lookback_days: 30
       ignored_mechs: []
+      mech_tools_parallel_timeout: 20.0
       penalize_mech_time_window: 1800
     class_name: Params
   mech_tools:
