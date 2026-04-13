@@ -66,10 +66,10 @@ contracts:
 - valory/mech:0.1.0:bafybeihquknpac6bgrj5dhynjqnmnugzg6tq72hmj3rxnmgz5ohbirpqj4
 - valory/mech_mm:0.1.0:bafybeidglyk3ceukmrrfh2abi25ypqhycet4ihlsjigilrv7j6pnt4aroy
 - valory/multisend:0.1.0:bafybeihx7c3xj6c5v4tgvu3ipnj7seyc4dkmovoyzu4isgbwdrhj2oo6uq
-- valory/erc20:0.1.0:bafybeidzxzfkv4ttg6o3vyymd5u3jgqmomblkzh4sk6g5moscta5cikufu
+- valory/erc20:0.1.0:bafybeifq6zn2p5nafi6bmtf4xo3ctgymazr2udtlwyiwjf5g5mpndsthfy
 - valory/agent_mech:0.1.0:bafybeielgw42wh6sucnquowlqqf3dbvzd7gj4r6vfn322t3i5pkxbbrwz4
 - valory/mech_marketplace_legacy:0.1.0:bafybeifbrb6zdwon7a4rfdzypy5sjepbx7iyebebhaq5ydx2kdcbmdnba4
-- valory/agent_registry:0.1.0:bafybeihid7crlp5yhivs2spf7shmxihchla3mozvq2yuopba34f3omwsqi
+- valory/agent_registry:0.1.0:bafybeifhwzocl6itefynfm4epcw6xhu7k3vnasx6tmfg4k7xv7hmsykgwi
 - valory/ierc1155:0.1.0:bafybeicculy2cfhvcrz3n5j6zadkro7ylbvitetlda3pkufkcf65cs2uty
 - valory/nvm_balance_tracker_token:0.1.0:bafybeibte5igiqmq77ddx4mojqyvma4wuutqru3d7rrbopm6tkdp737iyq
 - valory/nvm_balance_tracker_native:0.1.0:bafybeifcpdhuq7pgt2ok544q7tlqw3sitrh3yspmfog7ofhernnouwebfe
