@@ -35,6 +35,7 @@ def _make_mech_info_behaviour(**overrides) -> MechInformationBehaviour:
     mock_context = MagicMock()
     behaviour._context = mock_context
     behaviour._fetch_status = FetchStatus.NONE
+    behaviour._failed_mechs = set()
 
     for key, value in overrides.items():
         setattr(behaviour, key, value)
@@ -145,6 +146,7 @@ class TestPopulateTools:
         mock_api.__dict__["_frozen"] = True
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
         mock_api.process_response.return_value = None  # failed
+        mock_api.is_retries_exceeded.return_value = False
         mock_api.url = "http://test/hash"
         behaviour._context.mech_tools = mock_api
 
@@ -281,3 +283,173 @@ class TestGetMechsInfo:
             result = e.value
 
         assert result is None
+
+
+class TestQuarantine:
+    """Tests for per-mech quarantine on IPFS fetch failure."""
+
+    def test_populate_tools_quarantines_mech_after_retries_exhausted(self) -> None:
+        """A mech whose fetch fails with retries exhausted is added to _failed_mechs."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_retries_exceeded.return_value = True
+        mock_api.url = "http://test/broken-cid"
+        behaviour._context.mech_tools = mock_api
+
+        mech = _make_mech_info(address="0xbroken", relevant_tools=set())
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        gen = behaviour.populate_tools([mech])
+        try:
+            next(gen)
+            gen.send(None)
+        except StopIteration as e:
+            result = e.value
+
+        assert result is False
+        assert "0xbroken" in behaviour._failed_mechs
+        mock_api.reset_retries.assert_called_once()
+        behaviour.context.logger.error.assert_called()
+
+    def test_populate_tools_skips_quarantined_mechs(self) -> None:
+        """A mech already in _failed_mechs is not fetched again."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._failed_mechs = {"0xbroken"}
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        behaviour._context.mech_tools = mock_api
+
+        called = {"count": 0}
+
+        def mock_get_http_response(**kwargs):
+            called["count"] += 1
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        mech = _make_mech_info(address="0xbroken", relevant_tools=set())
+
+        gen = behaviour.populate_tools([mech])
+        try:
+            gen.send(None)
+        except StopIteration as e:
+            result = e.value
+
+        assert result is True
+        assert called["count"] == 0
+
+    def test_get_mechs_info_partial_success_returns_serialized_json(self) -> None:
+        """One good mech + one broken mech returns JSON with both; broken has empty tools."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._fetch_status = FetchStatus.SUCCESS
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.irrelevant_tools = set()
+
+        good = _make_mech_info(address="0xgood", relevant_tools=set())
+        broken = _make_mech_info(address="0xbroken", relevant_tools=set())
+
+        def mock_fetch_mechs_info():
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [good, broken]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        # good -> tools list; broken -> None repeatedly until retries exceeded.
+        mock_api.process_response.side_effect = [["tool_good"], None]
+        mock_api.is_retries_exceeded.return_value = True
+        mock_api.url = "http://test/broken"
+        behaviour._context.mech_tools = mock_api
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        gen = behaviour.get_mechs_info()
+        result = None
+        try:
+            while True:
+                next(gen)
+                gen.send(None)
+        except StopIteration as e:
+            result = e.value
+
+        assert result is not None
+        assert "0xgood" in result
+        assert "0xbroken" in result
+        assert good.relevant_tools == {"tool_good"}
+        assert broken.relevant_tools == set()
+        assert "0xbroken" in behaviour._failed_mechs
+
+    def test_get_mechs_info_all_failed_returns_none(self) -> None:
+        """If every mech fails, result is None so the round can retry."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._fetch_status = FetchStatus.SUCCESS
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+
+        mech = _make_mech_info(address="0xbroken", relevant_tools=set())
+
+        def mock_fetch_mechs_info():
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [mech]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_retries_exceeded.return_value = True
+        mock_api.url = "http://test/broken"
+        behaviour._context.mech_tools = mock_api
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        gen = behaviour.get_mechs_info()
+        result = "unset"
+        try:
+            while True:
+                next(gen)
+                gen.send(None)
+        except StopIteration as e:
+            result = e.value
+
+        assert result is None
+        assert "0xbroken" in behaviour._failed_mechs
+
+    def test_clean_up_clears_failed_mechs(self) -> None:
+        """clean_up resets the per-round quarantine set."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._failed_mechs = {"0xbroken"}
+        mock_api = MagicMock()
+        behaviour._context.mech_tools = mock_api
+
+        behaviour.clean_up()
+
+        assert behaviour._failed_mechs == set()
+        mock_api.reset_retries.assert_called_once()
