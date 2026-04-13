@@ -324,6 +324,97 @@ class TestQuarantine:
         mock_api.reset_retries.assert_called_once()
         behaviour.context.logger.error.assert_called()
 
+    def test_populate_tools_does_not_quarantine_before_retries_exceeded(self) -> None:
+        """A single failure with retries not yet exceeded leaves _failed_mechs empty."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_retries_exceeded.return_value = False
+        mock_api.url = "http://test/broken-cid"
+        behaviour._context.mech_tools = mock_api
+
+        mech = _make_mech_info(address="0xtransient", relevant_tools=set())
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        gen = behaviour.populate_tools([mech])
+        try:
+            next(gen)
+            gen.send(None)
+        except StopIteration as e:
+            result = e.value
+
+        assert result is False
+        assert behaviour._failed_mechs == set()
+        mock_api.increment_retries.assert_called_once()
+        mock_api.reset_retries.assert_not_called()
+
+    def test_quarantine_only_fires_on_final_retry(self) -> None:
+        """populate_tools is invoked multiple times; quarantine fires only when retries exhaust."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+
+        retries_limit = 3
+        call_count = {"n": 0}
+
+        def is_retries_exceeded_side_effect():
+            return call_count["n"] >= retries_limit
+
+        def increment_retries_side_effect():
+            call_count["n"] += 1
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_retries_exceeded.side_effect = is_retries_exceeded_side_effect
+        mock_api.increment_retries.side_effect = increment_retries_side_effect
+        mock_api.url = "http://test/broken-cid"
+        behaviour._context.mech_tools = mock_api
+
+        mech = _make_mech_info(address="0xflaky", relevant_tools=set())
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        # Simulate get_mechs_info's outer while-loop: call populate_tools until True.
+        iterations = 0
+        while True:
+            iterations += 1
+            gen = behaviour.populate_tools([mech])
+            try:
+                next(gen)
+                gen.send(None)
+            except StopIteration as e:
+                outcome = e.value
+            if outcome:
+                break
+
+            # Before the final (quarantining) iteration, the mech must not yet
+            # be quarantined. This asserts the guard actually gates on the
+            # retries-exceeded flag, not just "first failure".
+            if iterations < retries_limit:
+                assert behaviour._failed_mechs == set()
+
+        assert (
+            iterations == retries_limit + 1
+        )  # N failures + 1 final pass returning True
+        assert "0xflaky" in behaviour._failed_mechs
+        assert mock_api.increment_retries.call_count == retries_limit
+
     def test_populate_tools_skips_quarantined_mechs(self) -> None:
         """A mech already in _failed_mechs is not fetched again."""
         behaviour = _make_mech_info_behaviour()
