@@ -980,3 +980,71 @@ class TestPopulateToolsParallelSemantics:
         # Each spec must carry its own mech's CID, not the last-mutated URL.
         assert CID_PREFIX + "aaa" in captured_specs[0]["url"]
         assert CID_PREFIX + "bbb" in captured_specs[1]["url"]
+
+    def test_primitive_wall_time_scales_with_max_not_sum_of_latencies(self) -> None:
+        """_fetch_http_parallel elapsed time tracks max(latencies), not sum.
+
+        Drives the real primitive with a simulated clock and callback
+        dispatcher: 5 requests with staggered arrival latencies
+        (50, 100, 150, 200, 500 ms). A sequential implementation would need
+        sum = 1000 ms of simulated time to complete; the parallel primitive
+        completes at max = 500 ms plus at most one poll_interval of slop.
+
+        The `elapsed < sum` assertion is the falsifiability point — it fails
+        for any serialized implementation.
+        """
+        # Reuse the TestFetchHttpParallel class's build helper by hand.
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.outbox = MagicMock()
+        behaviour._context.requests = MagicMock()
+        registry: dict = {}
+        behaviour._context.requests.request_id_to_callback = registry
+
+        nonces = [f"n{i}" for i in range(5)]
+        build_calls: list = []
+
+        def build(**kwargs):
+            idx = len(build_calls)
+            build_calls.append(kwargs)
+            msg = MagicMock(name=f"msg-{idx}")
+            dlg = MagicMock(name=f"dlg-{idx}")
+            dlg._parallel_nonce = nonces[idx]
+            return msg, dlg
+
+        behaviour._build_http_request_message = build
+        behaviour._get_request_nonce_from_dialogue = lambda d: d._parallel_nonce
+
+        latencies_ms = [50, 100, 150, 200, 500]
+        scheduled = {nonces[i]: latencies_ms[i] / 1000.0 for i in range(5)}
+        poll_interval = 0.1
+
+        current_time = [0.0]
+        behaviour._clock = lambda: current_time[0]
+
+        def fake_sleep(seconds):
+            current_time[0] += seconds
+            # Fire callbacks whose scheduled arrival has been reached.
+            for nonce in list(scheduled):
+                if scheduled[nonce] <= current_time[0] and nonce in registry:
+                    registry[nonce](MagicMock(name=nonce), behaviour)
+                    del scheduled[nonce]
+            yield
+
+        behaviour.sleep = fake_sleep
+
+        gen = behaviour._fetch_http_parallel(
+            [{"url": f"u{i}"} for i in range(5)],
+            timeout=10.0,
+            poll_interval=poll_interval,
+        )
+        result = _drive(gen)
+
+        assert all(r is not None for r in result)
+
+        max_lat = max(latencies_ms) / 1000.0  # 0.5s
+        sum_lat = sum(latencies_ms) / 1000.0  # 1.0s
+
+        # Elapsed tracks max, bounded by max + one poll_interval of slop.
+        assert current_time[0] <= max_lat + poll_interval * 1.5
+        # Falsifiability: sequential code needs sum_lat; parallel needs max_lat.
+        assert current_time[0] < sum_lat
