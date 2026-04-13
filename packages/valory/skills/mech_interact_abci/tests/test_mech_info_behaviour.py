@@ -36,10 +36,33 @@ def _make_mech_info_behaviour(**overrides) -> MechInformationBehaviour:
     behaviour._context = mock_context
     behaviour._fetch_status = FetchStatus.NONE
     behaviour._failed_mechs = set()
+    # Deterministic clock for parallel-fetch tests; always returns 0 until
+    # tests override. Overflow-safe for any reasonable timeout budget.
+    behaviour._clock = lambda: 0.0
 
     for key, value in overrides.items():
         setattr(behaviour, key, value)
 
+    return behaviour
+
+
+def _wire_parallel_fetch(
+    behaviour: MechInformationBehaviour,
+    clock_values=None,
+    registry=None,
+):
+    """Install outbox + requests mocks and a deterministic clock.
+
+    :param clock_values: iterable of floats returned by successive _clock()
+        calls. Default: constant 0.0 so timeout never fires.
+    :param registry: pre-populated request_id_to_callback dict; default empty.
+    """
+    behaviour._context.outbox = MagicMock()
+    behaviour._context.requests = MagicMock()
+    behaviour._context.requests.request_id_to_callback = registry or {}
+    if clock_values is not None:
+        it = iter(clock_values)
+        behaviour._clock = lambda: next(it)
     return behaviour
 
 
@@ -697,3 +720,181 @@ class TestPermanentErrorClassification:
         # Pre-Fix-2 this would be 7 (1 good + 6 broken retries).
         assert http_call_count["n"] == 2
         mock_api.increment_retries.assert_not_called()
+
+
+def _drive(gen):
+    """Run a generator to StopIteration, returning its .value."""
+    try:
+        while True:
+            next(gen)
+    except StopIteration as e:
+        return e.value
+
+
+def _step(gen):
+    """Advance a generator one yield; return True if still running."""
+    try:
+        next(gen)
+        return True
+    except StopIteration:
+        return False
+
+
+class TestFetchHttpParallel:
+    """Unit tests for MechInformationBehaviour._fetch_http_parallel."""
+
+    def _install_build_helpers(self, behaviour, nonces):
+        """Wire _build_http_request_message + _get_request_nonce_from_dialogue.
+
+        Returns a list of the dialogues so tests can introspect.
+        """
+        dialogues = []
+        build_calls = []
+
+        def build(**kwargs):
+            idx = len(build_calls)
+            build_calls.append(kwargs)
+            msg = MagicMock(name=f"msg-{idx}")
+            dlg = MagicMock(name=f"dlg-{idx}")
+            dlg._parallel_nonce = nonces[idx]
+            dialogues.append(dlg)
+            return msg, dlg
+
+        behaviour._build_http_request_message = build
+        behaviour._get_request_nonce_from_dialogue = lambda d: d._parallel_nonce
+        behaviour._build_calls = build_calls
+        return dialogues
+
+    def _install_counting_sleep(self, behaviour):
+        """Replace self.sleep with a counting generator yielding once."""
+        sleep_calls = []
+
+        def sleep(seconds):
+            sleep_calls.append(seconds)
+            yield
+
+        behaviour.sleep = sleep
+        behaviour._sleep_calls = sleep_calls
+
+    def test_fan_out_sends_all_messages_before_any_sleep(self) -> None:
+        """A1: put_message is called N times before the first sleep fires."""
+        behaviour = _wire_parallel_fetch(_make_mech_info_behaviour())
+        self._install_build_helpers(behaviour, ["n1", "n2", "n3"])
+        self._install_counting_sleep(behaviour)
+
+        gen = behaviour._fetch_http_parallel(
+            [{"method": "GET", "url": "u1"}, {"method": "GET", "url": "u2"}, {"method": "GET", "url": "u3"}],
+            timeout=10.0,
+        )
+        # Drive just to the first yield (first sleep call).
+        _step(gen)
+
+        assert behaviour._context.outbox.put_message.call_count == 3
+        assert len(behaviour._sleep_calls) == 1
+        # All three callbacks registered before the first sleep.
+        registry = behaviour._context.requests.request_id_to_callback
+        assert set(registry.keys()) == {"n1", "n2", "n3"}
+
+    def test_responses_returned_in_input_order(self) -> None:
+        """A2: output order matches input order, not arrival order."""
+        behaviour = _wire_parallel_fetch(_make_mech_info_behaviour())
+        self._install_build_helpers(behaviour, ["n1", "n2", "n3"])
+        self._install_counting_sleep(behaviour)
+
+        registry = behaviour._context.requests.request_id_to_callback
+        gen = behaviour._fetch_http_parallel(
+            [{"url": "u1"}, {"url": "u2"}, {"url": "u3"}], timeout=10.0
+        )
+        _step(gen)  # fan-out done; first sleep yielded
+
+        msg1, msg2, msg3 = MagicMock(name="m1"), MagicMock(name="m2"), MagicMock(name="m3")
+        # Fire in reverse arrival order.
+        registry["n2"](msg2, behaviour)
+        registry["n3"](msg3, behaviour)
+        registry["n1"](msg1, behaviour)
+
+        result = _drive(gen)
+        assert result == [msg1, msg2, msg3]
+
+    def test_timed_out_entries_are_none(self) -> None:
+        """A3: timeout yields None for unresponded requests."""
+        behaviour = _wire_parallel_fetch(
+            _make_mech_info_behaviour(),
+            # _clock() is called at deadline-setup then on each loop iteration.
+            clock_values=[0.0, 0.05, 100.0],
+        )
+        self._install_build_helpers(behaviour, ["n1", "n2", "n3"])
+        self._install_counting_sleep(behaviour)
+
+        registry = behaviour._context.requests.request_id_to_callback
+        gen = behaviour._fetch_http_parallel(
+            [{"url": "u1"}, {"url": "u2"}, {"url": "u3"}], timeout=1.0
+        )
+        _step(gen)
+
+        msg2 = MagicMock(name="m2")
+        registry["n2"](msg2, behaviour)
+
+        result = _drive(gen)
+        assert result == [None, msg2, None]
+
+    def test_cleanup_pops_unresolved_nonces_from_registry(self) -> None:
+        """A4: on exit, registry is cleared of every nonce we registered."""
+        behaviour = _wire_parallel_fetch(
+            _make_mech_info_behaviour(), clock_values=[0.0, 0.05, 100.0]
+        )
+        self._install_build_helpers(behaviour, ["n1", "n2", "n3"])
+        self._install_counting_sleep(behaviour)
+
+        registry = behaviour._context.requests.request_id_to_callback
+        gen = behaviour._fetch_http_parallel(
+            [{"url": "u1"}, {"url": "u2"}, {"url": "u3"}], timeout=1.0
+        )
+        _step(gen)
+        # No responses; timeout expires.
+        _drive(gen)
+
+        assert "n1" not in registry
+        assert "n2" not in registry
+        assert "n3" not in registry
+
+    def test_cleanup_runs_on_exception(self) -> None:
+        """A5: unresolved nonces popped even when sleep raises."""
+        behaviour = _wire_parallel_fetch(_make_mech_info_behaviour())
+        self._install_build_helpers(behaviour, ["n1", "n2"])
+
+        def boom_sleep(seconds):
+            raise RuntimeError("boom")
+            yield  # pragma: no cover - make it a generator function
+
+        behaviour.sleep = boom_sleep
+        registry = behaviour._context.requests.request_id_to_callback
+
+        gen = behaviour._fetch_http_parallel(
+            [{"url": "u1"}, {"url": "u2"}], timeout=10.0
+        )
+        try:
+            _drive(gen)
+        except RuntimeError:
+            pass
+
+        assert "n1" not in registry
+        assert "n2" not in registry
+
+    def test_custom_callback_writes_to_results_without_touching_behaviour(self) -> None:
+        """A6: _make_parallel_fetch_callback is behaviour-state-agnostic."""
+        from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
+            _make_parallel_fetch_callback,
+        )
+
+        results: dict = {}
+        cb = _make_parallel_fetch_callback(results, "nX")
+        mock_message = MagicMock()
+        mock_current_behaviour = MagicMock()
+
+        cb(mock_message, mock_current_behaviour)
+
+        assert results["nX"] is mock_message
+        # No calls of any kind on current_behaviour — not try_send, not state.
+        mock_current_behaviour.assert_not_called()
+        assert not mock_current_behaviour.method_calls

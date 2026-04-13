@@ -21,8 +21,12 @@
 """This module contains the behaviour responsible for gathering information about the mech marketplace."""
 
 import json
-from typing import Any, Generator, Optional, Set
+import time
+from typing import Any, Callable, Dict, Generator, List, Optional, Set
 
+from aea.protocols.base import Message
+
+from packages.valory.protocols.http import HttpMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
@@ -43,6 +47,25 @@ from packages.valory.skills.mech_interact_abci.states.mech_info import (
 )
 
 CID_PREFIX = "f01701220"
+PARALLEL_FETCH_POLL_INTERVAL = 0.1
+
+
+def _make_parallel_fetch_callback(
+    results: Dict[str, Optional[HttpMessage]], nonce: str
+) -> Callable[[Message, Any], None]:
+    """Build a nonce-scoped callback that stores the response in results.
+
+    Stays behaviour-state-agnostic so it dispatches regardless of whether the
+    owning behaviour is in WAITING_MESSAGE state (we aren't — we poll via
+    self.sleep while the fetch is in flight).
+    """
+
+    def _callback(message: Message, current_behaviour: Any) -> None:
+        # The mech_interact parallel fetcher only ever receives HttpMessage
+        # responses for these nonces; the cast is safe by construction.
+        results[nonce] = message  # type: ignore[assignment]
+
+    return _callback
 
 
 class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
@@ -55,6 +78,8 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         super().__init__(**kwargs)
         self._fetch_status: FetchStatus = FetchStatus.NONE
         self._failed_mechs: Set[str] = set()
+        # Injectable clock for deterministic parallel-fetch timeout tests.
+        self._clock: Callable[[], float] = time.monotonic
 
     @property
     def mech_tools_api(self) -> MechToolsSpecs:  # pragma: no cover
@@ -68,6 +93,45 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.mech_tools_api.__dict__["_frozen"] = False
         self.mech_tools_api.url = ipfs_link
         self.mech_tools_api.__dict__["_frozen"] = True
+
+    def _fetch_http_parallel(
+        self,
+        specs: List[Dict[str, Any]],
+        timeout: float,
+        poll_interval: float = PARALLEL_FETCH_POLL_INTERVAL,
+    ) -> Generator[None, None, List[Optional[HttpMessage]]]:
+        """Fire N HTTP requests concurrently; return responses in input order.
+
+        :param specs: list of kwargs dicts for _build_http_request_message.
+        :param timeout: wall-clock budget (via self._clock) for the whole batch.
+        :param poll_interval: sleep between readiness checks.
+        :return: list with one entry per input spec; None for timed-out
+            requests. Unresolved callbacks are popped from the request
+            registry on exit.
+        :yield: None while awaiting responses.
+        """
+        results: Dict[str, Optional[HttpMessage]] = {}
+        nonces: List[str] = []
+        registry = self.context.requests.request_id_to_callback
+
+        for spec in specs:
+            message, dialogue = self._build_http_request_message(**spec)
+            nonce = self._get_request_nonce_from_dialogue(dialogue)
+            nonces.append(nonce)
+            registry[nonce] = _make_parallel_fetch_callback(results, nonce)
+            self.context.outbox.put_message(message=message)
+
+        deadline = self._clock() + timeout
+        try:
+            while len(results) < len(nonces):
+                if self._clock() >= deadline:
+                    break
+                yield from self.sleep(poll_interval)
+        finally:
+            for nonce in nonces:
+                registry.pop(nonce, None)
+
+        return [results.get(n) for n in nonces]
 
     def populate_tools(
         self, mech_info: MechsSubgraphResponseType
