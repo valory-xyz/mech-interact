@@ -69,6 +69,12 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.mech_tools_api.url = ipfs_link
         self.mech_tools_api.__dict__["_frozen"] = True
 
+    def _quarantine_mech(self, mech_address: str, reason: str) -> None:
+        """Log the quarantine, mark the mech failed, and reset the retry counter."""
+        self.context.logger.error(f"Quarantining mech {mech_address}: {reason}")
+        self._failed_mechs.add(mech_address)
+        self.mech_tools_api.reset_retries()
+
     def populate_tools(
         self, mech_info: MechsSubgraphResponseType
     ) -> WaitableConditionType:
@@ -87,24 +93,20 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                 self.context.logger.warning(msg)
 
                 if self.mech_tools_api.is_permanent_error(res_raw):
-                    self.context.logger.error(
-                        f"Quarantining mech {mech.address}: permanent content "
-                        f"error at {self.mech_tools_api.url} "
-                        f"(status={res_raw.status_code}); retries skipped."
+                    self._quarantine_mech(
+                        mech.address,
+                        f"permanent content error at {self.mech_tools_api.url} "
+                        f"(status={res_raw.status_code}); retries skipped.",
                     )
-                    self._failed_mechs.add(mech.address)
-                    self.mech_tools_api.reset_retries()
                     return False
 
                 self.mech_tools_api.increment_retries()
                 if self.mech_tools_api.is_retries_exceeded():
-                    self.context.logger.error(
-                        f"Quarantining mech {mech.address}: could not fetch "
-                        f"tools manifest from {self.mech_tools_api.url} "
-                        f"after retries exhausted."
+                    self._quarantine_mech(
+                        mech.address,
+                        f"could not fetch tools manifest from "
+                        f"{self.mech_tools_api.url} after retries exhausted.",
                     )
-                    self._failed_mechs.add(mech.address)
-                    self.mech_tools_api.reset_retries()
                 return False
 
             if len(res) == 0:

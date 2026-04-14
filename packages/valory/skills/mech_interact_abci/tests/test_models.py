@@ -247,10 +247,17 @@ def _http_response(status: int, body: bytes) -> MagicMock:
 def _classifier() -> MechToolsSpecs:
     """Build a MechToolsSpecs bypassing __init__ for pure-method testing.
 
-    is_permanent_error reads no instance state, so __new__ suffices and keeps
-    the test independent of ApiSpecs setup.
+    is_permanent_error reads no instance state except self.context.logger (for
+    the unclassified-status warning) and self.url (in that warning's message),
+    so __new__ plus a stub context/url keeps the test independent of ApiSpecs
+    setup.
     """
-    return MechToolsSpecs.__new__(MechToolsSpecs)
+    instance = MechToolsSpecs.__new__(MechToolsSpecs)
+    # `context` is a read-only property on Model and the instance is frozen,
+    # so bypass both by writing straight into __dict__.
+    instance.__dict__["_context"] = MagicMock()
+    instance.__dict__["url"] = "https://gateway.example/ipfs/bafy..."
+    return instance
 
 
 class TestIsPermanentError:
@@ -319,14 +326,21 @@ class TestIsPermanentError:
     def test_marker_matching_is_case_insensitive(self) -> None:
         """Upper/mixed-case markers must still classify as permanent."""
         assert (
-            _classifier().is_permanent_error(_http_response(500, b"PROTOBUF: corrupt"))
+            _classifier().is_permanent_error(
+                _http_response(500, b"INVALID WIRETYPE detected")
+            )
             is True
         )
 
     def test_marker_matching_is_substring(self) -> None:
-        """Markers appear anywhere in the body, not only at the start."""
-        body = b"x" * 1000 + b"protobuf:" + b"y" * 1000
+        """Markers appear anywhere in the body within the scan window."""
+        body = b"x" * 1000 + b"malformed" + b"y" * 1000
         assert _classifier().is_permanent_error(_http_response(500, body)) is True
+
+    def test_marker_outside_scan_window_is_not_matched(self) -> None:
+        """Markers beyond the scan slice fall through to transient."""
+        body = b"x" * 5000 + b"malformed"
+        assert _classifier().is_permanent_error(_http_response(500, body)) is False
 
     def test_non_utf8_body_does_not_crash(self) -> None:
         """Invalid UTF-8 bytes must be tolerated; marker still matched."""

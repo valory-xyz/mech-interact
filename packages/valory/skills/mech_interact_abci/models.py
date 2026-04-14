@@ -57,34 +57,54 @@ class MechToolsSpecs(ApiSpecs):
     # Substrings (case-insensitive) in a 5xx response body that indicate the
     # CID is structurally invalid and will never resolve. 5xx without any
     # marker is treated as transient (gateway flake).
-    PERMANENT_ERROR_BODY_MARKERS: ClassVar[Tuple[str, ...]] = (
+    _PERMANENT_5XX_BODY_MARKERS: ClassVar[Tuple[str, ...]] = (
         "invalid wiretype",
-        "protobuf:",
         "malformed",
         "failed to resolve",
         "cid not found",
     )
+
+    # Only the first slice of a 5xx body is scanned for permanent markers:
+    # gateway error lines always appear at the top, and unbounded decode of
+    # hostile/misconfigured multi-MB bodies is wasteful.
+    _PERMANENT_5XX_BODY_SCAN_BYTES: ClassVar[int] = 4096
 
     def is_permanent_error(self, response: HttpMessage) -> bool:
         """Classify a failed response as permanent (never retry) or transient.
 
         Called by populate_tools only when process_response returned None.
         Permanent means quarantine immediately; transient means defer to the
-        retry counter.
+        retry counter. Caller guarantees `response` is non-None and
+        `response.status_code` is a populated int: the framework contract for
+        `get_http_response` returns a fully-formed `HttpMessage` or raises
+        (transport failures raise `TimeoutException`, they do not synthesize a
+        partial message).
+
+        2xx is treated as permanent because `process_response` currently only
+        returns None on a 2xx when the body is malformed content (not a flake).
+        If `process_response` is ever widened to signal other failure modes on
+        2xx, this branch must be revisited.
 
         :param response: the HTTP response whose body/status is classified.
         :return: True if the error is permanent and retries should be skipped.
         """
         status = response.status_code
         if 200 <= status < 300:
-            # 2xx + process_response failed => malformed content, not a flake.
             return True
         if 400 <= status < 500:
             # Gateway rejected the request (404 CID not found, etc.).
             return True
         if 500 <= status < 600:
-            body = response.body.decode(errors="ignore").lower()
-            return any(marker in body for marker in self.PERMANENT_ERROR_BODY_MARKERS)
+            body = (
+                response.body[: self._PERMANENT_5XX_BODY_SCAN_BYTES]
+                .decode(errors="ignore")
+                .lower()
+            )
+            return any(marker in body for marker in self._PERMANENT_5XX_BODY_MARKERS)
+        self.context.logger.warning(
+            f"Unclassified failure status {status} for {self.url}; "
+            f"treating as transient. Investigate if this recurs."
+        )
         return False
 
 

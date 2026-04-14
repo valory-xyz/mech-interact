@@ -636,6 +636,60 @@ class TestPermanentErrorClassification:
         mock_api.increment_retries.assert_called_once()
         mock_api.reset_retries.assert_not_called()
 
+    def test_transient_then_permanent_resets_retries_on_quarantine(self) -> None:
+        """Retry counter bumped on transient call, cleared on permanent quarantine.
+
+        Pins the cross-branch bookkeeping: a prior transient increments the
+        counter, and the later permanent branch must still call reset_retries
+        so a requeued / next-period fetch starts clean.
+        """
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_retries_exceeded.return_value = False
+        mock_api.url = "http://test/flaky-then-permanent"
+        behaviour._context.mech_tools = mock_api
+
+        mech = _make_mech_info(address="0xflaky", relevant_tools=set())
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        # Call 1: transient — increment_retries, no quarantine, no reset.
+        mock_api.is_permanent_error.return_value = False
+        gen = behaviour.populate_tools([mech])
+        try:
+            next(gen)
+            gen.send(None)
+        except StopIteration:
+            pass
+        assert "0xflaky" not in behaviour._failed_mechs
+        mock_api.increment_retries.assert_called_once()
+        mock_api.reset_retries.assert_not_called()
+
+        # Call 2: gateway flips to a permanent body on the same mech.
+        mock_api.is_permanent_error.return_value = True
+        gen = behaviour.populate_tools([mech])
+        try:
+            next(gen)
+            gen.send(None)
+        except StopIteration:
+            pass
+        assert "0xflaky" in behaviour._failed_mechs
+        # increment_retries still only fired once (the first, transient call).
+        mock_api.increment_retries.assert_called_once()
+        # reset_retries must be called in the permanent branch so the next
+        # fetch period starts with a clean counter.
+        mock_api.reset_retries.assert_called_once()
+
     def test_get_mechs_info_permanent_error_needs_only_one_http_call(self) -> None:
         """End-to-end: permanent broken mech quarantined on first attempt.
 
@@ -648,8 +702,12 @@ class TestPermanentErrorClassification:
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
         behaviour._context.params.irrelevant_tools = set()
 
-        good = _make_mech_info(address="0xgood", relevant_tools=set())
-        broken = _make_mech_info(address="0xbroken", relevant_tools=set())
+        good = _make_mech_info(
+            address="0xgood", metadata_str="good", relevant_tools=set()
+        )
+        broken = _make_mech_info(
+            address="0xbroken", metadata_str="broken", relevant_tools=set()
+        )
 
         def mock_fetch_mechs_info():
             behaviour._fetch_status = FetchStatus.SUCCESS
@@ -658,15 +716,21 @@ class TestPermanentErrorClassification:
 
         behaviour.fetch_mechs_info = mock_fetch_mechs_info
 
-        # Order the good mech first so it's populated before the broken one
-        # triggers the return-False path. Broken then gets classified on its
-        # first attempt.
+        # Key process_response on the per-mech URL (set by set_mech_agent_specs
+        # from the mech's metadata_str). This keeps the test robust if the
+        # traversal order ever changes — the good mech always populates and
+        # the broken mech always classifies on its first attempt.
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
-        mock_api.process_response.side_effect = [["tool_good"], None]
+
+        def process_by_url(_response):
+            if mock_api.url.endswith("good"):
+                return ["tool_good"]
+            return None
+
+        mock_api.process_response.side_effect = process_by_url
         mock_api.is_permanent_error.return_value = True
-        mock_api.url = "http://test/broken"
         behaviour._context.mech_tools = mock_api
 
         http_call_count = {"n": 0}
