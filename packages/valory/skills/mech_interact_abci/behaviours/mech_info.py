@@ -125,6 +125,19 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         nonces: List[str] = []
         registry = self.context.requests.request_id_to_callback
 
+        # This primitive relies on three BaseBehaviour / skill-context
+        # invariants. If any of them changes, the parallel path breaks
+        # silently and should be reworked rather than patched:
+        #   1. context.requests.request_id_to_callback is a nonce-keyed dict
+        #      the HTTP response handler consults to dispatch incoming
+        #      messages — we register callbacks directly against it.
+        #   2. context.outbox.put_message is non-blocking (the multiplexer
+        #      schedules the envelope asynchronously), so the fan-out loop
+        #      can send N messages before yielding even once.
+        #   3. The response handler dispatches by dialogue nonce, not by
+        #      behaviour state — this behaviour stays in RUNNING and polls
+        #      via self.sleep, and still receives responses via the
+        #      registered callbacks.
         try:
             # Registration is inside the try so any framework-method raise
             # mid-fan-out still triggers the finally-block cleanup of the
@@ -158,6 +171,10 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             if not mech.relevant_tools and mech.address not in self._failed_mechs
         ]
         if not pending:
+            # Symmetric with the end-of-pass reset below: every exit path
+            # from populate_tools leaves the shared retry counter at zero,
+            # so future refactors can rely on that invariant.
+            self.mech_tools_api.reset_retries()
             return True
 
         specs_per_mech: List[Dict[str, Any]] = []
