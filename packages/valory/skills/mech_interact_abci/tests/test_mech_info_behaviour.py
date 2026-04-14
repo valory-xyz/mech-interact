@@ -147,6 +147,7 @@ class TestPopulateTools:
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
         mock_api.process_response.return_value = None  # failed
         mock_api.is_retries_exceeded.return_value = False
+        mock_api.is_permanent_error.return_value = False
         mock_api.url = "http://test/hash"
         behaviour._context.mech_tools = mock_api
 
@@ -301,6 +302,7 @@ class TestQuarantine:
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
         mock_api.process_response.return_value = None
         mock_api.is_retries_exceeded.return_value = True
+        mock_api.is_permanent_error.return_value = False
         mock_api.url = "http://test/broken-cid"
         behaviour._context.mech_tools = mock_api
 
@@ -335,6 +337,7 @@ class TestQuarantine:
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
         mock_api.process_response.return_value = None
         mock_api.is_retries_exceeded.return_value = False
+        mock_api.is_permanent_error.return_value = False
         mock_api.url = "http://test/broken-cid"
         behaviour._context.mech_tools = mock_api
 
@@ -379,6 +382,7 @@ class TestQuarantine:
         mock_api.process_response.return_value = None
         mock_api.is_retries_exceeded.side_effect = is_retries_exceeded_side_effect
         mock_api.increment_retries.side_effect = increment_retries_side_effect
+        mock_api.is_permanent_error.return_value = False
         mock_api.url = "http://test/broken-cid"
         behaviour._context.mech_tools = mock_api
 
@@ -468,6 +472,7 @@ class TestQuarantine:
         # good -> tools list; broken -> None repeatedly until retries exceeded.
         mock_api.process_response.side_effect = [["tool_good"], None]
         mock_api.is_retries_exceeded.return_value = True
+        mock_api.is_permanent_error.return_value = False
         mock_api.url = "http://test/broken"
         behaviour._context.mech_tools = mock_api
 
@@ -514,6 +519,7 @@ class TestQuarantine:
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
         mock_api.process_response.return_value = None
         mock_api.is_retries_exceeded.return_value = True
+        mock_api.is_permanent_error.return_value = False
         mock_api.url = "http://test/broken"
         behaviour._context.mech_tools = mock_api
 
@@ -546,3 +552,213 @@ class TestQuarantine:
 
         assert behaviour._failed_mechs == set()
         mock_api.reset_retries.assert_called_once()
+
+
+class TestPermanentErrorClassification:
+    """Tests for the permanent-vs-transient error branch in populate_tools."""
+
+    def test_permanent_error_quarantines_without_incrementing_retries(self) -> None:
+        """Permanent classification skips the retry counter entirely."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_permanent_error.return_value = True
+        mock_api.url = "http://test/permanent-cid"
+        behaviour._context.mech_tools = mock_api
+
+        mech = _make_mech_info(address="0xpermanent", relevant_tools=set())
+
+        http_message = MagicMock()
+        http_message.status_code = 500
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return http_message
+
+        behaviour.get_http_response = mock_get_http_response
+
+        gen = behaviour.populate_tools([mech])
+        try:
+            next(gen)
+            gen.send(None)
+        except StopIteration as e:
+            result = e.value
+
+        assert result is False
+        assert "0xpermanent" in behaviour._failed_mechs
+        mock_api.increment_retries.assert_not_called()
+        mock_api.reset_retries.assert_called_once()
+        # Classifier was invoked on the received response.
+        mock_api.is_permanent_error.assert_called_once_with(http_message)
+        # Error log mentions permanent content error for ops telemetry.
+        error_calls = behaviour.context.logger.error.call_args_list
+        assert any("permanent content error" in str(call) for call in error_calls)
+
+    def test_transient_error_still_increments_retries_and_does_not_quarantine(
+        self,
+    ) -> None:
+        """Transient path still runs through the retry counter unchanged."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_permanent_error.return_value = False
+        mock_api.is_retries_exceeded.return_value = False
+        mock_api.url = "http://test/transient"
+        behaviour._context.mech_tools = mock_api
+
+        mech = _make_mech_info(address="0xtransient", relevant_tools=set())
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        gen = behaviour.populate_tools([mech])
+        try:
+            next(gen)
+            gen.send(None)
+        except StopIteration as e:
+            result = e.value
+
+        assert result is False
+        assert behaviour._failed_mechs == set()
+        mock_api.increment_retries.assert_called_once()
+        mock_api.reset_retries.assert_not_called()
+
+    def test_transient_then_permanent_resets_retries_on_quarantine(self) -> None:
+        """Retry counter bumped on transient call, cleared on permanent quarantine.
+
+        Pins the cross-branch bookkeeping: a prior transient increments the
+        counter, and the later permanent branch must still call reset_retries
+        so a requeued / next-period fetch starts clean.
+        """
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_retries_exceeded.return_value = False
+        mock_api.url = "http://test/flaky-then-permanent"
+        behaviour._context.mech_tools = mock_api
+
+        mech = _make_mech_info(address="0xflaky", relevant_tools=set())
+
+        def mock_get_http_response(**kwargs):
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        # Call 1: transient — increment_retries, no quarantine, no reset.
+        mock_api.is_permanent_error.return_value = False
+        gen = behaviour.populate_tools([mech])
+        try:
+            next(gen)
+            gen.send(None)
+        except StopIteration:
+            pass
+        assert "0xflaky" not in behaviour._failed_mechs
+        mock_api.increment_retries.assert_called_once()
+        mock_api.reset_retries.assert_not_called()
+
+        # Call 2: gateway flips to a permanent body on the same mech.
+        mock_api.is_permanent_error.return_value = True
+        gen = behaviour.populate_tools([mech])
+        try:
+            next(gen)
+            gen.send(None)
+        except StopIteration:
+            pass
+        assert "0xflaky" in behaviour._failed_mechs
+        # increment_retries still only fired once (the first, transient call).
+        mock_api.increment_retries.assert_called_once()
+        # reset_retries must be called in the permanent branch so the next
+        # fetch period starts with a clean counter.
+        mock_api.reset_retries.assert_called_once()
+
+    def test_get_mechs_info_permanent_error_needs_only_one_http_call(self) -> None:
+        """End-to-end: permanent broken mech quarantined on first attempt.
+
+        Without the classifier the broken mech would consume `retries+1` HTTP
+        calls (6 attempts) before quarantine. With the classifier it takes
+        exactly 1.
+        """
+        behaviour = _make_mech_info_behaviour()
+        behaviour._fetch_status = FetchStatus.SUCCESS
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.irrelevant_tools = set()
+
+        good = _make_mech_info(
+            address="0xgood", metadata_str="good", relevant_tools=set()
+        )
+        broken = _make_mech_info(
+            address="0xbroken", metadata_str="broken", relevant_tools=set()
+        )
+
+        def mock_fetch_mechs_info():
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [good, broken]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info
+
+        # Key process_response on the per-mech URL (set by set_mech_agent_specs
+        # from the mech's metadata_str). This keeps the test robust if the
+        # traversal order ever changes — the good mech always populates and
+        # the broken mech always classifies on its first attempt.
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+
+        def process_by_url(_response):
+            if mock_api.url.endswith("good"):
+                return ["tool_good"]
+            return None
+
+        mock_api.process_response.side_effect = process_by_url
+        mock_api.is_permanent_error.return_value = True
+        behaviour._context.mech_tools = mock_api
+
+        http_call_count = {"n": 0}
+
+        def mock_get_http_response(**kwargs):
+            http_call_count["n"] += 1
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = mock_get_http_response
+
+        gen = behaviour.get_mechs_info()
+        result = None
+        try:
+            while True:
+                next(gen)
+                gen.send(None)
+        except StopIteration as e:
+            result = e.value
+
+        assert result is not None
+        assert "0xgood" in result
+        assert "0xbroken" in result
+        assert good.relevant_tools == {"tool_good"}
+        assert broken.relevant_tools == set()
+        assert "0xbroken" in behaviour._failed_mechs
+        # Key assertion: exactly 2 HTTP calls — 1 good + 1 permanent broken.
+        # Without the classifier this would be 7 (1 good + 6 broken retries).
+        assert http_call_count["n"] == 2
+        mock_api.increment_retries.assert_not_called()

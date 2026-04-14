@@ -31,6 +31,7 @@ from packages.valory.skills.abstract_round_abci.test_tools.base import DummyCont
 from packages.valory.skills.mech_interact_abci.models import (
     CHAIN_TO_NVM_CONFIG,
     MechMarketplaceConfig,
+    MechToolsSpecs,
     MultisendBatch,
     NVMConfig,
     Ox,
@@ -233,3 +234,126 @@ class TestChainMappings:
         for chain, config in CHAIN_TO_NVM_CONFIG.items():
             did = config.did
             assert did.startswith(Ox), f"Config for {chain} has invalid did: {did}"
+
+
+def _http_response(status: int, body: bytes) -> MagicMock:
+    """Build a minimal HttpMessage-like mock with status_code and body."""
+    msg = MagicMock()
+    msg.status_code = status
+    msg.body = body
+    return msg
+
+
+def _classifier() -> MechToolsSpecs:
+    """Build a MechToolsSpecs bypassing __init__ for pure-method testing.
+
+    is_permanent_error reads no instance state except self.context.logger (for
+    the unclassified-status warning) and self.url (in that warning's message),
+    so __new__ plus a stub context/url keeps the test independent of ApiSpecs
+    setup.
+    """
+    instance = MechToolsSpecs.__new__(MechToolsSpecs)
+    # `context` is a read-only property on Model and the instance is frozen,
+    # so bypass both by writing straight into __dict__.
+    instance.__dict__["_context"] = MagicMock()
+    instance.__dict__["url"] = "https://gateway.example/ipfs/bafy..."
+    return instance
+
+
+class TestIsPermanentError:
+    """Tests for MechToolsSpecs.is_permanent_error classifier."""
+
+    def test_500_with_protobuf_marker_is_permanent(self) -> None:
+        """Reported incident: autonolas gateway 500 + protobuf wireType."""
+        body = (
+            b"failed to resolve /ipfs/f01...: protobuf: (PBNode) "
+            b"invalid wireType, expected 2, got 3"
+        )
+        assert _classifier().is_permanent_error(_http_response(500, body)) is True
+
+    def test_500_with_bad_gateway_body_is_transient(self) -> None:
+        """Generic 5xx without permanent markers should retry."""
+        assert (
+            _classifier().is_permanent_error(_http_response(500, b"bad gateway"))
+            is False
+        )
+
+    def test_502_without_markers_is_transient(self) -> None:
+        """Empty 502 body is a classic transient flake."""
+        assert _classifier().is_permanent_error(_http_response(502, b"")) is False
+
+    def test_504_gateway_timeout_is_transient(self) -> None:
+        """504 timeouts should retry by default."""
+        assert (
+            _classifier().is_permanent_error(_http_response(504, b"gateway timeout"))
+            is False
+        )
+
+    def test_503_without_markers_is_transient(self) -> None:
+        """503 service unavailable is transient."""
+        assert (
+            _classifier().is_permanent_error(
+                _http_response(503, b"service unavailable")
+            )
+            is False
+        )
+
+    def test_404_is_permanent(self) -> None:
+        """404 CID not found is permanent regardless of body."""
+        assert _classifier().is_permanent_error(_http_response(404, b"")) is True
+
+    def test_400_is_permanent(self) -> None:
+        """400 bad request is permanent."""
+        assert (
+            _classifier().is_permanent_error(_http_response(400, b"bad request"))
+            is True
+        )
+
+    def test_200_with_invalid_json_is_permanent(self) -> None:
+        """2xx + process_response failure means malformed content, not a flake."""
+        assert (
+            _classifier().is_permanent_error(_http_response(200, b"not valid json {"))
+            is True
+        )
+
+    def test_200_with_valid_json_missing_tools_key_is_permanent(self) -> None:
+        """Server's content is stable; retries won't change the missing key."""
+        assert (
+            _classifier().is_permanent_error(_http_response(200, b'{"not_tools": []}'))
+            is True
+        )
+
+    def test_marker_matching_is_case_insensitive(self) -> None:
+        """Upper/mixed-case markers must still classify as permanent."""
+        assert (
+            _classifier().is_permanent_error(
+                _http_response(500, b"INVALID WIRETYPE detected")
+            )
+            is True
+        )
+
+    def test_marker_matching_is_substring(self) -> None:
+        """Markers appear anywhere in the body within the scan window."""
+        body = b"x" * 1000 + b"cid not found" + b"y" * 1000
+        assert _classifier().is_permanent_error(_http_response(500, body)) is True
+
+    def test_marker_outside_scan_window_is_not_matched(self) -> None:
+        """Markers beyond the scan slice fall through to transient."""
+        body = b"x" * 5000 + b"cid not found"
+        assert _classifier().is_permanent_error(_http_response(500, body)) is False
+
+    def test_non_utf8_body_does_not_crash(self) -> None:
+        """Invalid UTF-8 bytes must be tolerated; marker still matched."""
+        body = b"\xff\xfe invalid wireType"
+        assert _classifier().is_permanent_error(_http_response(500, body)) is True
+
+    def test_302_redirect_without_marker_is_transient(self) -> None:
+        """3xx doesn't fall into 2xx/4xx/5xx rules; default is transient."""
+        assert _classifier().is_permanent_error(_http_response(302, b"")) is False
+
+    def test_500_with_cid_not_found_marker_is_permanent(self) -> None:
+        """CID-not-found semantics at the gateway layer are permanent."""
+        assert (
+            _classifier().is_permanent_error(_http_response(500, b"cid not found"))
+            is True
+        )

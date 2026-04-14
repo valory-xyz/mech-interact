@@ -69,6 +69,12 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.mech_tools_api.url = ipfs_link
         self.mech_tools_api.__dict__["_frozen"] = True
 
+    def _quarantine_mech(self, mech_address: str, reason: str) -> None:
+        """Log the quarantine, mark the mech failed, and reset the retry counter."""
+        self.context.logger.error(f"Quarantining mech {mech_address}: {reason}")
+        self._failed_mechs.add(mech_address)
+        self.mech_tools_api.reset_retries()
+
     def populate_tools(
         self, mech_info: MechsSubgraphResponseType
     ) -> WaitableConditionType:
@@ -85,15 +91,22 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             if res is None:
                 msg = f"Could not get the {mech.address} mech agent's tools from {self.mech_tools_api.url}."
                 self.context.logger.warning(msg)
+
+                if self.mech_tools_api.is_permanent_error(res_raw):
+                    self._quarantine_mech(
+                        mech.address,
+                        f"permanent content error at {self.mech_tools_api.url} "
+                        f"(status={res_raw.status_code}); retries skipped.",
+                    )
+                    return False
+
                 self.mech_tools_api.increment_retries()
                 if self.mech_tools_api.is_retries_exceeded():
-                    self.context.logger.error(
-                        f"Quarantining mech {mech.address}: could not fetch "
-                        f"tools manifest from {self.mech_tools_api.url} "
-                        f"after retries exhausted."
+                    self._quarantine_mech(
+                        mech.address,
+                        f"could not fetch tools manifest from "
+                        f"{self.mech_tools_api.url} after retries exhausted.",
                     )
-                    self._failed_mechs.add(mech.address)
-                    self.mech_tools_api.reset_retries()
                 return False
 
             if len(res) == 0:

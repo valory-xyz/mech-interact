@@ -12,7 +12,7 @@ fingerprint:
   __init__.py: bafybeic6zmplvwsgp5gh2rse2ushtaqnodvmb4kxooace5ghabz4exqbt4
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
   behaviours/base.py: bafybeieigufombqm2hmzbmhbkzxt6apnqns5y7gz627v74sffg6a2jyovi
-  behaviours/mech_info.py: bafybeicxuzmykkmohxmqgcunukhvb2cfta52shclfnp5hd4yh5632yq3nm
+  behaviours/mech_info.py: bafybeif47kpsrsbnww75gmeqz4empvtdchbir2wvx5vwkntqtgn5qzo2aq
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
   behaviours/purchase_subcription.py: bafybeignu6dmihcpn7ypbjtlv2z6mmo6uos2gkdn3m2bxydconalbdgkyu
   behaviours/request.py: bafybeic7rogh4ecofc36kymolnl6oxtqxvyioyhpjvovw3kplp2ihnxi44
@@ -25,7 +25,7 @@ fingerprint:
   graph_tooling/queries/mechs_info.py: bafybeigmk3y3uwlsmzommqwimirko6vph3j6mmymxbncshjdzebne4nija
   graph_tooling/requests.py: bafybeieebeky62sm2fzqy5egbg4fk5cbi2loywgl6x5dbfraatygmlqe4m
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
-  models.py: bafybeigwflyzw43xxyqgvl5jmljl5gt74lwzusqmudqgfj5u3regxqkgeu
+  models.py: bafybeib4i4bw73ugra47xv2tdhs3gmukylexz6lyaeif6qdxmg7ytymg4a
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeiewhynivpu72vzstzppmqedoytidmfgjszf7mb22ml7lhi5ep6eyy
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
@@ -51,8 +51,8 @@ fingerprint:
   tests/test_dialogues.py: bafybeicztq6kz273kpq6qtp4arh5btyovj7tiwcyy227bomblv52rx2rjq
   tests/test_graph_tooling.py: bafybeiaxihwxdhsjodefdbu42qibeqyhexdob3sqfs5hyo5ylgg7xzpzg4
   tests/test_handlers.py: bafybeic7jsbsnvmw7byuktnlhtkd7pav7xtl5nyxg266dwtzlbq75zayze
-  tests/test_mech_info_behaviour.py: bafybeihcby7wbfcfyf3dn2szwncchcvrfigeh6kferyx4cg4ohaldmiawy
-  tests/test_models.py: bafybeidzxsxhwwm2rbrgn5wpoyojk6jvtimfcycpbhnskg3ioz2swuqlmy
+  tests/test_mech_info_behaviour.py: bafybeiexi4wtjawqyyassz6zi74ify3fzyc64ddrphyi2hzionuw4fc7vy
+  tests/test_models.py: bafybeiccfqlggxe7fiwxwbae2uuw53ezepdsgjhl5vglnes5uv4c3px54i
   tests/test_payloads.py: bafybeihcllq2rgswue4w353e24ec42v62fkdm6l7ek3uzcxsmqk76skwba
   tests/test_request_behaviour.py: bafybeiheu4ohjxtibmk6qyju23nvbwie5iwrcjyjntumde7theocwxba7e
   tests/test_response_behaviour.py: bafybeihzlqndt5qxpl6pwvdbsutpupvcbinf3mrvm5bgstaqhqxx5yicha
