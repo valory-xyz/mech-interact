@@ -13,7 +13,7 @@ An Open Autonomy skill that implements interactions with mechs.
     - Python `>=3.8`
     - [Tendermint](https://docs.tendermint.com/v0.34/introduction/install.html) `==0.34.19`
     - [IPFS node](https://docs.ipfs.io/install/command-line/#official-distributions) `==0.6.0`
-    - [Pipenv](https://pipenv.pypa.io/en/latest/installation.html) `>=2021.x.xx`
+    - [uv](https://docs.astral.sh/uv/getting-started/installation/)
     - [Docker Engine](https://docs.docker.com/engine/install/) `<25.0`
     - [Docker Compose](https://docs.docker.com/compose/install/)
 
@@ -24,12 +24,12 @@ An Open Autonomy skill that implements interactions with mechs.
 
 - Create development environment:
 
-      make new_env && pipenv shell
+      uv sync
 
 - Configure command line:
 
-      autonomy init --reset --author valory --remote --ipfs --ipfs-node "/dns/registry.autonolas.tech/tcp/443/https"
+      uv run autonomy init --reset --author valory --remote --ipfs --ipfs-node "/dns/registry.autonolas.tech/tcp/443/https"
 
 - Pull packages:
 
-      autonomy packages sync --update-packages
+      uv run autonomy packages sync --update-packages

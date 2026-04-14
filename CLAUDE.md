@@ -9,10 +9,12 @@ Mech-interact is an Open Autonomy skill implementing interactions with AI mechs 
 ## Development Setup
 
 ```bash
-make new_env && pipenv shell
-autonomy init --reset --author valory --remote --ipfs --ipfs-node "/dns/registry.autonolas.tech/tcp/443/https"
-autonomy packages sync --update-packages
+uv sync
+uv run autonomy init --reset --author valory --remote --ipfs --ipfs-node "/dns/registry.autonolas.tech/tcp/443/https"
+uv run autonomy packages sync --update-packages
 ```
+
+Prefix commands with `uv run` (e.g. `uv run pytest ...`, `uv run make test`).
 
 ## Common Commands
 
@@ -86,7 +88,7 @@ Each contract package contains:
 
 ### Key Conventions
 
-- Dependencies are managed via `Pipfile` (dev) and `tox.ini` (CI). No pyproject.toml or requirements.txt.
+- Dependencies are managed via `pyproject.toml` + `uv.lock` (via `uv`) and `tox.ini` (CI).
 - Package hashes in `packages/packages.json` must stay in sync — run `autonomy packages lock` after modifying packages.
 - Code style: black (line length 88), isort, flake8, mypy with `--disallow-untyped-defs`, darglint (sphinx-style docstrings).
 - Third-party AEA packages are synced from IPFS, not vendored. Only `packages/valory/` contains project-owned code.
