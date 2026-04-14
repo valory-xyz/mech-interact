@@ -94,6 +94,17 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.mech_tools_api.url = ipfs_link
         self.mech_tools_api.__dict__["_frozen"] = True
 
+    def _quarantine_mech(self, mech_address: str, reason: str) -> None:
+        """Log the quarantine and mark the mech failed for this round.
+
+        Retry-counter resets are owned by populate_tools' end-of-pass logic
+        in the parallel design, not by this helper — calling reset_retries
+        here would clobber any in-flight transient counter for the rest of
+        the batch.
+        """
+        self.context.logger.error(f"Quarantining mech {mech_address}: {reason}")
+        self._failed_mechs.add(mech_address)
+
     def _fetch_http_parallel(
         self,
         specs: List[Dict[str, Any]],
@@ -114,15 +125,19 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         nonces: List[str] = []
         registry = self.context.requests.request_id_to_callback
 
-        for spec in specs:
-            message, dialogue = self._build_http_request_message(**spec)
-            nonce = self._get_request_nonce_from_dialogue(dialogue)
-            nonces.append(nonce)
-            registry[nonce] = _make_parallel_fetch_callback(results, nonce)
-            self.context.outbox.put_message(message=message)
-
-        deadline = self._clock() + timeout
         try:
+            # Registration is inside the try so any framework-method raise
+            # mid-fan-out still triggers the finally-block cleanup of the
+            # nonces already inserted (otherwise their closures would leak
+            # across rounds and capture stale `results` dicts).
+            for spec in specs:
+                message, dialogue = self._build_http_request_message(**spec)
+                nonce = self._get_request_nonce_from_dialogue(dialogue)
+                nonces.append(nonce)
+                registry[nonce] = _make_parallel_fetch_callback(results, nonce)
+                self.context.outbox.put_message(message=message)
+
+            deadline = self._clock() + timeout
             while len(results) < len(nonces):
                 if self._clock() >= deadline:
                     break
@@ -159,10 +174,15 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         )
 
         any_transient = False
-        for mech, res_raw in zip(pending, responses):
+        # Zip in specs_per_mech so URL logging uses the per-mech snapshot
+        # rather than self.mech_tools_api.url, which has been mutated to the
+        # last mech's CID by the snapshot loop above.
+        for mech, spec, res_raw in zip(pending, specs_per_mech, responses):
+            mech_url = spec.get("url", "<unknown>")
             if res_raw is None:
                 self.context.logger.warning(
-                    f"Timed out fetching {mech.address} mech agent's tools."
+                    f"Timed out fetching {mech.address} mech agent's tools "
+                    f"from {mech_url}."
                 )
                 any_transient = True
                 continue
@@ -172,15 +192,14 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             if res is None:
                 self.context.logger.warning(
                     f"Could not get the {mech.address} mech agent's tools "
-                    f"from {self.mech_tools_api.url}."
+                    f"from {mech_url}."
                 )
                 if self.mech_tools_api.is_permanent_error(res_raw):
-                    self.context.logger.error(
-                        f"Quarantining mech {mech.address}: permanent content "
-                        f"error at {self.mech_tools_api.url} "
-                        f"(status={res_raw.status_code}); retries skipped."
+                    self._quarantine_mech(
+                        mech.address,
+                        f"permanent content error at {mech_url} "
+                        f"(status={res_raw.status_code}); retries skipped.",
                     )
-                    self._failed_mechs.add(mech.address)
                 else:
                     any_transient = True
                 continue
@@ -188,7 +207,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             if len(res) == 0:
                 self.context.logger.warning(
                     f"Quarantining mech {mech.address}: tools manifest at "
-                    f"{self.mech_tools_api.url} is empty. Empty lists are "
+                    f"{mech_url} is empty. Empty lists are "
                     f"deterministic per-CID; will retry on next round entry."
                 )
                 self._failed_mechs.add(mech.address)
@@ -207,11 +226,10 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                         not mech.relevant_tools
                         and mech.address not in self._failed_mechs
                     ):
-                        self.context.logger.error(
-                            f"Quarantining mech {mech.address}: retries "
-                            f"exhausted after transient failures."
+                        self._quarantine_mech(
+                            mech.address,
+                            "retries exhausted after transient failures.",
                         )
-                        self._failed_mechs.add(mech.address)
                 self.mech_tools_api.reset_retries()
         else:
             self.mech_tools_api.reset_retries()

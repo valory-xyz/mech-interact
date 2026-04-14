@@ -558,6 +558,48 @@ class TestPermanentErrorClassification:
         mock_api.increment_retries.assert_called_once()
         mock_api.reset_retries.assert_not_called()
 
+    def test_transient_then_permanent_resets_retries_on_quarantine(self) -> None:
+        """Retry counter bumped on transient call, cleared on permanent quarantine.
+
+        Pins the cross-batch bookkeeping: a prior transient increments the
+        counter, and the later permanent quarantine triggers the end-of-pass
+        reset so a requeued / next-period fetch starts clean.
+        """
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock()
+        behaviour._context.params.ipfs_address = "https://ipfs.io/"
+        behaviour._context.params.irrelevant_tools = set()
+        behaviour._context.params.mech_tools_parallel_timeout = 10.0
+
+        mock_api = MagicMock()
+        mock_api.__dict__["_frozen"] = True
+        mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        mock_api.process_response.return_value = None
+        mock_api.is_retries_exceeded.return_value = False
+        mock_api.url = "http://test/flaky-then-permanent"
+        behaviour._context.mech_tools = mock_api
+
+        mech = _make_mech_info(address="0xflaky", relevant_tools=set())
+
+        # Call 1: transient — increment_retries, no quarantine, no reset.
+        mock_api.is_permanent_error.return_value = False
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
+        _drive(behaviour.populate_tools([mech]))
+        assert "0xflaky" not in behaviour._failed_mechs
+        mock_api.increment_retries.assert_called_once()
+        mock_api.reset_retries.assert_not_called()
+
+        # Call 2: gateway flips to a permanent body on the same mech.
+        mock_api.is_permanent_error.return_value = True
+        _install_fake_parallel_fetch(behaviour, [MagicMock()])
+        _drive(behaviour.populate_tools([mech]))
+        assert "0xflaky" in behaviour._failed_mechs
+        # increment_retries still only fired once (the first, transient call).
+        mock_api.increment_retries.assert_called_once()
+        # reset_retries must be called by end-of-pass logic in the permanent
+        # branch so the next fetch period starts with a clean counter.
+        mock_api.reset_retries.assert_called_once()
+
     def test_get_mechs_info_permanent_error_needs_only_one_http_call(self) -> None:
         """Permanent broken mech quarantined on first attempt.
 
@@ -574,8 +616,12 @@ class TestPermanentErrorClassification:
         behaviour._context.params.irrelevant_tools = set()
         behaviour._context.params.mech_tools_parallel_timeout = 10.0
 
-        good = _make_mech_info(address="0xgood", relevant_tools=set())
-        broken = _make_mech_info(address="0xbroken", relevant_tools=set())
+        good = _make_mech_info(
+            address="0xgood", metadata_str="good", relevant_tools=set()
+        )
+        broken = _make_mech_info(
+            address="0xbroken", metadata_str="broken", relevant_tools=set()
+        )
 
         def mock_fetch_mechs_info():
             behaviour._fetch_status = FetchStatus.SUCCESS
@@ -587,6 +633,10 @@ class TestPermanentErrorClassification:
         mock_api = MagicMock()
         mock_api.__dict__["_frozen"] = True
         mock_api.get_spec.return_value = {"url": "http://test", "method": "GET"}
+        # pending order is [good, broken]; mock returns in that order.
+        # URL-keyed dispatch can't work here: the parallel design snapshots
+        # all specs upfront, so by the time process_response runs the api's
+        # mutable .url is fixed at the last (broken) mech's URL.
         mock_api.process_response.side_effect = [["tool_good"], None]
         mock_api.is_permanent_error.return_value = True
         mock_api.url = "http://test/broken"
@@ -613,6 +663,7 @@ class TestPermanentErrorClassification:
         assert broken.relevant_tools == set()
         assert "0xbroken" in behaviour._failed_mechs
         # One parallel pass, two total HTTP sends (one per mech).
+        # Without the classifier this would be 7 (1 good + 6 broken retries).
         assert parallel_call_count["n"] == 1
         assert total_requests["n"] == 2
         mock_api.increment_retries.assert_not_called()
