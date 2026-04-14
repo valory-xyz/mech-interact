@@ -21,8 +21,12 @@
 """This module contains the behaviour responsible for gathering information about the mech marketplace."""
 
 import json
-from typing import Any, Generator, Optional, Set
+import time
+from typing import Any, Callable, Dict, Generator, List, Optional, Set
 
+from aea.protocols.base import Message
+
+from packages.valory.protocols.http import HttpMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
@@ -43,6 +47,25 @@ from packages.valory.skills.mech_interact_abci.states.mech_info import (
 )
 
 CID_PREFIX = "f01701220"
+PARALLEL_FETCH_POLL_INTERVAL = 0.1
+
+
+def _make_parallel_fetch_callback(
+    results: Dict[str, Optional[HttpMessage]], nonce: str
+) -> Callable[[Message, Any], None]:
+    """Build a nonce-scoped callback that stores the response in results.
+
+    Stays behaviour-state-agnostic so it dispatches regardless of whether the
+    owning behaviour is in WAITING_MESSAGE state (we aren't — we poll via
+    self.sleep while the fetch is in flight).
+    """
+
+    def _callback(message: Message, current_behaviour: Any) -> None:
+        # The mech_interact parallel fetcher only ever receives HttpMessage
+        # responses for these nonces; the cast is safe by construction.
+        results[nonce] = message  # type: ignore[assignment]
+
+    return _callback
 
 
 class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
@@ -55,6 +78,8 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         super().__init__(**kwargs)
         self._fetch_status: FetchStatus = FetchStatus.NONE
         self._failed_mechs: Set[str] = set()
+        # Injectable clock for deterministic parallel-fetch timeout tests.
+        self._clock: Callable[[], float] = time.monotonic
 
     @property
     def mech_tools_api(self) -> MechToolsSpecs:  # pragma: no cover
@@ -70,61 +95,166 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self.mech_tools_api.__dict__["_frozen"] = True
 
     def _quarantine_mech(self, mech_address: str, reason: str) -> None:
-        """Log the quarantine, mark the mech failed, and reset the retry counter."""
+        """Log the quarantine and mark the mech failed for this round.
+
+        Retry-counter resets are owned by populate_tools' end-of-pass logic
+        in the parallel design, not by this helper — calling reset_retries
+        here would clobber any in-flight transient counter for the rest of
+        the batch.
+        """
         self.context.logger.error(f"Quarantining mech {mech_address}: {reason}")
         self._failed_mechs.add(mech_address)
-        self.mech_tools_api.reset_retries()
+
+    def _fetch_http_parallel(
+        self,
+        specs: List[Dict[str, Any]],
+        timeout: float,
+        poll_interval: float = PARALLEL_FETCH_POLL_INTERVAL,
+    ) -> Generator[None, None, List[Optional[HttpMessage]]]:
+        """Fire N HTTP requests concurrently; return responses in input order.
+
+        :param specs: list of kwargs dicts for _build_http_request_message.
+        :param timeout: wall-clock budget (via self._clock) for the whole batch.
+        :param poll_interval: sleep between readiness checks.
+        :return: list with one entry per input spec; None for timed-out
+            requests. Unresolved callbacks are popped from the request
+            registry on exit.
+        :yield: None while awaiting responses.
+        """
+        results: Dict[str, Optional[HttpMessage]] = {}
+        nonces: List[str] = []
+        registry = self.context.requests.request_id_to_callback
+
+        # This primitive relies on three BaseBehaviour / skill-context
+        # invariants. If any of them changes, the parallel path breaks
+        # silently and should be reworked rather than patched:
+        #   1. context.requests.request_id_to_callback is a nonce-keyed dict
+        #      the HTTP response handler consults to dispatch incoming
+        #      messages — we register callbacks directly against it.
+        #   2. context.outbox.put_message is non-blocking (the multiplexer
+        #      schedules the envelope asynchronously), so the fan-out loop
+        #      can send N messages before yielding even once.
+        #   3. The response handler dispatches by dialogue nonce, not by
+        #      behaviour state — this behaviour stays in RUNNING and polls
+        #      via self.sleep, and still receives responses via the
+        #      registered callbacks.
+        try:
+            # Registration is inside the try so any framework-method raise
+            # mid-fan-out still triggers the finally-block cleanup of the
+            # nonces already inserted (otherwise their closures would leak
+            # across rounds and capture stale `results` dicts).
+            for spec in specs:
+                message, dialogue = self._build_http_request_message(**spec)
+                nonce = self._get_request_nonce_from_dialogue(dialogue)
+                nonces.append(nonce)
+                registry[nonce] = _make_parallel_fetch_callback(results, nonce)
+                self.context.outbox.put_message(message=message)
+
+            deadline = self._clock() + timeout
+            while len(results) < len(nonces):
+                if self._clock() >= deadline:
+                    break
+                yield from self.sleep(poll_interval)
+        finally:
+            for nonce in nonces:
+                registry.pop(nonce, None)
+
+        return [results.get(n) for n in nonces]
 
     def populate_tools(
         self, mech_info: MechsSubgraphResponseType
     ) -> WaitableConditionType:
-        """Populate the tools of the mech info, using the metadata."""
-        for mech in mech_info:
-            if mech.relevant_tools or mech.address in self._failed_mechs:
+        """Populate the tools of the mech info, using the metadata, in parallel."""
+        pending = [
+            mech
+            for mech in mech_info
+            if not mech.relevant_tools and mech.address not in self._failed_mechs
+        ]
+        if not pending:
+            # Symmetric with the end-of-pass reset below: every exit path
+            # from populate_tools leaves the shared retry counter at zero,
+            # so future refactors can rely on that invariant.
+            self.mech_tools_api.reset_retries()
+            return True
+
+        specs_per_mech: List[Dict[str, Any]] = []
+        for mech in pending:
+            # set_mech_agent_specs mutates mech_tools_api.url. Snapshot
+            # get_spec() BEFORE advancing to the next mech so each sent
+            # request carries its own mech's CID.
+            self.set_mech_agent_specs(mech.service.metadata_str)
+            specs_per_mech.append(dict(self.mech_tools_api.get_spec()))
+
+        responses = yield from self._fetch_http_parallel(
+            specs_per_mech,
+            timeout=self.params.mech_tools_parallel_timeout,
+        )
+
+        any_transient = False
+        # Zip in specs_per_mech so URL logging uses the per-mech snapshot
+        # rather than self.mech_tools_api.url, which has been mutated to the
+        # last mech's CID by the snapshot loop above.
+        for mech, spec, res_raw in zip(pending, specs_per_mech, responses):
+            mech_url = spec.get("url", "<unknown>")
+            if res_raw is None:
+                self.context.logger.warning(
+                    f"Timed out fetching {mech.address} mech agent's tools "
+                    f"from {mech_url}."
+                )
+                any_transient = True
                 continue
 
-            self.set_mech_agent_specs(mech.service.metadata_str)
-            specs = self.mech_tools_api.get_spec()
-            res_raw = yield from self.get_http_response(**specs)
             res = self.mech_tools_api.process_response(res_raw)
 
             if res is None:
-                msg = f"Could not get the {mech.address} mech agent's tools from {self.mech_tools_api.url}."
-                self.context.logger.warning(msg)
-
+                self.context.logger.warning(
+                    f"Could not get the {mech.address} mech agent's tools "
+                    f"from {mech_url}."
+                )
                 if self.mech_tools_api.is_permanent_error(res_raw):
                     self._quarantine_mech(
                         mech.address,
-                        f"permanent content error at {self.mech_tools_api.url} "
+                        f"permanent content error at {mech_url} "
                         f"(status={res_raw.status_code}); retries skipped.",
                     )
-                    return False
-
-                self.mech_tools_api.increment_retries()
-                if self.mech_tools_api.is_retries_exceeded():
-                    self._quarantine_mech(
-                        mech.address,
-                        f"could not fetch tools manifest from "
-                        f"{self.mech_tools_api.url} after retries exhausted.",
-                    )
-                return False
+                else:
+                    any_transient = True
+                continue
 
             if len(res) == 0:
                 self.context.logger.warning(
                     f"Quarantining mech {mech.address}: tools manifest at "
-                    f"{self.mech_tools_api.url} is empty. Empty lists are "
+                    f"{mech_url} is empty. Empty lists are "
                     f"deterministic per-CID; will retry on next round entry."
                 )
                 self._failed_mechs.add(mech.address)
-                self.mech_tools_api.reset_retries()
                 continue
 
-            # store only the relevant mech tools
             relevant_tools = set(res) - self.params.irrelevant_tools
             mech.relevant_tools |= relevant_tools
+
+        # Advance the shared retry counter once per pass that had transient
+        # failures. On exhaustion, quarantine every still-unpopulated mech.
+        if any_transient:
+            self.mech_tools_api.increment_retries()
+            if self.mech_tools_api.is_retries_exceeded():
+                for mech in pending:
+                    if (
+                        not mech.relevant_tools
+                        and mech.address not in self._failed_mechs
+                    ):
+                        self._quarantine_mech(
+                            mech.address,
+                            "retries exhausted after transient failures.",
+                        )
+                self.mech_tools_api.reset_retries()
+        else:
             self.mech_tools_api.reset_retries()
 
-        return True
+        return all(
+            mech.relevant_tools or mech.address in self._failed_mechs
+            for mech in pending
+        )
 
     def get_mechs_info(
         self,

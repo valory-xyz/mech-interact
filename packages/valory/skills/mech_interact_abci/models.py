@@ -294,6 +294,11 @@ class MechParams(BaseParams):
             "use_acn_for_delivers", kwargs, bool
         )
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
+        # Optional with a safe default: downstream skills inheriting MechParams
+        # don't need to touch their skill.yaml to pick up this fix.
+        self.mech_tools_parallel_timeout: float = float(
+            kwargs.get("mech_tools_parallel_timeout", 20.0)
+        )
         self.ignored_mechs: FrozenSet[str] = frozenset(
             self._ensure("ignored_mechs", kwargs, List[str])
         )
