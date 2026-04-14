@@ -602,7 +602,7 @@ class TestPermanentErrorClassification:
     def test_transient_error_still_increments_retries_and_does_not_quarantine(
         self,
     ) -> None:
-        """Transient path is byte-identical to pre-Fix-2 behaviour."""
+        """Transient path still runs through the retry counter unchanged."""
         behaviour = _make_mech_info_behaviour()
         behaviour._context.params = MagicMock()
         behaviour._context.params.ipfs_address = "https://ipfs.io/"
@@ -693,8 +693,9 @@ class TestPermanentErrorClassification:
     def test_get_mechs_info_permanent_error_needs_only_one_http_call(self) -> None:
         """End-to-end: permanent broken mech quarantined on first attempt.
 
-        Before Fix 2 the broken mech would consume `retries+1` HTTP calls
-        (6 attempts) before quarantine. After Fix 2 it takes exactly 1.
+        Without the classifier the broken mech would consume `retries+1` HTTP
+        calls (6 attempts) before quarantine. With the classifier it takes
+        exactly 1.
         """
         behaviour = _make_mech_info_behaviour()
         behaviour._fetch_status = FetchStatus.SUCCESS
@@ -758,6 +759,6 @@ class TestPermanentErrorClassification:
         assert broken.relevant_tools == set()
         assert "0xbroken" in behaviour._failed_mechs
         # Key assertion: exactly 2 HTTP calls — 1 good + 1 permanent broken.
-        # Pre-Fix-2 this would be 7 (1 good + 6 broken retries).
+        # Without the classifier this would be 7 (1 good + 6 broken retries).
         assert http_call_count["n"] == 2
         mock_api.increment_retries.assert_not_called()

@@ -334,12 +334,12 @@ class TestIsPermanentError:
 
     def test_marker_matching_is_substring(self) -> None:
         """Markers appear anywhere in the body within the scan window."""
-        body = b"x" * 1000 + b"malformed" + b"y" * 1000
+        body = b"x" * 1000 + b"cid not found" + b"y" * 1000
         assert _classifier().is_permanent_error(_http_response(500, body)) is True
 
     def test_marker_outside_scan_window_is_not_matched(self) -> None:
         """Markers beyond the scan slice fall through to transient."""
-        body = b"x" * 5000 + b"malformed"
+        body = b"x" * 5000 + b"cid not found"
         assert _classifier().is_permanent_error(_http_response(500, body)) is False
 
     def test_non_utf8_body_does_not_crash(self) -> None:
@@ -350,24 +350,6 @@ class TestIsPermanentError:
     def test_302_redirect_without_marker_is_transient(self) -> None:
         """3xx doesn't fall into 2xx/4xx/5xx rules; default is transient."""
         assert _classifier().is_permanent_error(_http_response(302, b"")) is False
-
-    def test_500_with_failed_to_resolve_marker_is_permanent(self) -> None:
-        """Gateway-level resolution failures are permanent for that CID."""
-        assert (
-            _classifier().is_permanent_error(
-                _http_response(500, b"failed to resolve /ipfs/bafy...")
-            )
-            is True
-        )
-
-    def test_500_with_malformed_marker_is_permanent(self) -> None:
-        """Malformed content is a permanent error."""
-        assert (
-            _classifier().is_permanent_error(
-                _http_response(500, b"malformed object header")
-            )
-            is True
-        )
 
     def test_500_with_cid_not_found_marker_is_permanent(self) -> None:
         """CID-not-found semantics at the gateway layer are permanent."""

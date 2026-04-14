@@ -59,8 +59,6 @@ class MechToolsSpecs(ApiSpecs):
     # marker is treated as transient (gateway flake).
     _PERMANENT_5XX_BODY_MARKERS: ClassVar[Tuple[str, ...]] = (
         "invalid wiretype",
-        "malformed",
-        "failed to resolve",
         "cid not found",
     )
 
