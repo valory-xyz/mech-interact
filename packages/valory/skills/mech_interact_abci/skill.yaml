@@ -286,5 +286,5 @@ dependencies:
   py-multicodec: {}
   py-multibase: {}
   open-autonomy:
-    version: ==0.21.16
+    version: ==0.21.18
 is_abstract: true
