@@ -127,7 +127,7 @@ jobs:
           gitleaks detect --report-format json --report-path leak_report -v
 
   test:
-    continue-on-error: True
+    continue-on-error: False
     needs:
       - lock_check
       - copyright_and_doc_check
@@ -305,3 +305,22 @@ jobs:
       - name: e2e tests
         run: |
           tox -e e2e-py${{ matrix.python-version }}-linux
+
+  all-checks-passed:
+    name: All checks passed
+    if: always()
+    needs:
+      - lock_check
+      - copyright_and_doc_check
+      - linter_checks
+      - scan
+      - test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify no failures or cancellations
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required jobs failed or were cancelled."
+            exit 1
+          fi
+          echo "All required jobs passed."
