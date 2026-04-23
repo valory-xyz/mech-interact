@@ -22,8 +22,6 @@
 import json
 from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
-from web3.constants import ADDRESS_ZERO
-
 from packages.valory.contracts.mech.contract import Mech
 from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.protocols.contract_api import ContractApiMessage
@@ -49,6 +47,7 @@ BYTES32_LENGTH = 32
 BYTES32_PADDING_BYTE = b"\x00"
 BYTES32_HEX_FORMAT_SPEC = "064x"
 HEX_BASE = 16
+ADDRESS_ZERO = "0x0000000000000000000000000000000000000000"
 DELIVERY_MECH_INDEX = 1
 
 

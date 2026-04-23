@@ -31,7 +31,6 @@ import multicodec
 from aea.configurations.data_types import PublicId
 from aea.exceptions import AEAEnforceError
 from aea.helpers.cid import to_v1
-from hexbytes import HexBytes
 
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
 from packages.valory.contracts.ierc1155.contract import IERC1155
@@ -401,16 +400,14 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             return False
 
         try:
-            if isinstance(withdraw_data, str) or isinstance(
-                withdraw_data, (bytes, bytearray)
-            ):
-                hex_data = HexBytes(withdraw_data)
+            if isinstance(withdraw_data, (bytes, bytearray)):
+                hex_data = bytes(withdraw_data)
+            elif isinstance(withdraw_data, str):
+                hex_data = bytes.fromhex(withdraw_data.removeprefix("0x"))
             else:
-                hex_data = HexBytes(str(withdraw_data))
+                hex_data = bytes.fromhex(str(withdraw_data).removeprefix("0x"))
         except (ValueError, TypeError) as e:
-            self.context.logger.error(
-                f"Could not convert withdraw_data to HexBytes: {e}"
-            )
+            self.context.logger.error(f"Could not convert withdraw_data to bytes: {e}")
             return False
 
         batch = MultisendBatch(
@@ -776,7 +773,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         batch = MultisendBatch(
             to=self.params.price_token,
-            data=HexBytes(self.approval_data),
+            data=bytes.fromhex(self.approval_data.removeprefix("0x")),
         )
         self.multisend_batches.append(batch)
         self.context.logger.info("Successfully built approval data.")
@@ -883,7 +880,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             to = self.params.request_address
             batch = MultisendBatch(
                 to=to,
-                data=HexBytes(self.request_data),
+                data=bytes(self.request_data),
                 value=self.price,
             )
             self.multisend_batches.append(batch)

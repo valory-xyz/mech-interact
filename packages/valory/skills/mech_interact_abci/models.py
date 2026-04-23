@@ -24,7 +24,6 @@ from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Tuple, cast
 
 from aea.exceptions import enforce
 from aea.skills.base import SkillContext
-from hexbytes import HexBytes
 
 from autonomy.chain.config import ChainType
 from autonomy.chain.service import NULL_ADDRESS
@@ -449,13 +448,13 @@ class MultisendBatch:
 
     Attributes:
         to: Target contract address for the transaction
-        data: Transaction data as HexBytes
+        data: Transaction data as bytes
         value: Wei value to send with the transaction (default: 0)
         operation: Type of operation (CALL or DELEGATECALL)
     """
 
     to: str
-    data: HexBytes
+    data: bytes
     value: int = 0
     operation: MultiSendOperation = MultiSendOperation.CALL
 
@@ -465,5 +464,5 @@ class MultisendBatch:
             raise ValueError("Target address 'to' must be a non-empty string")
         if self.value < 0:
             raise ValueError("Value must be non-negative")
-        if not isinstance(self.data, HexBytes):
-            raise ValueError("Data must be HexBytes instance")
+        if not isinstance(self.data, (bytes, bytearray)):
+            raise ValueError("Data must be a bytes instance")

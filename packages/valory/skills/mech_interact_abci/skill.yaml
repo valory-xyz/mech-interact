@@ -14,9 +14,9 @@ fingerprint:
   behaviours/base.py: bafybeieigufombqm2hmzbmhbkzxt6apnqns5y7gz627v74sffg6a2jyovi
   behaviours/mech_info.py: bafybeiexut5veu2s2qr6mvlauijwkfcskzvdekjltwkbdl7ixkuf5m657y
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
-  behaviours/purchase_subcription.py: bafybeignu6dmihcpn7ypbjtlv2z6mmo6uos2gkdn3m2bxydconalbdgkyu
-  behaviours/request.py: bafybeic7rogh4ecofc36kymolnl6oxtqxvyioyhpjvovw3kplp2ihnxi44
-  behaviours/response.py: bafybeifjrcph7ukg3j3ejr5peeam7jjykxbiy5poangipecu6ye7gzlznu
+  behaviours/purchase_subcription.py: bafybeiadekvbpapna6edwy72vc6x7jdjunfolod5pthbb6w53ow32vghau
+  behaviours/request.py: bafybeibe2xhdyiouzhyf4r3rvd4rcowlmt6qqvgmjhrgo5ajrfr5fvcdfi
+  behaviours/response.py: bafybeidzrk4ghsbley3mizsevexmr3ghvu4qih4whaysskjzws5i35junu
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeiachjgarkgv4hxprddn7dtb5h3q4qge72rc2kysmureooq5xggxxi
   fsm_specification.yaml: bafybeieyjqlctk364q6azapuiyjcekfj4gohoo6yuxkfbgp7yctbizpfq4
@@ -25,7 +25,7 @@ fingerprint:
   graph_tooling/queries/mechs_info.py: bafybeigmk3y3uwlsmzommqwimirko6vph3j6mmymxbncshjdzebne4nija
   graph_tooling/requests.py: bafybeieebeky62sm2fzqy5egbg4fk5cbi2loywgl6x5dbfraatygmlqe4m
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
-  models.py: bafybeiag3iwtsjoxxjb4khtw3mzpehvsq7wxkcbjpqxrf2tttuqxobsjlq
+  models.py: bafybeidy44bzr22yn73rtemqfdgfncpfzour66sm7b33ayimppy3df4h24
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeiewhynivpu72vzstzppmqedoytidmfgjszf7mb22ml7lhi5ep6eyy
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
@@ -62,14 +62,14 @@ fingerprint:
 fingerprint_ignore_patterns: []
 connections: []
 contracts:
-- valory/gnosis_safe:0.1.0:bafybeicm3rxjpqc4kcjmxoj5ixqfzu6jn4alalyn3xuqxa5y2g22kpp72m
-- valory/mech:0.1.0:bafybeietp25ujogsir57og3v3c7rmtwv6ocoq5japvinizdigjjjydpuji
-- valory/mech_mm:0.1.0:bafybeicplergczb736ffbikf3rzzg2fcgcbxquwk2klwlic6xf5lxja7ta
-- valory/multisend:0.1.0:bafybeihx7c3xj6c5v4tgvu3ipnj7seyc4dkmovoyzu4isgbwdrhj2oo6uq
-- valory/erc20:0.1.0:bafybeic3epzrwrcqgrtj7vom5kdldugnuvk6lvh437ped4ciktqbtdy5em
-- valory/agent_mech:0.1.0:bafybeieogsqxhhogvghhsns3e7i5ugby62v5iwiop2z2yknvwve5sssd3y
-- valory/mech_marketplace_legacy:0.1.0:bafybeiateljmh6i2w4ttmlrxygu5u5e5n226nl2hou5gvgall6rcmjf5vy
-- valory/agent_registry:0.1.0:bafybeiau5sej27ebia25rhuhmibzs7sxwe7wtkln6nhlvnllckkylmyxna
+- valory/gnosis_safe:0.1.0:bafybeihljnuo6jiyqfvow4vgxy5ih4eha2pjtguh7o6pabe24lbd6mwjaa
+- valory/mech:0.1.0:bafybeiacevthxok5w7s3wg2m3pqpq4evgfrx5ododoyafas2cbsgssp5ge
+- valory/mech_mm:0.1.0:bafybeictup52u77jfqj4pvrotwnkw63fjbrxisc666bsswwymia3tsx3xu
+- valory/multisend:0.1.0:bafybeic4534fd4axozjmykpstgjynxzpkpfvnvyjt7hz32ajfe3fmwhn7m
+- valory/erc20:0.1.0:bafybeigjxwhx4li5hmyv3hrtatwq65gl4wihqysaq5pqlpmw5o4lymfv6y
+- valory/agent_mech:0.1.0:bafybeieehgxkc3mosiramapon4u7qkhihxa52actku4wlykypovgcjsjde
+- valory/mech_marketplace_legacy:0.1.0:bafybeihh2hswvscysdclvw7b5zqn2fojhh4zbb7eppgb4fyj7cqyy3ljha
+- valory/agent_registry:0.1.0:bafybeihix534wbt7nq5qaneww5j4b74ce6rf33xgbochpc6xcogzhmnv7q
 - valory/ierc1155:0.1.0:bafybeie54mrzlup5q6ovgcae35f2aecb6l6ekwa6dhrkgrmotojkyqd2ji
 - valory/nvm_balance_tracker_token:0.1.0:bafybeie5lciwhzieuzbpgejx37dtrmj4q6r2x6omv2ekiwrfeyhjzyje7e
 - valory/nvm_balance_tracker_native:0.1.0:bafybeiepuod5ffnf5wrfqpshkzdbl76ccqdtedqhf7wc7dx47gkmt7jrhu
@@ -86,8 +86,8 @@ protocols:
 - valory/acn_data_share:0.1.0:bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i
 - valory/http:1.0.0:bafybeidxkp3vga7t6x2pbt2tpkgyaxa5bgpdgryao54py7w3yxyzr7neoy
 skills:
-- valory/abstract_round_abci:0.1.0:bafybeihgbc5geup3ljdfgyontr2p5e4myxjkthaplm5ei727uw2pawstcy
-- valory/transaction_settlement_abci:0.1.0:bafybeic6f4ujckiutqxueagohb5iv7kgzpamhuhiq7shn6fmiwbkt3cqny
+- valory/abstract_round_abci:0.1.0:bafybeiesqybjt2d3cwazu5xurye7znnkidem2qhudfvjnaprbk6p5flfe4
+- valory/transaction_settlement_abci:0.1.0:bafybeiemyjkxj2ifzjr5kubtebpyezocl33zxt7gwf7yongg6zlbfjilte
 behaviours:
   main:
     args: {}
@@ -280,11 +280,8 @@ models:
     args: {}
     class_name: TendermintDialogues
 dependencies:
-  web3:
-    version: <8,>=7.0.0
-  hexbytes: {}
   py-multicodec: {}
   py-multibase: {}
   open-autonomy:
-    version: ==0.21.18
+    version: ==0.21.19
 is_abstract: true
