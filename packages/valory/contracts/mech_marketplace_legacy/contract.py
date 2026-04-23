@@ -35,6 +35,12 @@ TOPIC_CHARS = TOPIC_BYTES * 2
 Ox = "0x"
 Ox_CHARS = len(Ox)
 
+# Block-identifier shapes actually used by callers: an int block number or the
+# literal strings "earliest"/"latest". Web3 accepts both as-is in its filter
+# dicts; a dedicated local alias keeps the public signatures readable without
+# reintroducing the web3.types import.
+BlockIdentifier = Union[int, str]
+
 
 def pad_address_for_topic(address: str) -> bytes:
     """Left-pad an Ethereum address to 32 bytes for use in a topic."""
@@ -235,8 +241,8 @@ class MechMarketplaceLegacy(Contract):
         contract_address: str,
         requester: str,
         request_id: int,
-        from_block: Union[int, str] = "earliest",
-        to_block: Union[int, str] = "latest",
+        from_block: BlockIdentifier = "earliest",
+        to_block: BlockIdentifier = "latest",
         timeout: float = FIVE_MINUTES,
         **kwargs: Any,
     ) -> JSONLike:

@@ -31,6 +31,12 @@ from aea_ledger_ethereum.ethereum import rpc_call_with_timeout
 PUBLIC_ID = PublicId.from_str("valory/mech_mm:0.1.0")
 FIVE_MINUTES = 300.0
 
+# Block-identifier shapes actually used by callers: an int block number or the
+# literal strings "earliest"/"latest". Web3 accepts both as-is in its filter
+# dicts; a dedicated local alias keeps the public signatures readable without
+# reintroducing the web3.types import.
+BlockIdentifier = Union[int, str]
+
 
 class MechMM(Contract):
     """The Mech contract for marketplace."""
@@ -102,8 +108,8 @@ class MechMM(Contract):
         ledger_api: LedgerApi,
         contract_address: str,
         request_id: bytes,
-        from_block: Union[int, str] = "earliest",
-        to_block: Union[int, str] = "latest",
+        from_block: BlockIdentifier = "earliest",
+        to_block: BlockIdentifier = "latest",
         timeout: float = FIVE_MINUTES,
         **kwargs: Any,
     ) -> JSONLike:

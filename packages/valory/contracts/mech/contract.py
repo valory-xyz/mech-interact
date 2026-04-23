@@ -31,6 +31,12 @@ from aea_ledger_ethereum import EthereumApi
 PUBLIC_ID = PublicId.from_str("valory/mech:0.1.0")
 FIVE_MINUTES = 300.0
 
+# Block-identifier shapes actually used by callers: an int block number or the
+# literal strings "earliest"/"latest". Web3 accepts both as-is in its filter
+# dicts; a dedicated local alias keeps the public signatures readable without
+# reintroducing the web3.types import.
+BlockIdentifier = Union[int, str]
+
 
 partial_abis = [
     [
@@ -334,8 +340,8 @@ class Mech(Contract):
         ledger_api: EthereumApi,
         contract_address: str,
         request_id: int,
-        from_block: Union[int, str],
-        to_block: Union[int, str],
+        from_block: BlockIdentifier,
+        to_block: BlockIdentifier,
     ) -> Tuple[Dict[str, Any], bool]:
         """
         Process a single ABI to find a response for the given request ID.
@@ -412,8 +418,8 @@ class Mech(Contract):
         ledger_api: LedgerApi,
         contract_address: str,
         request_id: int,
-        from_block: Union[int, str] = "earliest",
-        to_block: Union[int, str] = "latest",
+        from_block: BlockIdentifier = "earliest",
+        to_block: BlockIdentifier = "latest",
         timeout: float = FIVE_MINUTES,
         **kwargs: Any,
     ) -> JSONLike:

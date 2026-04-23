@@ -29,8 +29,6 @@ dependencies = [
     "pytest-randomly==4.0.1",
     "openapi-core==0.22.0",
     "openapi-spec-validator<0.8.0,>=0.7.0",
-    "py-multibase==1.0.3",
-    "py-multicodec==0.2.1",
     "web3<8,>=7.0.0",
     "certifi",
     "multidict",

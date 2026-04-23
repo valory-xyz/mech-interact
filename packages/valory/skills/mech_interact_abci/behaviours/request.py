@@ -24,13 +24,12 @@ from dataclasses import asdict, fields
 from enum import Enum
 from pathlib import Path
 from tempfile import mkdtemp
-from typing import Any, Generator, List, Optional, cast
+from typing import Any, Generator, List, Optional
 
-import multibase
-import multicodec
 from aea.configurations.data_types import PublicId
 from aea.exceptions import AEAEnforceError
 from aea.helpers.cid import to_v1
+from aea.helpers.multiformat import multibase_decode, multicodec_remove_prefix
 
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
 from packages.valory.contracts.ierc1155.contract import IERC1155
@@ -596,8 +595,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             return False
 
         v1_file_hash = to_v1(metadata_hash)
-        cid_bytes = cast("bytes", multibase.decode(v1_file_hash))
-        multihash_bytes = multicodec.remove_prefix(cid_bytes)
+        cid_bytes = multibase_decode(v1_file_hash.encode("ascii"))
+        multihash_bytes = multicodec_remove_prefix(cid_bytes)
         v1_file_hash_hex = V1_HEX_PREFIX + multihash_bytes.hex()
         ipfs_link = self.params.ipfs_address + v1_file_hash_hex
         self.context.logger.info(f"Prompt uploaded: {ipfs_link}")
