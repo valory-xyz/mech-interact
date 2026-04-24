@@ -63,12 +63,12 @@ fingerprint_ignore_patterns: []
 connections: []
 contracts:
 - valory/gnosis_safe:0.1.0:bafybeihljnuo6jiyqfvow4vgxy5ih4eha2pjtguh7o6pabe24lbd6mwjaa
-- valory/mech:0.1.0:bafybeiegyhz5g3wfq2ntjcrqlldrurrtthcg3vftfdsvgln6ysq3oq4qse
+- valory/mech:0.1.0:bafybeiedil4txl33ot7lfqf2j3w25lzickfruquh37s2bzbdby4eewysty
 - valory/mech_mm:0.1.0:bafybeiew5cp7zlzsk34btkytgqdxl3bjile6chlnxsi7s3t242aelrmycu
 - valory/multisend:0.1.0:bafybeic4534fd4axozjmykpstgjynxzpkpfvnvyjt7hz32ajfe3fmwhn7m
 - valory/erc20:0.1.0:bafybeigjxwhx4li5hmyv3hrtatwq65gl4wihqysaq5pqlpmw5o4lymfv6y
 - valory/agent_mech:0.1.0:bafybeieehgxkc3mosiramapon4u7qkhihxa52actku4wlykypovgcjsjde
-- valory/mech_marketplace_legacy:0.1.0:bafybeiaiwdzgwknjxqfpy55k5oafycf5ajrmyc27l2l4ciruflf3353urm
+- valory/mech_marketplace_legacy:0.1.0:bafybeidbigdqpcx4cfe2d2mnqcz5u22atvbtlqx5tzndrhcxukdatxhl4u
 - valory/agent_registry:0.1.0:bafybeihix534wbt7nq5qaneww5j4b74ce6rf33xgbochpc6xcogzhmnv7q
 - valory/ierc1155:0.1.0:bafybeie54mrzlup5q6ovgcae35f2aecb6l6ekwa6dhrkgrmotojkyqd2ji
 - valory/nvm_balance_tracker_token:0.1.0:bafybeie5lciwhzieuzbpgejx37dtrmj4q6r2x6omv2ekiwrfeyhjzyje7e

@@ -12,7 +12,7 @@ fingerprint:
   contract.py: bafybeidouvy2fd2glfcp4ac6y6dpq7brtlhzn3qgkgxrnnuzkzutlcc7gy
   tests/__init__.py: bafybeigfcyuw2qwiztn5c2ilm7haopnpqvbroxjix4slaho4syj7y5apga
   tests/conftest.py: bafybeid734tc2f2qotcwp5wfx5qndzbheuiwewaz7tvw4s5wxxthut7b6q
-  tests/test_contract.py: bafybeidofla6guw34woc5nfyq46ryfevxgjpgnxxvkkcvvsrs6yxtehzui
+  tests/test_contract.py: bafybeie37h3te4wvanik6qhyul6k2utrcyg26w3rpakma4uvdboker7gca
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: Mech

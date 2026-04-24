@@ -371,22 +371,14 @@ class TestMechMarketplaceLegacyGetResponse:
 
         assert result == {"error": "unexpected error string"}
 
-    @patch("packages.valory.contracts.mech_marketplace_legacy.contract.get_event_data")
-    @patch(
-        "packages.valory.contracts.mech_marketplace_legacy.contract.event_abi_to_log_topic"
-    )
     @patch.object(MechMarketplaceLegacy, "get_instance")
-    def test_get_response_inner_logic_no_logs(
-        self, mock_get_instance, mock_topic, mock_get_event_data, ledger_api
-    ):
+    def test_get_response_inner_logic_no_logs(self, mock_get_instance, ledger_api):
         """Test get_response inner function when no logs are found."""
         mock_instance = MagicMock()
-        mock_instance.events.MarketplaceDeliver.return_value.abi = {
-            "name": "MarketplaceDeliver",
-            "type": "event",
-        }
+        mock_event = MagicMock()
+        mock_event.topic = b"\x00" * 32
+        mock_instance.events.MarketplaceDeliver.return_value = mock_event
         mock_get_instance.return_value = mock_instance
-        mock_topic.return_value = b"\x00" * 32
         ledger_api.api.eth.get_logs.return_value = []
 
         # Bypass execute_with_timeout to test the inner function directly
@@ -406,27 +398,19 @@ class TestMechMarketplaceLegacyGetResponse:
         assert "info" in result
         assert "has not delivered" in result["info"]
 
-    @patch("packages.valory.contracts.mech_marketplace_legacy.contract.get_event_data")
-    @patch(
-        "packages.valory.contracts.mech_marketplace_legacy.contract.event_abi_to_log_topic"
-    )
     @patch.object(MechMarketplaceLegacy, "get_instance")
-    def test_get_response_inner_logic_single_match(
-        self, mock_get_instance, mock_topic, mock_get_event_data, ledger_api
-    ):
+    def test_get_response_inner_logic_single_match(self, mock_get_instance, ledger_api):
         """Test get_response inner function with a single matching delivery."""
         mock_instance = MagicMock()
-        mock_instance.events.MarketplaceDeliver.return_value.abi = {
-            "name": "MarketplaceDeliver",
-            "type": "event",
-        }
-        mock_get_instance.return_value = mock_instance
-        mock_topic.return_value = b"\x00" * 32
-        mock_log = MagicMock()
-        ledger_api.api.eth.get_logs.return_value = [mock_log]
-        mock_get_event_data.return_value = {
+        mock_event = MagicMock()
+        mock_event.topic = b"\x00" * 32
+        mock_event.process_log.return_value = {
             "args": {"requestId": 1, "data": b"delivered data"}
         }
+        mock_instance.events.MarketplaceDeliver.return_value = mock_event
+        mock_get_instance.return_value = mock_instance
+        mock_log = MagicMock()
+        ledger_api.api.eth.get_logs.return_value = [mock_log]
 
         with patch.object(
             MechMarketplaceLegacy,
@@ -443,24 +427,20 @@ class TestMechMarketplaceLegacyGetResponse:
 
         assert result == {"data": b"delivered data"}
 
-    @patch("packages.valory.contracts.mech_marketplace_legacy.contract.get_event_data")
-    @patch(
-        "packages.valory.contracts.mech_marketplace_legacy.contract.event_abi_to_log_topic"
-    )
     @patch.object(MechMarketplaceLegacy, "get_instance")
     def test_get_response_inner_logic_multiple_matches(
-        self, mock_get_instance, mock_topic, mock_get_event_data, ledger_api
+        self, mock_get_instance, ledger_api
     ):
         """Test get_response inner function with multiple matching deliveries (error)."""
         mock_instance = MagicMock()
-        mock_instance.events.MarketplaceDeliver.return_value.abi = {
-            "name": "MarketplaceDeliver",
-            "type": "event",
+        mock_event = MagicMock()
+        mock_event.topic = b"\x00" * 32
+        mock_event.process_log.return_value = {
+            "args": {"requestId": 1, "data": b"data"}
         }
+        mock_instance.events.MarketplaceDeliver.return_value = mock_event
         mock_get_instance.return_value = mock_instance
-        mock_topic.return_value = b"\x00" * 32
         ledger_api.api.eth.get_logs.return_value = [MagicMock(), MagicMock()]
-        mock_get_event_data.return_value = {"args": {"requestId": 1, "data": b"data"}}
 
         # When multiple responses match, it returns a string error which
         # execute_with_timeout treats as an error
@@ -479,24 +459,18 @@ class TestMechMarketplaceLegacyGetResponse:
 
         assert "error" in result
 
-    @patch("packages.valory.contracts.mech_marketplace_legacy.contract.get_event_data")
-    @patch(
-        "packages.valory.contracts.mech_marketplace_legacy.contract.event_abi_to_log_topic"
-    )
     @patch.object(MechMarketplaceLegacy, "get_instance")
     def test_get_response_inner_logic_missing_data(
-        self, mock_get_instance, mock_topic, mock_get_event_data, ledger_api
+        self, mock_get_instance, ledger_api
     ):
         """Test get_response inner function when delivery has no data field."""
         mock_instance = MagicMock()
-        mock_instance.events.MarketplaceDeliver.return_value.abi = {
-            "name": "MarketplaceDeliver",
-            "type": "event",
-        }
+        mock_event = MagicMock()
+        mock_event.topic = b"\x00" * 32
+        mock_event.process_log.return_value = {"args": {"requestId": 1}}
+        mock_instance.events.MarketplaceDeliver.return_value = mock_event
         mock_get_instance.return_value = mock_instance
-        mock_topic.return_value = b"\x00" * 32
         ledger_api.api.eth.get_logs.return_value = [MagicMock()]
-        mock_get_event_data.return_value = {"args": {"requestId": 1}}
 
         # Missing 'data' in args returns string error
         with patch.object(
