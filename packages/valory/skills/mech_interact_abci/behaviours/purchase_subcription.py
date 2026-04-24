@@ -284,7 +284,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
                 "Accessing `_agreement_tx_data` before they have been built."
             )
             return None
-        return bytes.fromhex(self._agreement_tx_data.removeprefix("0x"))
+        return bytes.fromhex(
+            self._agreement_tx_data.removeprefix("0x").removeprefix("0X")
+        )
 
     @property
     def subscription_token_approval_tx_data(self) -> Optional[bytes]:
@@ -295,7 +297,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             )
             return None
         return bytes.fromhex(
-            self._subscription_token_approval_tx_data.removeprefix("0x")
+            self._subscription_token_approval_tx_data.removeprefix("0x").removeprefix(
+                "0X"
+            )
         )
 
     @property
@@ -306,7 +310,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
                 "Accessing `_fulfill_tx_data` before they have been built."
             )
             return None
-        return bytes.fromhex(self._fulfill_tx_data.removeprefix("0x"))
+        return bytes.fromhex(
+            self._fulfill_tx_data.removeprefix("0x").removeprefix("0X")
+        )
 
     @property
     def fulfill_for_delegate_params(

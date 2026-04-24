@@ -176,12 +176,28 @@ class TestTxDataProperties:
             ("_fulfill_tx_data", "fulfill_tx_data"),
         ],
     )
-    def test_returns_hexbytes_when_set(self, purchase_behaviour, attr, prop) -> None:
-        """Test returns HexBytes when backing field is set."""
+    def test_returns_bytes_when_set(self, purchase_behaviour, attr, prop) -> None:
+        """Test returns bytes when backing field is set."""
         setattr(purchase_behaviour, attr, "0xabcd")
         result = getattr(purchase_behaviour, prop)
-        assert result is not None
-        assert bytes(result) == b"\xab\xcd"
+        assert result == b"\xab\xcd"
+
+    @pytest.mark.parametrize(
+        "attr,prop",
+        [
+            ("_agreement_tx_data", "agreement_tx_data"),
+            (
+                "_subscription_token_approval_tx_data",
+                "subscription_token_approval_tx_data",
+            ),
+            ("_fulfill_tx_data", "fulfill_tx_data"),
+        ],
+    )
+    def test_accepts_uppercase_hex_prefix(self, purchase_behaviour, attr, prop) -> None:
+        """Test `0X` prefix is stripped alongside `0x` (case-insensitive)."""
+        setattr(purchase_behaviour, attr, "0XABCD")
+        result = getattr(purchase_behaviour, prop)
+        assert result == b"\xab\xcd"
 
 
 class TestGenerateAgreementIdSeed:

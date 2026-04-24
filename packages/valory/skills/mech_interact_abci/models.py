@@ -465,4 +465,4 @@ class MultisendBatch:
         if self.value < 0:
             raise ValueError("Value must be non-negative")
         if not isinstance(self.data, (bytes, bytearray)):
-            raise ValueError("Data must be a bytes instance")
+            raise ValueError("Data must be a bytes or bytearray instance")

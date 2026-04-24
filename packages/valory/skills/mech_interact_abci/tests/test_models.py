@@ -24,7 +24,6 @@ from typing import Generator
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
-from hexbytes import HexBytes
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
 from packages.valory.skills.abstract_round_abci.test_tools.base import DummyContext
@@ -106,26 +105,33 @@ class TestMultisendBatch:
 
     def test_valid_batch(self) -> None:
         """Test creating a valid batch."""
-        batch = MultisendBatch(to="0xaddr", data=HexBytes(b"\x01\x02"))
+        batch = MultisendBatch(to="0xaddr", data=b"\x01\x02")
         assert batch.to == "0xaddr"
-        assert batch.data == HexBytes(b"\x01\x02")
+        assert batch.data == b"\x01\x02"
         assert batch.value == 0
         assert batch.operation == MultiSendOperation.CALL
 
     def test_empty_to_raises(self) -> None:
         """Test that empty 'to' address raises ValueError."""
         with pytest.raises(ValueError, match="Target address"):
-            MultisendBatch(to="", data=HexBytes(b"\x01"))
+            MultisendBatch(to="", data=b"\x01")
 
     def test_negative_value_raises(self) -> None:
         """Test that negative value raises ValueError."""
         with pytest.raises(ValueError, match="Value must be non-negative"):
-            MultisendBatch(to="0xaddr", data=HexBytes(b""), value=-1)
+            MultisendBatch(to="0xaddr", data=b"", value=-1)
 
     def test_non_bytes_data_raises(self) -> None:
         """Test that non-bytes data raises ValueError."""
-        with pytest.raises(ValueError, match="Data must be a bytes instance"):
+        with pytest.raises(
+            ValueError, match="Data must be a bytes or bytearray instance"
+        ):
             MultisendBatch(to="0xaddr", data="not-bytes")  # type: ignore
+
+    def test_bytearray_data_accepted(self) -> None:
+        """Test that bytearray data is accepted (per the error message contract)."""
+        batch = MultisendBatch(to="0xaddr", data=bytearray(b"\x01\x02"))
+        assert batch.data == bytearray(b"\x01\x02")
 
 
 class TestSharedStatePenalization:

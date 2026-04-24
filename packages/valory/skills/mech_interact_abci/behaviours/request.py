@@ -402,9 +402,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             if isinstance(withdraw_data, (bytes, bytearray)):
                 hex_data = bytes(withdraw_data)
             elif isinstance(withdraw_data, str):
-                hex_data = bytes.fromhex(withdraw_data.removeprefix("0x"))
+                hex_data = bytes.fromhex(
+                    withdraw_data.removeprefix("0x").removeprefix("0X")
+                )
             else:
-                hex_data = bytes.fromhex(str(withdraw_data).removeprefix("0x"))
+                hex_data = bytes.fromhex(
+                    str(withdraw_data).removeprefix("0x").removeprefix("0X")
+                )
         except (ValueError, TypeError) as e:
             self.context.logger.error(f"Could not convert withdraw_data to bytes: {e}")
             return False
@@ -772,7 +776,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         batch = MultisendBatch(
             to=self.params.price_token,
-            data=bytes.fromhex(self.approval_data.removeprefix("0x")),
+            data=bytes.fromhex(
+                self.approval_data.removeprefix("0x").removeprefix("0X")
+            ),
         )
         self.multisend_batches.append(batch)
         self.context.logger.info("Successfully built approval data.")

@@ -22,7 +22,6 @@
 from unittest.mock import MagicMock
 
 import pytest
-from hexbytes import HexBytes
 
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
@@ -107,8 +106,8 @@ class TestTxsValue:
         """Test txs_value sums all batch values."""
         behaviour = _make_base_behaviour()
         behaviour.multisend_batches = [
-            MultisendBatch(to="0x1", data=HexBytes(b""), value=100),
-            MultisendBatch(to="0x2", data=HexBytes(b""), value=250),
+            MultisendBatch(to="0x1", data=b"", value=100),
+            MultisendBatch(to="0x2", data=b"", value=250),
         ]
         assert behaviour.txs_value == 350
 
@@ -120,7 +119,7 @@ class TestMultiSendTxs:
         """Test multi_send_txs converts MultisendBatch dataclasses to dicts."""
         behaviour = _make_base_behaviour()
         behaviour.multisend_batches = [
-            MultisendBatch(to="0xaddr", data=HexBytes(b"\x01\x02"), value=50),
+            MultisendBatch(to="0xaddr", data=b"\x01\x02", value=50),
         ]
         result = behaviour.multi_send_txs
         assert len(result) == 1
