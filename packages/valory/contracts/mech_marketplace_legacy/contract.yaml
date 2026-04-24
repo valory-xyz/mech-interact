@@ -12,7 +12,7 @@ fingerprint:
   contract.py: bafybeihnbtozjsqf3tv232yopko3tg2rtirfcydzapgeui3twyza4c4v3m
   tests/__init__.py: bafybeihecodbivsyqhtukue2dre5kqq3qsz6ueugeqab5j77mcosstuava
   tests/conftest.py: bafybeid734tc2f2qotcwp5wfx5qndzbheuiwewaz7tvw4s5wxxthut7b6q
-  tests/test_contract.py: bafybeia44ylubcaikooh4y7ggki7cwqjexnbkpq4k5ia3h4dxyujqvin3y
+  tests/test_contract.py: bafybeifrdx2h6h5zju5na6cfobfny77xhzaqhyvgseqz5scdv2cf4sfsim
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: MechMarketplaceLegacy

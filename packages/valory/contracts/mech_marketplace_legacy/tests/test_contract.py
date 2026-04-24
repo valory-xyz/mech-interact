@@ -460,9 +460,7 @@ class TestMechMarketplaceLegacyGetResponse:
         assert "error" in result
 
     @patch.object(MechMarketplaceLegacy, "get_instance")
-    def test_get_response_inner_logic_missing_data(
-        self, mock_get_instance, ledger_api
-    ):
+    def test_get_response_inner_logic_missing_data(self, mock_get_instance, ledger_api):
         """Test get_response inner function when delivery has no data field."""
         mock_instance = MagicMock()
         mock_event = MagicMock()
