@@ -24,14 +24,12 @@ from dataclasses import asdict, fields
 from enum import Enum
 from pathlib import Path
 from tempfile import mkdtemp
-from typing import Any, Generator, List, Optional, cast
+from typing import Any, Generator, List, Optional
 
-import multibase
-import multicodec
 from aea.configurations.data_types import PublicId
 from aea.exceptions import AEAEnforceError
 from aea.helpers.cid import to_v1
-from hexbytes import HexBytes
+from aea.helpers.multiformat import multibase_decode, multicodec_remove_prefix
 
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
 from packages.valory.contracts.ierc1155.contract import IERC1155
@@ -401,16 +399,18 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             return False
 
         try:
-            if isinstance(withdraw_data, str) or isinstance(
-                withdraw_data, (bytes, bytearray)
-            ):
-                hex_data = HexBytes(withdraw_data)
+            if isinstance(withdraw_data, (bytes, bytearray)):
+                hex_data = bytes(withdraw_data)
+            elif isinstance(withdraw_data, str):
+                hex_data = bytes.fromhex(
+                    withdraw_data.removeprefix("0x").removeprefix("0X")
+                )
             else:
-                hex_data = HexBytes(str(withdraw_data))
+                hex_data = bytes.fromhex(
+                    str(withdraw_data).removeprefix("0x").removeprefix("0X")
+                )
         except (ValueError, TypeError) as e:
-            self.context.logger.error(
-                f"Could not convert withdraw_data to HexBytes: {e}"
-            )
+            self.context.logger.error(f"Could not convert withdraw_data to bytes: {e}")
             return False
 
         batch = MultisendBatch(
@@ -599,8 +599,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             return False
 
         v1_file_hash = to_v1(metadata_hash)
-        cid_bytes = cast("bytes", multibase.decode(v1_file_hash))
-        multihash_bytes = multicodec.remove_prefix(cid_bytes)
+        cid_bytes = multibase_decode(v1_file_hash.encode("ascii"))
+        multihash_bytes = multicodec_remove_prefix(cid_bytes)
         v1_file_hash_hex = V1_HEX_PREFIX + multihash_bytes.hex()
         ipfs_link = self.params.ipfs_address + v1_file_hash_hex
         self.context.logger.info(f"Prompt uploaded: {ipfs_link}")
@@ -776,7 +776,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         batch = MultisendBatch(
             to=self.params.price_token,
-            data=HexBytes(self.approval_data),
+            data=bytes.fromhex(
+                self.approval_data.removeprefix("0x").removeprefix("0X")
+            ),
         )
         self.multisend_batches.append(batch)
         self.context.logger.info("Successfully built approval data.")
@@ -883,7 +885,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             to = self.params.request_address
             batch = MultisendBatch(
                 to=to,
-                data=HexBytes(self.request_data),
+                data=bytes(self.request_data),
                 value=self.price,
             )
             self.multisend_batches.append(batch)

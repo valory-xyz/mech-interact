@@ -396,11 +396,13 @@ class TestMechProcessAbiForResponse:
         assert "No Deliver event found" in result["error"]
         assert is_final is False
 
-    @patch("packages.valory.contracts.mech.contract.get_event_data")
-    @patch("packages.valory.contracts.mech.contract.event_abi_to_log_topic")
-    def test_no_matching_response(self, mock_topic, mock_get_event_data, ledger_api):
+    def test_no_matching_response(self, ledger_api):
         """Test _process_abi_for_response when no matching response found."""
-        mock_topic.return_value = b"\x00" * 32
+        mock_event = MagicMock()
+        mock_event.topic = b"\x00" * 32
+        ledger_api.api.eth.contract.return_value.events.Deliver.return_value = (
+            mock_event
+        )
         ledger_api.api.eth.get_logs.return_value = []
 
         abi = [
@@ -429,18 +431,18 @@ class TestMechProcessAbiForResponse:
         assert "has not delivered" in result["info"]
         assert is_final is False
 
-    @patch("packages.valory.contracts.mech.contract.get_event_data")
-    @patch("packages.valory.contracts.mech.contract.event_abi_to_log_topic")
-    def test_single_matching_response(
-        self, mock_topic, mock_get_event_data, ledger_api
-    ):
+    def test_single_matching_response(self, ledger_api):
         """Test _process_abi_for_response with exactly one matching response."""
-        mock_topic.return_value = b"\x00" * 32
         mock_log = MagicMock()
         ledger_api.api.eth.get_logs.return_value = [mock_log]
-        mock_get_event_data.return_value = {
+        mock_event = MagicMock()
+        mock_event.topic = b"\x00" * 32
+        mock_event.process_log.return_value = {
             "args": {"requestId": 1, "data": b"response data"}
         }
+        ledger_api.api.eth.contract.return_value.events.Deliver.return_value = (
+            mock_event
+        )
 
         abi = [
             {
@@ -467,17 +469,17 @@ class TestMechProcessAbiForResponse:
         assert result == {"data": b"response data"}
         assert is_final is True
 
-    @patch("packages.valory.contracts.mech.contract.get_event_data")
-    @patch("packages.valory.contracts.mech.contract.event_abi_to_log_topic")
-    def test_multiple_matching_responses(
-        self, mock_topic, mock_get_event_data, ledger_api
-    ):
+    def test_multiple_matching_responses(self, ledger_api):
         """Test _process_abi_for_response with multiple matching responses."""
-        mock_topic.return_value = b"\x00" * 32
         ledger_api.api.eth.get_logs.return_value = [MagicMock(), MagicMock()]
-        mock_get_event_data.return_value = {
+        mock_event = MagicMock()
+        mock_event.topic = b"\x00" * 32
+        mock_event.process_log.return_value = {
             "args": {"requestId": 1, "data": b"response"}
         }
+        ledger_api.api.eth.contract.return_value.events.Deliver.return_value = (
+            mock_event
+        )
 
         abi = [
             {
@@ -505,15 +507,15 @@ class TestMechProcessAbiForResponse:
         assert "A single response was expected" in result["error"]
         assert is_final is False
 
-    @patch("packages.valory.contracts.mech.contract.get_event_data")
-    @patch("packages.valory.contracts.mech.contract.event_abi_to_log_topic")
-    def test_matching_response_missing_data(
-        self, mock_topic, mock_get_event_data, ledger_api
-    ):
+    def test_matching_response_missing_data(self, ledger_api):
         """Test _process_abi_for_response when response has no data field."""
-        mock_topic.return_value = b"\x00" * 32
         ledger_api.api.eth.get_logs.return_value = [MagicMock()]
-        mock_get_event_data.return_value = {"args": {"requestId": 1}}
+        mock_event = MagicMock()
+        mock_event.topic = b"\x00" * 32
+        mock_event.process_log.return_value = {"args": {"requestId": 1}}
+        ledger_api.api.eth.contract.return_value.events.Deliver.return_value = (
+            mock_event
+        )
 
         abi = [
             {

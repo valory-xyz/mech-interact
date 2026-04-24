@@ -22,7 +22,6 @@
 from unittest.mock import MagicMock
 
 import pytest
-from hexbytes import HexBytes
 
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
 from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
@@ -48,7 +47,7 @@ class TestMultisendProperties:
 
     def test_multi_send_txs_serializes_batches(self, base_behaviour) -> None:
         """Test multi_send_txs returns list of dicts from batches."""
-        batch = MultisendBatch(to="0xaddr", data=HexBytes(b"\x01"), value=100)
+        batch = MultisendBatch(to="0xaddr", data=b"\x01", value=100)
         base_behaviour.multisend_batches = [batch]
         result = base_behaviour.multi_send_txs
         assert len(result) == 1
@@ -58,8 +57,8 @@ class TestMultisendProperties:
     def test_txs_value_sums_batch_values(self, base_behaviour) -> None:
         """Test txs_value sums all batch values."""
         base_behaviour.multisend_batches = [
-            MultisendBatch(to="0xa", data=HexBytes(b""), value=100),
-            MultisendBatch(to="0xb", data=HexBytes(b""), value=200),
+            MultisendBatch(to="0xa", data=b"", value=100),
+            MultisendBatch(to="0xb", data=b"", value=200),
         ]
         assert base_behaviour.txs_value == 300
 

@@ -24,7 +24,6 @@ import secrets
 from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple, Union
 
 from aea.common import JSONLike
-from hexbytes import HexBytes
 
 from autonomy.chain.config import ChainType
 
@@ -278,34 +277,42 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         return ChainType(self.params.mech_chain_id) == ChainType.BASE
 
     @property
-    def agreement_tx_data(self) -> Optional[HexBytes]:
+    def agreement_tx_data(self) -> Optional[bytes]:
         """Get the built create-agreement tx data."""
         if self._agreement_tx_data is None:
             self.context.logger.error(
                 "Accessing `_agreement_tx_data` before they have been built."
             )
             return None
-        return HexBytes(self._agreement_tx_data)
+        return bytes.fromhex(
+            self._agreement_tx_data.removeprefix("0x").removeprefix("0X")
+        )
 
     @property
-    def subscription_token_approval_tx_data(self) -> Optional[HexBytes]:
+    def subscription_token_approval_tx_data(self) -> Optional[bytes]:
         """Get the built subscription token approval tx data."""
         if self._subscription_token_approval_tx_data is None:
             self.context.logger.error(
                 "Accessing `_subscription_token_approval_tx_data` before they have been built."
             )
             return None
-        return HexBytes(self._subscription_token_approval_tx_data)
+        return bytes.fromhex(
+            self._subscription_token_approval_tx_data.removeprefix("0x").removeprefix(
+                "0X"
+            )
+        )
 
     @property
-    def fulfill_tx_data(self) -> Optional[HexBytes]:
+    def fulfill_tx_data(self) -> Optional[bytes]:
         """Get the built fulfill tx data."""
         if self._fulfill_tx_data is None:
             self.context.logger.error(
                 "Accessing `_fulfill_tx_data` before they have been built."
             )
             return None
-        return HexBytes(self._fulfill_tx_data)
+        return bytes.fromhex(
+            self._fulfill_tx_data.removeprefix("0x").removeprefix("0X")
+        )
 
     @property
     def fulfill_for_delegate_params(

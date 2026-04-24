@@ -96,10 +96,10 @@ class TestDeliveryMech:
         behaviour = _make_response_behaviour()
         behaviour._request_info = None
         behaviour._context.state.last_called_mech = None
-        from web3.constants import ADDRESS_ZERO
+        address_zero = "0x" + "0" * 40
 
         result = behaviour.delivery_mech
-        assert result == ADDRESS_ZERO
+        assert result == address_zero
 
 
 class TestProcessResponseWithArtifacts:
