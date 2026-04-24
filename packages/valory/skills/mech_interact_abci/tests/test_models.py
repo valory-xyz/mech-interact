@@ -122,10 +122,10 @@ class TestMultisendBatch:
         with pytest.raises(ValueError, match="Value must be non-negative"):
             MultisendBatch(to="0xaddr", data=HexBytes(b""), value=-1)
 
-    def test_non_hexbytes_data_raises(self) -> None:
-        """Test that non-HexBytes data raises ValueError."""
-        with pytest.raises(ValueError, match="Data must be HexBytes"):
-            MultisendBatch(to="0xaddr", data=b"\x01")  # type: ignore
+    def test_non_bytes_data_raises(self) -> None:
+        """Test that non-bytes data raises ValueError."""
+        with pytest.raises(ValueError, match="Data must be a bytes instance"):
+            MultisendBatch(to="0xaddr", data="not-bytes")  # type: ignore
 
 
 class TestSharedStatePenalization:
