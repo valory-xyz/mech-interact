@@ -12,7 +12,7 @@ fingerprint:
   __init__.py: bafybeic6zmplvwsgp5gh2rse2ushtaqnodvmb4kxooace5ghabz4exqbt4
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
   behaviours/base.py: bafybeieigufombqm2hmzbmhbkzxt6apnqns5y7gz627v74sffg6a2jyovi
-  behaviours/mech_info.py: bafybeiexut5veu2s2qr6mvlauijwkfcskzvdekjltwkbdl7ixkuf5m657y
+  behaviours/mech_info.py: bafybeidleagib3fzbtehwotw54isgtc3kdwuvhxq3e3icccvky7cixzywy
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
   behaviours/purchase_subcription.py: bafybeigbd652kkbd4q42za3mn26ixnb5te6yu3ms5dr54w5h4oqov4pxya
   behaviours/request.py: bafybeia2c4ms6vya5kqae4qxi3tc3pe4dw2pmo5mxvu4ewrtz7av5e7gwy
@@ -25,7 +25,7 @@ fingerprint:
   graph_tooling/queries/mechs_info.py: bafybeigmk3y3uwlsmzommqwimirko6vph3j6mmymxbncshjdzebne4nija
   graph_tooling/requests.py: bafybeieebeky62sm2fzqy5egbg4fk5cbi2loywgl6x5dbfraatygmlqe4m
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
-  models.py: bafybeihehkn644fxs5wfrqi7fjuzthncealwjgixjkevit7o3q5vxixn2u
+  models.py: bafybeicwbvexmcgpj3qpvntawvlm62ljgwmdqnh4u5tekatqwjs3uz4gye
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeiewhynivpu72vzstzppmqedoytidmfgjszf7mb22ml7lhi5ep6eyy
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
@@ -51,7 +51,7 @@ fingerprint:
   tests/test_dialogues.py: bafybeicztq6kz273kpq6qtp4arh5btyovj7tiwcyy227bomblv52rx2rjq
   tests/test_graph_tooling.py: bafybeiaxihwxdhsjodefdbu42qibeqyhexdob3sqfs5hyo5ylgg7xzpzg4
   tests/test_handlers.py: bafybeic7jsbsnvmw7byuktnlhtkd7pav7xtl5nyxg266dwtzlbq75zayze
-  tests/test_mech_info_behaviour.py: bafybeificwrmpvyrakbnhuwzlecaml3i4xqoeehhnls6hm7cchh5hlwsaa
+  tests/test_mech_info_behaviour.py: bafybeibtdp6pcryedixwplb3kdy7ej236dakbuhdoirnf3dnbhnyhxxzvu
   tests/test_models.py: bafybeicoqkpqrcqkewxy2ipuw6cfzqxjoljew36vjbc3hwsfcyvkjewame
   tests/test_payloads.py: bafybeihcllq2rgswue4w353e24ec42v62fkdm6l7ek3uzcxsmqk76skwba
   tests/test_request_behaviour.py: bafybeiheu4ohjxtibmk6qyju23nvbwie5iwrcjyjntumde7theocwxba7e
@@ -224,7 +224,6 @@ models:
       - stabilityai-stable-diffusion-768-v2-1
       deliveries_lookback_days: 30
       ignored_mechs: []
-      mech_tools_parallel_timeout: 20.0
       penalize_mech_time_window: 1800
     class_name: Params
   mech_tools:
