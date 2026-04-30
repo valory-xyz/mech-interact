@@ -117,9 +117,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self._transfer_id: Optional[bytes] = None
         self._escrow_hash: Optional[bytes] = None
         self._escrow_id: Optional[bytes] = None
-        self._agreement_tx_data: Optional[str] = None
-        self._subscription_token_approval_tx_data: Optional[str] = None
-        self._fulfill_tx_data: Optional[str] = None
+        self._agreement_tx_data: Optional[bytes] = None
+        self._subscription_token_approval_tx_data: Optional[bytes] = None
+        self._fulfill_tx_data: Optional[bytes] = None
 
     @property
     def nvm_config(self) -> NVMConfig:  # pragma: no cover
@@ -284,9 +284,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
                 "Accessing `_agreement_tx_data` before they have been built."
             )
             return None
-        return bytes.fromhex(
-            self._agreement_tx_data.removeprefix("0x").removeprefix("0X")
-        )
+        return self._agreement_tx_data
 
     @property
     def subscription_token_approval_tx_data(self) -> Optional[bytes]:
@@ -296,11 +294,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
                 "Accessing `_subscription_token_approval_tx_data` before they have been built."
             )
             return None
-        return bytes.fromhex(
-            self._subscription_token_approval_tx_data.removeprefix("0x").removeprefix(
-                "0X"
-            )
-        )
+        return self._subscription_token_approval_tx_data
 
     @property
     def fulfill_tx_data(self) -> Optional[bytes]:
@@ -310,9 +304,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
                 "Accessing `_fulfill_tx_data` before they have been built."
             )
             return None
-        return bytes.fromhex(
-            self._fulfill_tx_data.removeprefix("0x").removeprefix("0X")
-        )
+        return self._fulfill_tx_data
 
     @property
     def fulfill_for_delegate_params(

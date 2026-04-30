@@ -13,7 +13,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeifip7e6al6nwtwbyqol4xm2iqnuycrdefdie7vyxlxeh33ubqeooa",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeie267gridf6z2yxk7cvt5fdy66cocyg5dn3rj7zvnvl3otnk6iw34",
         "contract/valory/subscription_provider/0.1.0": "bafybeibulnegkf7jsz4lrhvsvai65wytjspl6itkhb6dhbl3fwsbpbyh6u",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeibzmqjyggvnvbuutmk2a7ju7cfdydj3qthenhojcf6olwweuhu6oy"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeid3vzknnl72glpy4w24wsb7kur2gwblta4uwpuwmy2bgl75fenafm"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i",
@@ -27,10 +27,10 @@
         "protocol/valory/ipfs/0.1.0": "bafybeibz5xqhxdbuvba7nuw2w6ardjermtcoqercopnypdplnaekf3joam",
         "contract/valory/multisend/0.1.0": "bafybeic4534fd4axozjmykpstgjynxzpkpfvnvyjt7hz32ajfe3fmwhn7m",
         "contract/valory/gnosis_safe_proxy_factory/0.1.0": "bafybeihpzvi2rxvdzujrqivnynsoqezklval6j3qeoxaitquktvwscqgra",
-        "contract/valory/agent_registry/0.1.0": "bafybeihix534wbt7nq5qaneww5j4b74ce6rf33xgbochpc6xcogzhmnv7q",
+        "contract/valory/agent_registry/0.1.0": "bafybeidjbneskgge442hfmb2mcyap6v723qz2imhlyptt4ofwqbyttmufu",
         "contract/valory/service_registry/0.1.0": "bafybeifuexvcj6w3j2lludzxi3rgu2nn2b3toyifxiy46hv726o2bxivjm",
         "contract/valory/gnosis_safe/0.1.0": "bafybeihljnuo6jiyqfvow4vgxy5ih4eha2pjtguh7o6pabe24lbd6mwjaa",
-        "contract/valory/erc20/0.1.0": "bafybeigjxwhx4li5hmyv3hrtatwq65gl4wihqysaq5pqlpmw5o4lymfv6y",
+        "contract/valory/erc20/0.1.0": "bafybeicn3fsqwourxfh5r7izebhtcqz6idqaxbmp4osqnabcqck3xae4xy",
         "contract/valory/agent_mech/0.1.0": "bafybeieehgxkc3mosiramapon4u7qkhihxa52actku4wlykypovgcjsjde",
         "connection/valory/http_client/0.23.0": "bafybeihel6sg2yayxu7lqygaswdgciaxpqrgsbl5rwx74c6znu5qz2edd4",
         "connection/valory/p2p_libp2p_client/0.1.0": "bafybeielj3jso3wvrarp5n5rq7llpw4vgxybqiyensgjalb5ubfiawwhhu",
