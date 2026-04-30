@@ -25,7 +25,7 @@ import pytest
 
 
 @pytest.fixture
-def ledger_api():
+def ledger_api() -> MagicMock:
     """Create a mock ledger API with common Ethereum RPC stubs."""
     mock_api = MagicMock()
     mock_api.api.to_checksum_address = lambda addr: addr

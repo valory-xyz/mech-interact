@@ -53,7 +53,9 @@ def _noop_base_init(self, **kwargs):  # type: ignore
     """No-op replacement for the framework-level BaseBehaviour.__init__."""
 
 
-def assert_unset_property_logs(behaviour, prop, log_method="error"):
+def assert_unset_property_logs(
+    behaviour: MechInteractBaseBehaviour, prop: str, log_method: str = "error"
+) -> None:
     """Assert that accessing an unset property returns None and logs."""
     result = getattr(behaviour, prop)
     assert result is None
@@ -91,7 +93,7 @@ def response_behaviour() -> MechResponseBehaviour:
         behaviour = MechResponseBehaviour.__new__(MechResponseBehaviour)
         behaviour._context = MagicMock()
         behaviour._context.shared_state = {}
-        behaviour.__init__()
+        MechResponseBehaviour.__init__(behaviour)
     return behaviour
 
 

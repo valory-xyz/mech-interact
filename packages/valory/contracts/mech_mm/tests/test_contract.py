@@ -30,7 +30,7 @@ TX_HASH = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 class TestMechMMToPrefixedHex:
     """Tests for MechMM._to_prefixed_hex."""
 
-    def test_to_prefixed_hex(self):
+    def test_to_prefixed_hex(self) -> None:
         """Test _to_prefixed_hex converts bytes to 0x-prefixed hex string."""
         result = MechMM._to_prefixed_hex(b"\xde\xad\xbe\xef")
         assert result == "0xdeadbeef"
@@ -40,7 +40,9 @@ class TestMechMMGetRequestData:
     """Tests for MechMM.get_request_data."""
 
     @patch.object(MechMM, "get_instance")
-    def test_get_request_data(self, mock_get_instance, ledger_api):
+    def test_get_request_data(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_request_data encodes arguments correctly."""
         mock_instance = MagicMock()
         mock_instance.encode_abi.return_value = "0xaabbccdd"
@@ -62,7 +64,7 @@ class TestMechMMGetRequestData:
 class TestMechMMProcessEvent:
     """Tests for MechMM._process_event."""
 
-    def test_process_event_success(self, ledger_api):
+    def test_process_event_success(self, ledger_api: MagicMock) -> None:
         """Test _process_event with matching logs."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -85,7 +87,7 @@ class TestMechMMProcessEvent:
         assert len(result["results"]) == 1
         assert result["results"][0] == {"requestId": 1, "data": b"response"}
 
-    def test_process_event_wrong_log_count(self, ledger_api):
+    def test_process_event_wrong_log_count(self, ledger_api: MagicMock) -> None:
         """Test _process_event with mismatched log count."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -104,7 +106,7 @@ class TestMechMMProcessEvent:
         assert "error" in result
         assert "1 'Deliver' events were expected" in result["error"]
 
-    def test_process_event_missing_expected_key(self, ledger_api):
+    def test_process_event_missing_expected_key(self, ledger_api: MagicMock) -> None:
         """Test _process_event when expected key is missing."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -125,7 +127,7 @@ class TestMechMMProcessEvent:
         assert "error" in result
         assert "do not match the expected format" in result["error"]
 
-    def test_process_event_none_args(self, ledger_api):
+    def test_process_event_none_args(self, ledger_api: MagicMock) -> None:
         """Test _process_event when args is None."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -143,7 +145,7 @@ class TestMechMMProcessEvent:
 
         assert "error" in result
 
-    def test_process_event_multiple_logs(self, ledger_api):
+    def test_process_event_multiple_logs(self, ledger_api: MagicMock) -> None:
         """Test _process_event with multiple matching logs."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -172,7 +174,12 @@ class TestMechMMGetResponse:
 
     @patch("packages.valory.contracts.mech_mm.contract.rpc_call_with_timeout")
     @patch.object(MechMM, "get_instance")
-    def test_get_response_success(self, mock_get_instance, mock_rpc_call, ledger_api):
+    def test_get_response_success(
+        self,
+        mock_get_instance: MagicMock,
+        mock_rpc_call: MagicMock,
+        ledger_api: MagicMock,
+    ) -> None:
         """Test get_response returns data on success."""
         mock_rpc_call.return_value = ({"data": b"response"}, None)
 
@@ -187,7 +194,12 @@ class TestMechMMGetResponse:
 
     @patch("packages.valory.contracts.mech_mm.contract.rpc_call_with_timeout")
     @patch.object(MechMM, "get_instance")
-    def test_get_response_timeout(self, mock_get_instance, mock_rpc_call, ledger_api):
+    def test_get_response_timeout(
+        self,
+        mock_get_instance: MagicMock,
+        mock_rpc_call: MagicMock,
+        ledger_api: MagicMock,
+    ) -> None:
         """Test get_response handles timeout error."""
         mock_rpc_call.return_value = (None, "The RPC didn't respond in 5.")
 
@@ -203,8 +215,11 @@ class TestMechMMGetResponse:
     @patch("packages.valory.contracts.mech_mm.contract.rpc_call_with_timeout")
     @patch.object(MechMM, "get_instance")
     def test_get_response_info_not_delivered(
-        self, mock_get_instance, mock_rpc_call, ledger_api
-    ):
+        self,
+        mock_get_instance: MagicMock,
+        mock_rpc_call: MagicMock,
+        ledger_api: MagicMock,
+    ) -> None:
         """Test get_response when not yet delivered."""
         mock_rpc_call.return_value = (
             {"info": "not delivered yet"},
@@ -225,7 +240,9 @@ class TestMechMMGetPaymentType:
     """Tests for MechMM.get_payment_type."""
 
     @patch.object(MechMM, "get_instance")
-    def test_get_payment_type(self, mock_get_instance, ledger_api):
+    def test_get_payment_type(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_payment_type returns the payment type hex string."""
         mock_instance = MagicMock()
         mock_get_instance.return_value = mock_instance
@@ -247,7 +264,9 @@ class TestMechMMGetMaxDeliveryRate:
     """Tests for MechMM.get_max_delivery_rate."""
 
     @patch.object(MechMM, "get_instance")
-    def test_get_max_delivery_rate(self, mock_get_instance, ledger_api):
+    def test_get_max_delivery_rate(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_max_delivery_rate returns the rate."""
         mock_instance = MagicMock()
         mock_get_instance.return_value = mock_instance
@@ -268,7 +287,9 @@ class TestMechMMGetServiceId:
     """Tests for MechMM.get_service_id."""
 
     @patch.object(MechMM, "get_instance")
-    def test_get_service_id(self, mock_get_instance, ledger_api):
+    def test_get_service_id(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_service_id returns the service id."""
         mock_instance = MagicMock()
         mock_get_instance.return_value = mock_instance

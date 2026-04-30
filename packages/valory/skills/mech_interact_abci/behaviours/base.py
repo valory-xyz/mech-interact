@@ -327,7 +327,7 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
         if not self.synchronized_data.versioning_check_performed:
             raise ValueError("Compatibility check must be performed first")
 
-        return self.synchronized_data.is_marketplace_v2
+        return bool(self.synchronized_data.is_marketplace_v2)
 
     def _build_multisend_data(
         self,

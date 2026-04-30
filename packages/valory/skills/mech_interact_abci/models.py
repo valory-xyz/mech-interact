@@ -30,7 +30,10 @@ from autonomy.chain.service import NULL_ADDRESS
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
 from packages.valory.protocols.http import HttpMessage
-from packages.valory.skills.abstract_round_abci.models import ApiSpecs, BaseParams
+from packages.valory.skills.abstract_round_abci.models import (
+    ApiSpecs,
+    BaseParams,
+)
 from packages.valory.skills.abstract_round_abci.models import (
     BenchmarkTool as BaseBenchmarkTool,
 )
@@ -114,7 +117,7 @@ class MechsSubgraph(ApiSpecs):
         super().__init__(*args, **kwargs)
 
     def filter_info(
-        self, unfiltered: List[Dict[str, str]]
+        self, unfiltered: List[Dict[str, Any]]
     ) -> MechsInfo:  # pragma: no cover
         """Filter the information based on the metadata."""
         return [
@@ -257,7 +260,7 @@ class MechParams(BaseParams):
         """
         multisend_address = kwargs.get("multisend_address")
         enforce(multisend_address is not None, "Multisend address not specified!")
-        self.multisend_address: str = multisend_address
+        self.multisend_address: str = cast(str, multisend_address)
         self.multisend_batch_size: int = self._ensure(
             "multisend_batch_size", kwargs, int
         )
@@ -284,7 +287,9 @@ class MechParams(BaseParams):
         self.mech_marketplace_config: MechMarketplaceConfig = MechMarketplaceConfig(
             **kwargs["mech_marketplace_config"]
         )
-        self.agent_registry_address: str = kwargs.get("agent_registry_address")
+        self.agent_registry_address: str = cast(
+            str, kwargs.get("agent_registry_address")
+        )
         enforce(
             self.agent_registry_address is not None,
             "Agent registry address not specified!",
@@ -388,7 +393,7 @@ class SharedState(BaseSharedState):
 
     abci_app_cls = MechInteractAbciApp
 
-    def __init__(self, *args, skill_context: SkillContext, **kwargs) -> None:
+    def __init__(self, *args: Any, skill_context: SkillContext, **kwargs: Any) -> None:
         """Set up."""
         super().__init__(*args, skill_context=skill_context, **kwargs)
         # defined here so developers can penalize mechs (e.g., based on the response) to lower their ranking

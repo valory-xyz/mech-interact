@@ -55,9 +55,12 @@ class MechVersionDetectionRound(VotingRound):
 
         if event in (Event.V2, Event.V1, Event.NO_MARKETPLACE):
             is_v2 = None if event == Event.NO_MARKETPLACE else event == Event.V2
-            synced_data = synced_data.update(
-                synchronized_data_class=self.synchronized_data_class,
-                **{get_name(SynchronizedData.is_marketplace_v2): is_v2},
+            synced_data = cast(
+                SynchronizedData,
+                synced_data.update(
+                    synchronized_data_class=self.synchronized_data_class,
+                    **{get_name(SynchronizedData.is_marketplace_v2): is_v2},
+                ),
             )
 
         return synced_data, event

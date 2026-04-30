@@ -21,7 +21,18 @@
 
 import json
 import secrets
-from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from aea.common import JSONLike
 
@@ -139,7 +150,10 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     def ddo_endpoint(self) -> Optional[str]:
         """Return the ddo endpoint."""
         try:
-            return self.ddo_register[DDO_ENDPOINT_IDX]
+            ddo_register = self.ddo_register
+            if ddo_register is None:
+                return None
+            return ddo_register[DDO_ENDPOINT_IDX]
         except IndexError:
             self.context.logger.error(
                 f"Cannot get ddo endpoint from the fetched {self.ddo_register=}."
@@ -321,13 +335,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         """Get the fulfill for delegate parameters."""
         return (
             # nftHolder
-            self.from_address,
+            cast(str, self.from_address),
             # nftReceiver
             self.synchronized_data.safe_contract_address,
             # nftAmount
             self.nvm_config.subscription_credits,
             # lockPaymentCondition
-            Ox + self.lock_id.hex(),
+            Ox + cast(bytes, self.lock_id).hex(),
             # nftContractAddress
             self.nvm_config.subscription_nft_address,
             # transfer
@@ -345,7 +359,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # amounts
             self.amounts,
             # receivers
-            self.receivers,
+            cast(List[str], self.receivers),
             # returnAddress # noqa: E800
             self.synchronized_data.safe_contract_address,
             # lockPaymentAddress
@@ -353,9 +367,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             # tokenAddress
             self.nvm_config.subscription_token_address,
             # lockCondition
-            Ox + self.lock_id.hex(),
+            Ox + cast(bytes, self.lock_id).hex(),
             # releaseCondition
-            Ox + self.transfer_id.hex(),
+            Ox + cast(bytes, self.transfer_id).hex(),
         )
 
     @staticmethod
@@ -379,10 +393,11 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def _extract_and_set_receivers(self) -> None:  # pragma: no cover
         """Extract and set the receivers."""
+        ddo_values = self.ddo_values or {}
         service = next(
             (
                 s
-                for s in self.ddo_values.get(SERVICE_KEY, [])
+                for s in ddo_values.get(SERVICE_KEY, [])
                 if s.get(SERVICE_TYPE_KEY) == SERVICE_TYPE
             ),
             None,
@@ -404,6 +419,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def _get_ddo_data(self) -> WaitableConditionType:  # pragma: no cover
         """Get the ddo data from the did endpoint."""
+        if self.ddo_endpoint is None:
+            self.context.logger.error("DDO endpoint is not set; cannot fetch DDO.")
+            return False
         response = yield from self.get_http_response(
             GET_METHOD, self.ddo_endpoint, headers=DDO_ENDPOINT_HEADERS
         )
@@ -411,7 +429,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         # Handle HTTP errors
         if response.status_code != HTTP_OK:
             self.context.logger.error(
-                f"Error while pulling the data from ddo endpoint: {response.body}"
+                f"Error while pulling the data from ddo endpoint: {response.body!r}"
             )
             return False
 
@@ -419,7 +437,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         try:
             ddo = json.loads(response.body)
         except json.JSONDecodeError:
-            self.context.logger.error(f"Failed to decode ddo: {response.body}.")
+            self.context.logger.error(f"Failed to decode ddo: {response.body!r}.")
             return False
 
         self.context.logger.info(f"Fetched ddo endpoint data: {ddo}")
@@ -597,7 +615,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             receivers=self.receivers,
             chain_id=self.params.mech_chain_id,
         )
-        if not status:
+        if not status or self.agreement_tx_data is None:
             self.context.logger.error("Failed to build create-agreement tx data.")
             return False
 
@@ -629,7 +647,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             amount=self.nvm_config.subscription_cost,
             chain_id=self.params.mech_chain_id,
         )
-        if not status:
+        if not status or self.subscription_token_approval_tx_data is None:
             self.context.logger.error("Failed to build data for a USDC approval tx.")
             return False
 
@@ -660,7 +678,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             fulfill_params=self.fulfill_params,
             chain_id=self.params.mech_chain_id,
         )
-        if not status:
+        if not status or self.fulfill_tx_data is None:
             self.context.logger.error("Failed to build data for a fulfill tx.")
             return False
 
@@ -672,7 +690,9 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info("Built transaction to fulfill.")
         return True
 
-    def _get_approval_steps(self) -> List[WaitableConditionType]:  # pragma: no cover
+    def _get_approval_steps(
+        self,
+    ) -> List[Callable[[], WaitableConditionType]]:  # pragma: no cover
         """Get the approval steps, if necessary, otherwise return an empty list."""
         return (
             [self._build_subscription_token_approval_tx_data] if self.using_base else []
@@ -680,7 +700,7 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def _prepare_safe_tx(self) -> Generator:  # pragma: no cover
         """Prepare a multisend safe tx for buying an NVM subscription."""
-        steps = [
+        steps: List[Callable[[], WaitableConditionType]] = [
             self._get_ddo_register,
             self._get_ddo_data,
             self._get_agreement_id,

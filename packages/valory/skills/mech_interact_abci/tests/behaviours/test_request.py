@@ -19,6 +19,8 @@
 
 """Tests for the request behaviour module properties."""
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from packages.valory.skills.mech_interact_abci.behaviours.request import (
@@ -55,13 +57,13 @@ class TestPaymentType:
 class TestRequestDataAndPrice:
     """Tests for request_data and price getters/setters."""
 
-    def test_request_data_roundtrip(self, request_behaviour) -> None:
+    def test_request_data_roundtrip(self, request_behaviour: MagicMock) -> None:
         """Test request_data getter and setter."""
         assert request_behaviour.request_data == b""
         request_behaviour.request_data = b"new_data"
         assert request_behaviour.request_data == b"new_data"
 
-    def test_price_roundtrip(self, request_behaviour) -> None:
+    def test_price_roundtrip(self, request_behaviour: MagicMock) -> None:
         """Test price getter and setter."""
         assert request_behaviour.price == 0
         request_behaviour.price = 42
@@ -71,12 +73,12 @@ class TestRequestDataAndPrice:
 class TestMechPaymentTypeSetter:
     """Tests for mech_payment_type setter."""
 
-    def test_valid_payment_type(self, request_behaviour) -> None:
+    def test_valid_payment_type(self, request_behaviour: MagicMock) -> None:
         """Test setting a valid payment type."""
         request_behaviour.mech_payment_type = PaymentType.TOKEN_OLAS.value
         assert request_behaviour.mech_payment_type == PaymentType.TOKEN_OLAS
 
-    def test_invalid_payment_type_warns(self, request_behaviour) -> None:
+    def test_invalid_payment_type_warns(self, request_behaviour: MagicMock) -> None:
         """Test setting an invalid payment type logs warning and keeps default."""
         request_behaviour.mech_payment_type = "0xinvalid"
         request_behaviour.context.logger.warning.assert_called_once()
@@ -98,7 +100,11 @@ class TestPaymentTypeProperties:
         ],
     )
     def test_payment_type_boolean_properties(
-        self, request_behaviour, payment_type, prop, expected
+        self,
+        request_behaviour: MagicMock,
+        payment_type: MagicMock,
+        prop: MagicMock,
+        expected: MagicMock,
     ) -> None:
         """Test boolean payment type properties for various types."""
         request_behaviour._mech_payment_type = payment_type
@@ -114,7 +120,10 @@ class TestPaymentTypeProperties:
         ],
     )
     def test_token_decimals(
-        self, request_behaviour, payment_type, expected_decimals
+        self,
+        request_behaviour: MagicMock,
+        payment_type: MagicMock,
+        expected_decimals: MagicMock,
     ) -> None:
         """Test token_decimals returns correct value per payment type."""
         request_behaviour._mech_payment_type = payment_type
@@ -128,12 +137,14 @@ class TestNvmBalanceTrackerContractId:
         "payment_type",
         [PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM_USDC],
     )
-    def test_valid_nvm_types(self, request_behaviour, payment_type) -> None:
+    def test_valid_nvm_types(
+        self, request_behaviour: MagicMock, payment_type: MagicMock
+    ) -> None:
         """Test nvm_balance_tracker_contract_id returns a value for NVM types."""
         request_behaviour._mech_payment_type = payment_type
         assert request_behaviour.nvm_balance_tracker_contract_id is not None
 
-    def test_non_nvm_type_raises(self, request_behaviour) -> None:
+    def test_non_nvm_type_raises(self, request_behaviour: MagicMock) -> None:
         """Test nvm_balance_tracker_contract_id raises for non-NVM type."""
         request_behaviour._mech_payment_type = PaymentType.NATIVE
         with pytest.raises(ValueError, match="Unknown"):
@@ -155,18 +166,22 @@ class TestNonePropertyLogging:
             ("approval_data", "warning"),
         ],
     )
-    def test_none_logs_message(self, request_behaviour, prop, log_method) -> None:
+    def test_none_logs_message(
+        self, request_behaviour: MagicMock, prop: MagicMock, log_method: MagicMock
+    ) -> None:
         """Test that accessing unset properties logs the appropriate message."""
         assert_unset_property_logs(request_behaviour, prop, log_method)
 
     def test_subscription_balance_returns_value_when_set(
-        self, request_behaviour
+        self, request_behaviour: MagicMock
     ) -> None:
         """Test subscription_balance returns value when set."""
         request_behaviour._subscription_balance = 100
         assert request_behaviour.subscription_balance == 100
 
-    def test_nvm_balance_returns_value_when_set(self, request_behaviour) -> None:
+    def test_nvm_balance_returns_value_when_set(
+        self, request_behaviour: MagicMock
+    ) -> None:
         """Test nvm_balance returns value when set."""
         request_behaviour._nvm_balance = 200
         assert request_behaviour.nvm_balance == 200
@@ -175,13 +190,13 @@ class TestNonePropertyLogging:
 class TestTotalNvmBalance:
     """Tests for total_nvm_balance."""
 
-    def test_both_set(self, request_behaviour) -> None:
+    def test_both_set(self, request_behaviour: MagicMock) -> None:
         """Test total_nvm_balance when both balances are set."""
         request_behaviour._subscription_balance = 100
         request_behaviour._nvm_balance = 200
         assert request_behaviour.total_nvm_balance == 300
 
-    def test_returns_none_when_partial(self, request_behaviour) -> None:
+    def test_returns_none_when_partial(self, request_behaviour: MagicMock) -> None:
         """Test total_nvm_balance returns None when one balance is missing."""
         request_behaviour._subscription_balance = 100
         assert request_behaviour.total_nvm_balance is None
@@ -198,11 +213,19 @@ class TestWeiToUnit:
             (5 * 10**17, 18, 0.5),
         ],
     )
-    def test_conversion(self, request_behaviour, wei, decimals, expected) -> None:
+    def test_conversion(
+        self,
+        request_behaviour: MagicMock,
+        wei: MagicMock,
+        decimals: MagicMock,
+        expected: MagicMock,
+    ) -> None:
         """Test wei_to_unit converts correctly."""
         assert request_behaviour.wei_to_unit(wei, decimals=decimals) == expected
 
-    def test_default_decimals_uses_token_decimals(self, request_behaviour) -> None:
+    def test_default_decimals_uses_token_decimals(
+        self, request_behaviour: MagicMock
+    ) -> None:
         """Test wei_to_unit uses token_decimals when decimals is not provided."""
         # Default payment type is NATIVE (18 decimals)
         assert request_behaviour.wei_to_unit(10**18) == 1.0
@@ -211,7 +234,7 @@ class TestWeiToUnit:
 class TestMetadataFilepath:
     """Tests for metadata_filepath."""
 
-    def test_ends_with_filename(self, request_behaviour) -> None:
+    def test_ends_with_filename(self, request_behaviour: MagicMock) -> None:
         """Test metadata_filepath creates a path ending with METADATA_FILENAME."""
         assert request_behaviour.metadata_filepath.endswith(METADATA_FILENAME)
 
@@ -219,15 +242,15 @@ class TestMetadataFilepath:
 class TestDecodeHexToBytes:
     """Tests for _decode_hex_to_bytes."""
 
-    def test_with_0x_prefix(self, request_behaviour) -> None:
+    def test_with_0x_prefix(self, request_behaviour: MagicMock) -> None:
         """Test strips 0x prefix and decodes."""
         assert request_behaviour._decode_hex_to_bytes("0xabcd", "t") == b"\xab\xcd"
 
-    def test_without_prefix(self, request_behaviour) -> None:
+    def test_without_prefix(self, request_behaviour: MagicMock) -> None:
         """Test decodes without 0x prefix."""
         assert request_behaviour._decode_hex_to_bytes("abcd", "t") == b"\xab\xcd"
 
-    def test_invalid_hex_returns_none(self, request_behaviour) -> None:
+    def test_invalid_hex_returns_none(self, request_behaviour: MagicMock) -> None:
         """Test returns None and logs error on invalid hex."""
         result = request_behaviour._decode_hex_to_bytes("0xZZZZ", "t")
         assert result is None

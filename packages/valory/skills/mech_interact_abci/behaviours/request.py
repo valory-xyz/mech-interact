@@ -24,7 +24,7 @@ from dataclasses import asdict, fields
 from enum import Enum
 from pathlib import Path
 from tempfile import mkdtemp
-from typing import Any, Generator, List, Optional
+from typing import Any, Callable, Generator, List, Optional, Tuple, cast
 
 from aea.configurations.data_types import PublicId
 from aea.exceptions import AEAEnforceError
@@ -226,7 +226,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         return self._subscription_address
 
     @property
-    def subscription_id(self) -> Optional[str]:
+    def subscription_id(self) -> Optional[int]:
         """Get the subscription id."""
         if self._subscription_id is None:
             self.context.logger.error(
@@ -471,7 +471,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Interact with the subscription contract."""
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=self.subscription_address,
+            contract_address=cast(str, self.subscription_address),
             contract_public_id=IERC1155.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
@@ -519,6 +519,11 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         yield from self.wait_for_condition_with_sleep(self.update_safe_balances)
 
         price = self.price if self.using_native else self.mech_max_delivery_rate
+        if price is None:
+            self.context.logger.error(
+                "Mech price is not set; cannot evaluate balances."
+            )
+            return False
 
         # There is enough balance using native tokens
         if self.using_native and price <= self.wallet_balance:
@@ -582,7 +587,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._mech_requests = self.synchronized_data.mech_requests
         self.context.logger.info(f"Processing mech requests: {self._mech_requests}")
         self.context.logger.info("Selecting priority mech...")
-        self.priority_mech_address = self.get_priority_mech_address()
+        self.priority_mech_address = self.get_priority_mech_address() or ""
         self.context.logger.info(
             f"{self.priority_mech_address!r} was selected as priority mech."
         )
@@ -770,7 +775,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 return False
 
         status = yield from self._approve_balance_tracker()
-        if not status:
+        if not status or self.approval_data is None:
             self.context.logger.error("Failed to build approval data.")
             return False
 
@@ -912,17 +917,21 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def _prepare_safe_tx(self) -> Generator[None, None, bool]:  # pragma: no cover
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
-        steps = (
+        initial_steps: Tuple[Callable[[], Generator[None, None, bool]], ...] = (
             self._fetch_and_validate_payment_type,
             self._get_price,
         )
-        for step in steps:
+        for step in initial_steps:
             yield from self.wait_for_condition_with_sleep(step)
 
-        steps = []
+        steps: List[Callable[[], Generator[None, None, bool]]] = []
         if self.using_nevermined:
             yield from self.set_total_nvm_balance()
-            if self.total_nvm_balance < self.mech_max_delivery_rate:
+            if (
+                self.mech_max_delivery_rate is None
+                or self.total_nvm_balance is None
+                or self.total_nvm_balance < self.mech_max_delivery_rate
+            ):
                 # if the total nvm balance is not enough, we should stop and return to buy a subscription first
                 return True
         else:

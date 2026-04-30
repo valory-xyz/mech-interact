@@ -20,7 +20,7 @@
 """Test the models.py module of the MechInteract."""
 
 from contextlib import contextmanager
-from typing import Generator
+from typing import Any, Dict, Generator
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -47,7 +47,7 @@ class TestNVMConfig:
 
     def _make_config(self, **overrides: object) -> NVMConfig:
         """Create an NVMConfig with sensible defaults."""
-        defaults = dict(  # nosec B106
+        defaults: Dict[str, Any] = dict(  # nosec B106
             balance_tracker_address="0xabc",
             did_registry_address="0xdef",
             agreement_store_manager_address="0x123",
@@ -80,7 +80,7 @@ class TestMechMarketplaceConfig:
     """Tests for MechMarketplaceConfig dataclass."""
 
     @pytest.mark.parametrize("timeout", [0, -1, -100])
-    def test_invalid_response_timeout(self, timeout) -> None:
+    def test_invalid_response_timeout(self, timeout: MagicMock) -> None:
         """Test that non-positive response_timeout raises ValueError."""
         with pytest.raises(ValueError, match="response_timeout must be positive"):
             MechMarketplaceConfig(

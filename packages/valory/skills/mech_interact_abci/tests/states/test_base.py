@@ -506,6 +506,7 @@ class TestMechInfo:
 
     def test_init_with_list_relevant_tools(self) -> None:
         """Test init when relevant_tools is a list."""
+        # MechInfo.__post_init__ converts list/tuple to set; pass list deliberately.
         instance = MechInfo(
             id="mech_tools",
             address="0x1",
@@ -514,34 +515,36 @@ class TestMechInfo:
             receivedRequests=1,
             selfDeliveredFromReceived=1,
             maxDeliveryRate=1,
-            relevant_tools=["tool1", "tool2"],
+            relevant_tools=["tool1", "tool2"],  # type: ignore[arg-type]
         )
         assert instance.relevant_tools == {"tool1", "tool2"}
 
     def test_init_invalid_karma(self) -> None:
         """Test init raises ValueError for invalid karma."""
         with pytest.raises(ValueError, match="non-int"):
+            # Deliberately pass non-int values to exercise error path.
             MechInfo(
                 id="bad",
                 address="0x1",
                 service=Service(metadata=[], deliveries=[]),
-                karma="not_a_number",
-                receivedRequests="1",
-                selfDeliveredFromReceived="1",
-                maxDeliveryRate="1",
+                karma="not_a_number",  # type: ignore[arg-type]
+                receivedRequests="1",  # type: ignore[arg-type]
+                selfDeliveredFromReceived="1",  # type: ignore[arg-type]
+                maxDeliveryRate="1",  # type: ignore[arg-type]
             )
 
     def test_init_invalid_received_requests(self) -> None:
         """Test init raises ValueError for invalid receivedRequests."""
         with pytest.raises(ValueError, match="non-int"):
+            # Deliberately pass non-int values to exercise error path.
             MechInfo(
                 id="bad",
                 address="0x1",
                 service=Service(metadata=[], deliveries=[]),
-                karma="1",
-                receivedRequests="invalid",
-                selfDeliveredFromReceived="1",
-                maxDeliveryRate="1",
+                karma="1",  # type: ignore[arg-type]
+                receivedRequests="invalid",  # type: ignore[arg-type]
+                selfDeliveredFromReceived="1",  # type: ignore[arg-type]
+                maxDeliveryRate="1",  # type: ignore[arg-type]
             )
 
     def test_empty_metadata(self) -> None:
@@ -612,7 +615,7 @@ class TestMechInfo:
 
     def test_lt_tiebreak_by_karma(self) -> None:
         """Test __lt__ tiebreak uses karma when scores are equal."""
-        common = dict(
+        common: Dict[str, Any] = dict(
             address="0x1",
             service=Service(metadata=[{"metadata": "m"}], deliveries=[]),
             receivedRequests=10,
@@ -762,7 +765,7 @@ class TestMechMetadata:
 
     def test_backward_compatible_deserialization(self) -> None:
         """Test that old payloads without schema_version/request_context still deserialize."""
-        old_payload = {"prompt": "q?", "tool": "t1", "nonce": "n1"}
+        old_payload: Dict[str, Any] = {"prompt": "q?", "tool": "t1", "nonce": "n1"}
         meta = MechMetadata(**old_payload)
         assert meta.schema_version == "2.0"
         assert meta.request_context is None

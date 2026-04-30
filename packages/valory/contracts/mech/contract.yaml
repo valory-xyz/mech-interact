@@ -9,10 +9,10 @@ fingerprint:
   README.md: bafybeibl4uw7rs6mwh7zuvdnqmj2o2xyr7nx5qk3w7torwx3jg6farn6ca
   __init__.py: bafybeifawfjsdfhhaxebj4aphxccebxgmuarzgk6atnicqak747tgqi77m
   build/mech.json: bafybeibrocnkmfe46ylcso7245qq5ysl5z6ydr4xumjt6zl4satc7uqt4m
-  contract.py: bafybeidouvy2fd2glfcp4ac6y6dpq7brtlhzn3qgkgxrnnuzkzutlcc7gy
+  contract.py: bafybeia7du3xrg4it5fqb6p4cuffvdnsa2qffsg4s46kdjjed4i2pwdpua
   tests/__init__.py: bafybeigfcyuw2qwiztn5c2ilm7haopnpqvbroxjix4slaho4syj7y5apga
-  tests/conftest.py: bafybeid734tc2f2qotcwp5wfx5qndzbheuiwewaz7tvw4s5wxxthut7b6q
-  tests/test_contract.py: bafybeie37h3te4wvanik6qhyul6k2utrcyg26w3rpakma4uvdboker7gca
+  tests/conftest.py: bafybeif42fkwdgv4v7wvwhd3lw2juqotwibipsca3vbfilya5jcnqkxmre
+  tests/test_contract.py: bafybeidcvkvvxipiqf4m42b42yyjogsma2k7wk5xcwloltvtniflsb4hne
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: Mech

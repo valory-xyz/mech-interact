@@ -131,8 +131,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         return self._response_hex
 
     @response_hex.setter
-    def response_hex(self, response_hash: bytes) -> None:
-        """Set the hash of the response data."""
+    def response_hex(self, response_hash: Any) -> None:
+        """Set the hash of the response data, accepting bytes or hex strings."""
         if isinstance(response_hash, bytes):
             self._response_hex = response_hash.hex()
         elif isinstance(response_hash, str):
@@ -313,7 +313,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                 return False
 
             result = yield from self.contract_interact(
-                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore[arg-type]
                 contract_address=delivery_mech,
                 contract_public_id=MechMM.contract_id,  # Use MechMM ABI
                 contract_callable="get_response",
@@ -471,7 +471,8 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         res_raw = yield from self.get_http_response(**specs)
         res = self.mech_response_api.process_response(res_raw)
         res = self._handle_response(res)
-        res = self._process_response_with_artifacts(res)
+        if res is not None:
+            res = self._process_response_with_artifacts(res)
 
         if self.mech_response_api.is_retries_exceeded():
             self.current_mech_response.retries_exceeded()
@@ -516,7 +517,10 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self, pending_response: MechInteractionResponse, request: MechRequest
     ) -> bool:
         """Check if a legacy pending response matches the request based on data."""
-        match = pending_response.data == request.data.hex()
+        # request.data is declared as `str` on the dataclass but is populated
+        # with raw `bytes` from the contract event payload at runtime, so we
+        # call `.hex()` on it here.
+        match = pending_response.data == request.data.hex()  # type: ignore[attr-defined]
         if match:
             # Log detailed match info only if it matches
             self.context.logger.info(

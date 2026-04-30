@@ -20,7 +20,7 @@
 """This package contains the tests for rounds of MechInteract."""
 
 import json
-from typing import List, Type
+from typing import Any, Dict, List, Optional, Sequence, Type, cast
 from unittest.mock import MagicMock
 
 from packages.valory.skills.abstract_round_abci.base import AbstractRound, BaseTxPayload
@@ -75,7 +75,7 @@ class BaseMechInteractRoundTest(BaseRoundTestClass):
         )
 
     def _process_payloads(
-        self, round_instance: AbstractRound, payloads: List[BaseTxPayload]
+        self, round_instance: AbstractRound, payloads: Sequence[BaseTxPayload]
     ) -> None:
         """Process all payloads in a round."""
         for payload in payloads:
@@ -87,9 +87,9 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
 
     round_cls = MechRequestRound
 
-    def _make_request_payloads(self, **kwargs):
+    def _make_request_payloads(self, **kwargs: Any) -> List[MechRequestPayload]:
         """Create identical MechRequestPayload for all participants."""
-        defaults = dict(
+        defaults: Dict[str, Any] = dict(
             tx_submitter=SAMPLE_TX_SUBMITTER,
             tx_hash=SAMPLE_TX_HASH,
             price=SAMPLE_PRICE,
@@ -104,7 +104,7 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
             for agent in sorted(self.participants)
         ]
 
-    def test_done_event_when_requests_non_empty(self):
+    def test_done_event_when_requests_non_empty(self) -> None:
         """Test DONE event when mech requests are non-empty."""
         test_round = self._create_round()
         mech_requests = json.dumps([{"prompt": "test", "tool": "tool", "nonce": "1"}])
@@ -117,7 +117,7 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.DONE
 
-    def test_skip_request_when_no_requests_or_responses(self):
+    def test_skip_request_when_no_requests_or_responses(self) -> None:
         """Test SKIP_REQUEST when requests and responses are empty."""
         test_round = self._create_round()
         self._process_payloads(
@@ -130,7 +130,7 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.SKIP_REQUEST
 
-    def test_buy_subscription_when_all_none(self):
+    def test_buy_subscription_when_all_none(self) -> None:
         """Test BUY_SUBSCRIPTION when all payload values are None."""
         test_round = self._create_round()
         self._process_payloads(
@@ -151,7 +151,7 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.BUY_SUBSCRIPTION
 
-    def test_no_majority_event(self):
+    def test_no_majority_event(self) -> None:
         """Test NO_MAJORITY event."""
         test_round = self._create_round()
         self._test_no_majority_event(test_round)
@@ -162,7 +162,7 @@ class TestMechResponseRound(BaseMechInteractRoundTest):
 
     round_cls = MechResponseRound
 
-    def test_done_event_with_responses(self):
+    def test_done_event_with_responses(self) -> None:
         """Test DONE event with non-empty response information."""
         test_round = self._create_round()
         responses = json.dumps(
@@ -179,7 +179,7 @@ class TestMechResponseRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.DONE
 
-    def test_no_majority_event(self):
+    def test_no_majority_event(self) -> None:
         """Test NO_MAJORITY event."""
         test_round = self._create_round()
         self._test_no_majority_event(test_round)
@@ -190,14 +190,14 @@ class TestMechVersionDetectionRound(BaseMechInteractRoundTest):
 
     round_cls = MechVersionDetectionRound
 
-    def _make_voting_payloads(self, vote):
+    def _make_voting_payloads(self, vote: Optional[bool]) -> List[VotingPayload]:
         """Create VotingPayload for all participants with the given vote."""
         return [
             VotingPayload(sender=agent, vote=vote)
             for agent in sorted(self.participants)
         ]
 
-    def test_v2_event_with_positive_votes(self):
+    def test_v2_event_with_positive_votes(self) -> None:
         """Test V2 event with positive votes."""
         test_round = self._create_round()
         self._process_payloads(test_round, self._make_voting_payloads(vote=True))
@@ -206,9 +206,9 @@ class TestMechVersionDetectionRound(BaseMechInteractRoundTest):
         assert result is not None
         synced_data, event = result
         assert event == Event.V2
-        assert synced_data.is_marketplace_v2 is True
+        assert cast(SynchronizedData, synced_data).is_marketplace_v2 is True
 
-    def test_v1_event_with_negative_votes(self):
+    def test_v1_event_with_negative_votes(self) -> None:
         """Test V1 event with negative votes."""
         test_round = self._create_round()
         self._process_payloads(test_round, self._make_voting_payloads(vote=False))
@@ -217,9 +217,9 @@ class TestMechVersionDetectionRound(BaseMechInteractRoundTest):
         assert result is not None
         synced_data, event = result
         assert event == Event.V1
-        assert synced_data.is_marketplace_v2 is False
+        assert cast(SynchronizedData, synced_data).is_marketplace_v2 is False
 
-    def test_no_marketplace_event_with_none_votes(self):
+    def test_no_marketplace_event_with_none_votes(self) -> None:
         """Test NO_MARKETPLACE event with None votes."""
         test_round = self._create_round()
         self._process_payloads(test_round, self._make_voting_payloads(vote=None))
@@ -228,9 +228,9 @@ class TestMechVersionDetectionRound(BaseMechInteractRoundTest):
         assert result is not None
         synced_data, event = result
         assert event == Event.NO_MARKETPLACE
-        assert synced_data.is_marketplace_v2 is None
+        assert cast(SynchronizedData, synced_data).is_marketplace_v2 is None
 
-    def test_no_majority_event(self):
+    def test_no_majority_event(self) -> None:
         """Test NO_MAJORITY event."""
         test_round = self._create_round()
         self._test_no_majority_event(test_round)
@@ -241,14 +241,14 @@ class TestMechInformationRound(BaseMechInteractRoundTest):
 
     round_cls = MechInformationRound
 
-    def _make_json_payloads(self, information):
+    def _make_json_payloads(self, information: Optional[str]) -> List[JSONPayload]:
         """Create JSONPayload for all participants."""
         return [
             JSONPayload(sender=agent, information=information)
             for agent in sorted(self.participants)
         ]
 
-    def test_done_event_with_information(self):
+    def test_done_event_with_information(self) -> None:
         """Test DONE event with mech information."""
         test_round = self._create_round()
         info = json.dumps([{"id": "1", "address": "0xmech"}])
@@ -259,7 +259,7 @@ class TestMechInformationRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.DONE
 
-    def test_none_event_when_information_is_none(self):
+    def test_none_event_when_information_is_none(self) -> None:
         """Test NONE event when information is None."""
         test_round = self._create_round()
         self._process_payloads(test_round, self._make_json_payloads(None))
@@ -269,7 +269,7 @@ class TestMechInformationRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.NONE
 
-    def test_no_majority_event(self):
+    def test_no_majority_event(self) -> None:
         """Test NO_MAJORITY event."""
         test_round = self._create_round()
         self._test_no_majority_event(test_round)
@@ -280,14 +280,16 @@ class TestMechPurchaseSubscriptionRound(BaseMechInteractRoundTest):
 
     round_cls = MechPurchaseSubscriptionRound
 
-    def _make_prepare_tx_payloads(self, tx_submitter, tx_hash):
+    def _make_prepare_tx_payloads(
+        self, tx_submitter: Optional[str], tx_hash: Optional[str]
+    ) -> List[PrepareTxPayload]:
         """Create PrepareTxPayload for all participants."""
         return [
             PrepareTxPayload(sender=agent, tx_submitter=tx_submitter, tx_hash=tx_hash)
             for agent in sorted(self.participants)
         ]
 
-    def test_done_event_with_prepared_tx(self):
+    def test_done_event_with_prepared_tx(self) -> None:
         """Test DONE event with a prepared transaction."""
         test_round = self._create_round()
         self._process_payloads(
@@ -302,7 +304,7 @@ class TestMechPurchaseSubscriptionRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.DONE
 
-    def test_none_event_when_all_none(self):
+    def test_none_event_when_all_none(self) -> None:
         """Test NONE event when all payload values are None."""
         test_round = self._create_round()
         self._process_payloads(test_round, self._make_prepare_tx_payloads(None, None))
@@ -312,7 +314,7 @@ class TestMechPurchaseSubscriptionRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.NONE
 
-    def test_no_majority_event(self):
+    def test_no_majority_event(self) -> None:
         """Test NO_MAJORITY event."""
         test_round = self._create_round()
         self._test_no_majority_event(test_round)

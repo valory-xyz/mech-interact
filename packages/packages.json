@@ -1,8 +1,8 @@
 {
     "dev": {
-        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeiagaql3kt3mjt6le4rw7mwi5twawojr7anm26bvommb4i7ll7u2zq",
-        "contract/valory/mech/0.1.0": "bafybeiedil4txl33ot7lfqf2j3w25lzickfruquh37s2bzbdby4eewysty",
-        "contract/valory/mech_mm/0.1.0": "bafybeiew5cp7zlzsk34btkytgqdxl3bjile6chlnxsi7s3t242aelrmycu",
+        "contract/valory/mech_marketplace_legacy/0.1.0": "bafybeicesxblfzqglol2kmzkgwy5ubtdbbzmdrkiohd6z5a2iifhhwgvny",
+        "contract/valory/mech/0.1.0": "bafybeid2h7vpbmbqaqyxqoslp2btm3fjts3c3aittzztcwo4nmkxz7upt4",
+        "contract/valory/mech_mm/0.1.0": "bafybeifk5zvzoisz4p4tthfqdn7gjy45po3rimmwuaosxmnpa4wai2anyy",
         "contract/valory/ierc1155/0.1.0": "bafybeie54mrzlup5q6ovgcae35f2aecb6l6ekwa6dhrkgrmotojkyqd2ji",
         "contract/valory/nvm_balance_tracker_token/0.1.0": "bafybeie5lciwhzieuzbpgejx37dtrmj4q6r2x6omv2ekiwrfeyhjzyje7e",
         "contract/valory/nvm_balance_tracker_native/0.1.0": "bafybeiepuod5ffnf5wrfqpshkzdbl76ccqdtedqhf7wc7dx47gkmt7jrhu",
@@ -13,7 +13,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeifip7e6al6nwtwbyqol4xm2iqnuycrdefdie7vyxlxeh33ubqeooa",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeie267gridf6z2yxk7cvt5fdy66cocyg5dn3rj7zvnvl3otnk6iw34",
         "contract/valory/subscription_provider/0.1.0": "bafybeibulnegkf7jsz4lrhvsvai65wytjspl6itkhb6dhbl3fwsbpbyh6u",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeihazofcrox6qvvxojxm4t7ezic4llxwvleoalfk67vqdevukwy3zi"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeiaib24ozdnm2uf3q5oquuejozokfnvz5tofi6oupeqovuw74dii5q"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i",

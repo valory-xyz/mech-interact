@@ -35,6 +35,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechsSubgraph,
     MechsSubgraphResponseType,
 )
+from packages.valory.skills.mech_interact_abci.states.base import MechsInfo
 
 MechsInfoFetcher = Generator[None, None, MechsSubgraphResponseType]
 
@@ -157,8 +158,8 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         self._fetch_status = FetchStatus.IN_PROGRESS
 
         # used to allow for pagination based on mechs' ids
-        mechs_id_gt = 0
-        mechs_info = []
+        mechs_id_gt: Any = 0
+        mechs_info: MechsInfo = []
         while True:
             info_batch = yield from self.fetch_mechs_info_batch(mechs_id_gt)
 

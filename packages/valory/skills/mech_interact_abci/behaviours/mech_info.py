@@ -84,10 +84,13 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         tool set is applied to every mech in the group.
         """
         pending_by_cid: Dict[str, List[Any]] = {}
-        for mech in mech_info:
+        for mech in mech_info or []:
             if mech.relevant_tools or mech.address in self._failed_mechs:
                 continue
-            pending_by_cid.setdefault(mech.service.metadata_str, []).append(mech)
+            metadata_str = mech.service.metadata_str
+            if metadata_str is None:
+                continue
+            pending_by_cid.setdefault(metadata_str, []).append(mech)
 
         for metadata_str, mechs in pending_by_cid.items():
             self.set_mech_agent_specs(metadata_str)

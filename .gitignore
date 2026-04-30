@@ -60,3 +60,7 @@ contribute_centaurs.json
 contribute_db.json
 
 contribute_generic_points.json
+
+.tomte-tox.ini
+.darglint
+.gitleaks-merged.toml

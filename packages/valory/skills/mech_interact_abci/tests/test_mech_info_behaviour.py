@@ -19,6 +19,7 @@
 
 """Tests for the mech_info behaviour module."""
 
+from typing import Any, Generator, List, Optional, Set
 from unittest.mock import MagicMock
 
 from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
@@ -29,7 +30,7 @@ from packages.valory.skills.mech_interact_abci.graph_tooling.requests import Fet
 from packages.valory.skills.mech_interact_abci.states.base import MechInfo, Service
 
 
-def _make_mech_info_behaviour(**overrides) -> MechInformationBehaviour:
+def _make_mech_info_behaviour(**overrides: Any) -> MechInformationBehaviour:
     """Create a MechInformationBehaviour with mocked dependencies."""
     behaviour = MechInformationBehaviour.__new__(MechInformationBehaviour)
     mock_context = MagicMock()
@@ -46,7 +47,7 @@ def _make_mech_info_behaviour(**overrides) -> MechInformationBehaviour:
 def _make_mech_info(
     address: str = "0xmech1",
     metadata_str: str = "abc123",
-    relevant_tools: set = None,
+    relevant_tools: Optional[Set[str]] = None,
 ) -> MechInfo:
     """Create a MechInfo with test data."""
     service = Service(
@@ -65,7 +66,7 @@ def _make_mech_info(
     )
 
 
-def _drive(gen):
+def _drive(gen: Generator[Any, Any, Any]) -> Any:
     """Run a generator to StopIteration, returning its .value."""
     try:
         while True:
@@ -74,18 +75,20 @@ def _drive(gen):
         return e.value
 
 
-def _wire_get_http_response(behaviour, responses):
+def _wire_get_http_response(
+    behaviour: MechInformationBehaviour, responses: List[Any]
+) -> None:
     """Wire behaviour.get_http_response to return values in order."""
     iter_vals = iter(responses)
 
-    def mock_get_http_response(**kwargs):
+    def mock_get_http_response(**kwargs: Any) -> Any:
         yield
         return next(iter_vals)
 
-    behaviour.get_http_response = mock_get_http_response
+    behaviour.get_http_response = mock_get_http_response  # type: ignore[method-assign,assignment]
 
 
-def _setup_api(behaviour, **overrides):
+def _setup_api(behaviour: MechInformationBehaviour, **overrides: Any) -> MagicMock:
     """Set up a behaviour with mocked context.params and mech_tools_api."""
     behaviour._context.params = MagicMock()
     behaviour._context.params.ipfs_address = "https://ipfs.io/"
@@ -142,12 +145,12 @@ class TestPopulateTools:
 
         called = {"count": 0}
 
-        def mock_get_http_response(**kwargs):
+        def mock_get_http_response(**kwargs: Any) -> Any:
             called["count"] += 1
             yield
             return MagicMock()
 
-        behaviour.get_http_response = mock_get_http_response
+        behaviour.get_http_response = mock_get_http_response  # type: ignore[method-assign,assignment]
 
         mech = _make_mech_info(address="0xbroken", relevant_tools=set())
 
@@ -303,12 +306,12 @@ class TestCidGrouping:
 
         call_count = {"n": 0}
 
-        def mock_get_http_response(**kwargs):
+        def mock_get_http_response(**kwargs: Any) -> Any:
             call_count["n"] += 1
             yield
             return MagicMock()
 
-        behaviour.get_http_response = mock_get_http_response
+        behaviour.get_http_response = mock_get_http_response  # type: ignore[method-assign,assignment]
 
         result = _drive(behaviour.populate_tools(mechs))
 
@@ -332,12 +335,12 @@ class TestCidGrouping:
 
         call_count = {"n": 0}
 
-        def mock_get_http_response(**kwargs):
+        def mock_get_http_response(**kwargs: Any) -> Any:
             call_count["n"] += 1
             yield
             return MagicMock()
 
-        behaviour.get_http_response = mock_get_http_response
+        behaviour.get_http_response = mock_get_http_response  # type: ignore[method-assign,assignment]
 
         result = _drive(behaviour.populate_tools([mech_a, mech_b]))
 
@@ -423,11 +426,11 @@ class TestGetMechsInfo:
         behaviour = _make_mech_info_behaviour()
         behaviour._fetch_status = FetchStatus.IN_PROGRESS
 
-        def mock_fetch_mechs_info():
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
             yield
             return []
 
-        behaviour.fetch_mechs_info = mock_fetch_mechs_info
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
 
         result = _drive(behaviour.get_mechs_info())
 
@@ -437,12 +440,12 @@ class TestGetMechsInfo:
         """Returns None when mech info is empty."""
         behaviour = _make_mech_info_behaviour()
 
-        def mock_fetch_mechs_info():
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
             behaviour._fetch_status = FetchStatus.SUCCESS
             yield
             return []
 
-        behaviour.fetch_mechs_info = mock_fetch_mechs_info
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
 
         result = _drive(behaviour.get_mechs_info())
 
@@ -463,12 +466,12 @@ class TestGetMechsInfo:
             address="0xbroken", metadata_str="broken", relevant_tools=set()
         )
 
-        def mock_fetch_mechs_info():
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
             behaviour._fetch_status = FetchStatus.SUCCESS
             yield
             return [good, broken]
 
-        behaviour.fetch_mechs_info = mock_fetch_mechs_info
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
         _wire_get_http_response(behaviour, [MagicMock(), MagicMock()])
 
         result = _drive(behaviour.get_mechs_info())
@@ -490,12 +493,12 @@ class TestGetMechsInfo:
 
         mech = _make_mech_info(address="0xbroken", relevant_tools=set())
 
-        def mock_fetch_mechs_info():
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
             behaviour._fetch_status = FetchStatus.SUCCESS
             yield
             return [mech]
 
-        behaviour.fetch_mechs_info = mock_fetch_mechs_info
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
         _wire_get_http_response(behaviour, [MagicMock()])
 
         result = _drive(behaviour.get_mechs_info())

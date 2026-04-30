@@ -19,6 +19,7 @@
 
 """Tests for the Mech Marketplace Legacy contract module."""
 
+from typing import Dict
 from unittest.mock import MagicMock, patch
 
 from packages.valory.contracts.mech_marketplace_legacy.contract import (
@@ -37,7 +38,7 @@ REQUESTER = "0x5555555555555555555555555555555555555555"
 class TestPadAddressForTopic:
     """Tests for the pad_address_for_topic utility function."""
 
-    def test_pad_address_for_topic(self):
+    def test_pad_address_for_topic(self) -> None:
         """Test that an address is left-padded to 32 bytes."""
         address = "0xaabbccddee1234567890abcdef1234567890abcd"
         result = pad_address_for_topic(address)
@@ -48,7 +49,7 @@ class TestPadAddressForTopic:
         # The original address (without 0x) should appear at the end
         assert hex_str.endswith("aabbccddee1234567890abcdef1234567890abcd")
 
-    def test_pad_address_zero_padded(self):
+    def test_pad_address_zero_padded(self) -> None:
         """Test that shorter addresses are zero-padded on the left."""
         address = "0x0000000000000000000000000000000000000001"
         result = pad_address_for_topic(address)
@@ -59,7 +60,7 @@ class TestPadAddressForTopic:
 class TestMechMarketplaceLegacyExecuteWithTimeout:
     """Tests for MechMarketplaceLegacy.execute_with_timeout."""
 
-    def test_execute_with_timeout_success(self):
+    def test_execute_with_timeout_success(self) -> None:
         """Test successful execution within timeout."""
         result, err = MechMarketplaceLegacy.execute_with_timeout(
             lambda: {"data": "ok"}, timeout=5.0
@@ -67,7 +68,7 @@ class TestMechMarketplaceLegacyExecuteWithTimeout:
         assert result == {"data": "ok"}
         assert err is None
 
-    def test_execute_with_timeout_string_error(self):
+    def test_execute_with_timeout_string_error(self) -> None:
         """Test that string return values are treated as errors."""
         result, err = MechMarketplaceLegacy.execute_with_timeout(
             lambda: "error message", timeout=5.0
@@ -75,11 +76,11 @@ class TestMechMarketplaceLegacyExecuteWithTimeout:
         assert result is None
         assert err == "error message"
 
-    def test_execute_with_timeout_timeout(self):
+    def test_execute_with_timeout_timeout(self) -> None:
         """Test timeout handling."""
         import time
 
-        def slow_func():
+        def slow_func() -> Dict[str, str]:
             time.sleep(10)
             return {"data": "ok"}
 
@@ -92,7 +93,9 @@ class TestMechMarketplaceLegacyGetRequestData:
     """Tests for MechMarketplaceLegacy.get_request_data."""
 
     @patch.object(MechMarketplaceLegacy, "get_instance")
-    def test_get_request_data(self, mock_get_instance, ledger_api):
+    def test_get_request_data(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_request_data encodes arguments correctly."""
         mock_instance = MagicMock()
         mock_instance.encode_abi.return_value = "0xaabbccdd"
@@ -131,7 +134,7 @@ class TestMechMarketplaceLegacyGetRequestData:
 class TestMechMarketplaceLegacyProcessEvent:
     """Tests for MechMarketplaceLegacy._process_event."""
 
-    def test_process_event_success(self, ledger_api):
+    def test_process_event_success(self, ledger_api: MagicMock) -> None:
         """Test _process_event with matching logs."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -153,7 +156,7 @@ class TestMechMarketplaceLegacyProcessEvent:
         assert "results" in result
         assert len(result["results"]) == 1
 
-    def test_process_event_wrong_log_count(self, ledger_api):
+    def test_process_event_wrong_log_count(self, ledger_api: MagicMock) -> None:
         """Test _process_event with mismatched log count."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -172,7 +175,7 @@ class TestMechMarketplaceLegacyProcessEvent:
         assert "error" in result
         assert "1 'MarketplaceRequest' events were expected" in result["error"]
 
-    def test_process_event_missing_expected_key(self, ledger_api):
+    def test_process_event_missing_expected_key(self, ledger_api: MagicMock) -> None:
         """Test _process_event when expected key is missing."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -193,7 +196,7 @@ class TestMechMarketplaceLegacyProcessEvent:
         assert "error" in result
         assert "do not match the expected format" in result["error"]
 
-    def test_process_event_none_args(self, ledger_api):
+    def test_process_event_none_args(self, ledger_api: MagicMock) -> None:
         """Test _process_event when args is None."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -211,7 +214,7 @@ class TestMechMarketplaceLegacyProcessEvent:
 
         assert "error" in result
 
-    def test_process_event_multiple_logs(self, ledger_api):
+    def test_process_event_multiple_logs(self, ledger_api: MagicMock) -> None:
         """Test _process_event with multiple matching logs."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -241,8 +244,11 @@ class TestMechMarketplaceLegacyProcessRequestEvent:
     @patch.object(MechMarketplaceLegacy, "_process_event")
     @patch.object(MechMarketplaceLegacy, "get_instance")
     def test_process_request_event(
-        self, mock_get_instance, mock_process_event, ledger_api
-    ):
+        self,
+        mock_get_instance: MagicMock,
+        mock_process_event: MagicMock,
+        ledger_api: MagicMock,
+    ) -> None:
         """Test process_request_event calls _process_event with correct args."""
         mock_process_event.return_value = {
             "results": [{"requestId": 1, "data": b"req"}]
@@ -268,8 +274,11 @@ class TestMechMarketplaceLegacyProcessDeliverEvent:
     @patch.object(MechMarketplaceLegacy, "_process_event")
     @patch.object(MechMarketplaceLegacy, "get_instance")
     def test_process_deliver_event(
-        self, mock_get_instance, mock_process_event, ledger_api
-    ):
+        self,
+        mock_get_instance: MagicMock,
+        mock_process_event: MagicMock,
+        ledger_api: MagicMock,
+    ) -> None:
         """Test process_deliver_event calls _process_event with correct args."""
         mock_process_event.return_value = {
             "results": [{"requestId": 1, "data": b"delivered"}]
@@ -292,7 +301,7 @@ class TestMechMarketplaceLegacyProcessDeliverEvent:
 class TestMechMarketplaceLegacyGetBlockNumber:
     """Tests for MechMarketplaceLegacy.get_block_number."""
 
-    def test_get_block_number(self, ledger_api):
+    def test_get_block_number(self, ledger_api: MagicMock) -> None:
         """Test get_block_number returns the block number."""
         result = MechMarketplaceLegacy.get_block_number(
             ledger_api=ledger_api,
@@ -309,7 +318,9 @@ class TestMechMarketplaceLegacyGetResponse:
     """Tests for MechMarketplaceLegacy.get_response."""
 
     @patch.object(MechMarketplaceLegacy, "execute_with_timeout")
-    def test_get_response_success(self, mock_exec, ledger_api):
+    def test_get_response_success(
+        self, mock_exec: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response returns data on success."""
         mock_exec.return_value = ({"data": b"response"}, None)
 
@@ -324,7 +335,9 @@ class TestMechMarketplaceLegacyGetResponse:
         assert result == {"data": b"response"}
 
     @patch.object(MechMarketplaceLegacy, "execute_with_timeout")
-    def test_get_response_timeout(self, mock_exec, ledger_api):
+    def test_get_response_timeout(
+        self, mock_exec: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response handles timeout error."""
         mock_exec.return_value = (None, "The RPC didn't respond in 5.0.")
 
@@ -339,7 +352,9 @@ class TestMechMarketplaceLegacyGetResponse:
         assert result == {"error": "The RPC didn't respond in 5.0."}
 
     @patch.object(MechMarketplaceLegacy, "execute_with_timeout")
-    def test_get_response_not_delivered(self, mock_exec, ledger_api):
+    def test_get_response_not_delivered(
+        self, mock_exec: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response when response not yet delivered."""
         mock_exec.return_value = (
             {"info": "not delivered yet"},
@@ -357,7 +372,9 @@ class TestMechMarketplaceLegacyGetResponse:
         assert "info" in result
 
     @patch.object(MechMarketplaceLegacy, "execute_with_timeout")
-    def test_get_response_string_error(self, mock_exec, ledger_api):
+    def test_get_response_string_error(
+        self, mock_exec: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response when the inner function returns a string (error)."""
         mock_exec.return_value = (None, "unexpected error string")
 
@@ -372,7 +389,9 @@ class TestMechMarketplaceLegacyGetResponse:
         assert result == {"error": "unexpected error string"}
 
     @patch.object(MechMarketplaceLegacy, "get_instance")
-    def test_get_response_inner_logic_no_logs(self, mock_get_instance, ledger_api):
+    def test_get_response_inner_logic_no_logs(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response inner function when no logs are found."""
         mock_instance = MagicMock()
         mock_event = MagicMock()
@@ -399,7 +418,9 @@ class TestMechMarketplaceLegacyGetResponse:
         assert "has not delivered" in result["info"]
 
     @patch.object(MechMarketplaceLegacy, "get_instance")
-    def test_get_response_inner_logic_single_match(self, mock_get_instance, ledger_api):
+    def test_get_response_inner_logic_single_match(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response inner function with a single matching delivery."""
         mock_instance = MagicMock()
         mock_event = MagicMock()
@@ -429,8 +450,8 @@ class TestMechMarketplaceLegacyGetResponse:
 
     @patch.object(MechMarketplaceLegacy, "get_instance")
     def test_get_response_inner_logic_multiple_matches(
-        self, mock_get_instance, ledger_api
-    ):
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response inner function with multiple matching deliveries (error)."""
         mock_instance = MagicMock()
         mock_event = MagicMock()
@@ -460,7 +481,9 @@ class TestMechMarketplaceLegacyGetResponse:
         assert "error" in result
 
     @patch.object(MechMarketplaceLegacy, "get_instance")
-    def test_get_response_inner_logic_missing_data(self, mock_get_instance, ledger_api):
+    def test_get_response_inner_logic_missing_data(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response inner function when delivery has no data field."""
         mock_instance = MagicMock()
         mock_event = MagicMock()

@@ -200,6 +200,8 @@ class Mech(Contract):
         :param ledger_api: the ledger API object
         :param contract_address: the contract's address
         :param request_data: the request data
+        :param kwargs: extra keyword arguments forwarded to the contract call.
+        :return: the encoded request data wrapped in a ``{"data": ...}`` dict.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
@@ -257,8 +259,10 @@ class Mech(Contract):
         :param contract_address: the contract address.
         :param tx_hash: the hash of a request tx to be processed.
         :param expected_logs: the number of logs expected.
-        :return: a dictionary with a key named `results`
-        which contains a list of dictionaries (as many as the expected logs) containing the request id and the data.
+        :param kwargs: extra keyword arguments forwarded to the contract call.
+        :return: a dictionary with a key named ``results`` which contains a list
+            of dictionaries (as many as the expected logs) containing the
+            request id and the data.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         res = {}
@@ -296,6 +300,7 @@ class Mech(Contract):
         :param contract_address: the contract address.
         :param tx_hash: the hash of a request tx to be processed.
         :param expected_logs: the number of logs expected.
+        :param kwargs: extra keyword arguments forwarded to the contract call.
         :return: a dictionary with the request id and the data.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
@@ -343,22 +348,18 @@ class Mech(Contract):
         from_block: BlockIdentifier,
         to_block: BlockIdentifier,
     ) -> Tuple[Dict[str, Any], bool]:
-        """
-        Process a single ABI to find a response for the given request ID.
+        """Process a single ABI to find a response for the given request ID.
 
-        Args:
-            abi_index: The index of the ABI being processed
-            abi: The ABI to process
-            ledger_api: The ledger API
-            contract_address: The contract address
-            request_id: The request ID to search for
-            from_block: The block to start searching from
-            to_block: The block to end searching at
-
-        Returns:
-            A tuple containing:
-            - The result (data on success, error/info message on failure)
-            - A boolean indicating if this is a successful final result
+        :param abi_index: the index of the ABI being processed.
+        :param abi: the ABI to process.
+        :param ledger_api: the ledger API.
+        :param contract_address: the contract address.
+        :param request_id: the request ID to search for.
+        :param from_block: the block to start searching from.
+        :param to_block: the block to end searching at.
+        :return: a tuple of ``(result, is_final)`` where ``result`` is the data
+            on success or an error/info message on failure, and ``is_final``
+            indicates whether this is a successful final result.
         """
         contract_instance = ledger_api.api.eth.contract(
             address=contract_address, abi=abi
