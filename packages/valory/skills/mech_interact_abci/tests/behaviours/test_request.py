@@ -269,7 +269,7 @@ class TestApproveBalanceTracker:
         request_behaviour.contract_interact = mock_contract_interact
         request_behaviour._balance_tracker = "0xtracker"
         request_behaviour._mech_max_delivery_rate = 1234
-        request_behaviour.context.params.price_token = "0xtoken"
+        request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
         request_behaviour.context.params.mech_chain_id = 100
         return captured
 
@@ -325,7 +325,7 @@ class TestBuildTokenApproval:
         """
         request_behaviour._balance_tracker = "0xtracker"
         request_behaviour._approval_data = b"\xab\xcd\xef"
-        request_behaviour.context.params.price_token = "0xtoken"
+        request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
         request_behaviour._approve_balance_tracker = _gen_returning(True)
 
         result = _drive_generator(request_behaviour._build_token_approval())
@@ -343,7 +343,7 @@ class TestBuildTokenApproval:
         """If _balance_tracker is already populated, _get_balance_tracker is skipped."""
         request_behaviour._balance_tracker = "0xtracker"
         request_behaviour._approval_data = b"\x01"
-        request_behaviour.context.params.price_token = "0xtoken"
+        request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
         get_called = False
 
         def get_tracker():
@@ -364,7 +364,7 @@ class TestBuildTokenApproval:
         """If _balance_tracker is unset, _get_balance_tracker runs first."""
         request_behaviour._balance_tracker = None
         request_behaviour._approval_data = b"\x01"
-        request_behaviour.context.params.price_token = "0xtoken"
+        request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
         request_behaviour._get_balance_tracker = _gen_returning(True)
         request_behaviour._approve_balance_tracker = _gen_returning(True)
 
