@@ -14,8 +14,8 @@ fingerprint:
   behaviours/base.py: bafybeiggfcw7zt6glthh47kszk7ymadzgkr27qixswfmsqiezxr5hmekb4
   behaviours/mech_info.py: bafybeiewytod36pjvumqbdhfbgoextpwzjmuvknxnu426c7tooqedujxiu
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
-  behaviours/purchase_subcription.py: bafybeigkqa4uojrg66jf5euhzedzatjgfr274uhy6des7x7rjqt5cdojmy
-  behaviours/request.py: bafybeid6at4y36raiuwgv2dvwvp7gnprhyvxmgsmexawr5lbxfpb25n274
+  behaviours/purchase_subcription.py: bafybeibdzr724xlfakn344l2bgc2gzharpnwaphmqlh6afbrgrvbwi3kt4
+  behaviours/request.py: bafybeih2yij2xklvclu5dm7y7t6kkcpwldng7wivpb6wsrtlvm3ntywzuy
   behaviours/response.py: bafybeifygninefxeekqnmqmpkrvxpvgv3leb6ga7od26243iahw4yodrsy
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeiachjgarkgv4hxprddn7dtb5h3q4qge72rc2kysmureooq5xggxxi
@@ -41,8 +41,8 @@ fingerprint:
   tests/behaviours/conftest.py: bafybeiemvv76bfkkzg5v7co6ayz4kfmhnbzgptxhjwrvb74hgum2oixtxm
   tests/behaviours/test_base.py: bafybeibzuprstoa5obkwyrzdoi6exvx3b4x2q6e7si33c5mwzdkzjiujpm
   tests/behaviours/test_mech_version.py: bafybeidaievoo3o7h3mv5fymohjclscgge222htmfzoelyvr733yheidfq
-  tests/behaviours/test_purchase_subscription.py: bafybeifdkcwshknykbhwlgabtgj5pvr3mg75jhv73cn6ee7clmwbynrxpi
-  tests/behaviours/test_request.py: bafybeiebfv6fpgjz6fgywonauczzaqudk63hreinpd7jlhu7mpubveizpu
+  tests/behaviours/test_purchase_subscription.py: bafybeicwmxjls6ffdbsgo5yt47qg6tr3p7dl6lw5qjku5nx24xaniqdtuu
+  tests/behaviours/test_request.py: bafybeia7bfbs3svpi2bf3pvj7be33teknh57p6xp36i2r5kk6rdfghkymi
   tests/behaviours/test_response.py: bafybeidhggai73ma3dc63exntkuot2tdplcyl3n5jdhg7uhlj6jdieekvi
   tests/states/__init__.py: bafybeieo3txynlsaxtuqxvvhjyjn2hft3ztsnr5v6byoccqg2allecx2vm
   tests/states/test_base.py: bafybeidkoar7akjjotow4dp3zvldsh5lrwsjrzhoestplh6pbnp2lbuque

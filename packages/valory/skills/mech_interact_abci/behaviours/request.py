@@ -114,7 +114,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._subscription_address: Optional[str] = None
         self._subscription_id: Optional[int] = None
         self._balance_tracker: Optional[str] = None
-        self._approval_data: Optional[str] = None
+        self._approval_data: Optional[bytes] = None
 
     @property
     def metadata_filepath(self) -> str:
@@ -253,7 +253,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         return self._balance_tracker
 
     @property
-    def approval_data(self) -> Optional[str]:
+    def approval_data(self) -> Optional[bytes]:
         """Get the approval data."""
         if self._approval_data is None:
             self.context.logger.warning(
@@ -748,7 +748,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
         )
 
-    def _approve_balance_tracker(self) -> WaitableConditionType:  # pragma: no cover
+    def _approve_balance_tracker(self) -> WaitableConditionType:
         """Build approval for the balance tracker."""
         self.context.logger.info("Building approval for token payment.")
 
@@ -766,7 +766,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
         )
 
-    def _build_token_approval(self) -> WaitableConditionType:  # pragma: no cover
+    def _build_token_approval(self) -> WaitableConditionType:
         """Get the balance tracker, build approval for the token payment and add it to the multisend batch."""
         if not self._balance_tracker:
             status = yield from self._get_balance_tracker()
@@ -781,9 +781,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         batch = MultisendBatch(
             to=self.params.price_token,
-            data=bytes.fromhex(
-                self.approval_data.removeprefix("0x").removeprefix("0X")
-            ),
+            data=self.approval_data,
         )
         self.multisend_batches.append(batch)
         self.context.logger.info("Successfully built approval data.")
