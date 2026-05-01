@@ -41,8 +41,8 @@ fingerprint:
   tests/behaviours/conftest.py: bafybeiemvv76bfkkzg5v7co6ayz4kfmhnbzgptxhjwrvb74hgum2oixtxm
   tests/behaviours/test_base.py: bafybeibzuprstoa5obkwyrzdoi6exvx3b4x2q6e7si33c5mwzdkzjiujpm
   tests/behaviours/test_mech_version.py: bafybeidaievoo3o7h3mv5fymohjclscgge222htmfzoelyvr733yheidfq
-  tests/behaviours/test_purchase_subscription.py: bafybeicwmxjls6ffdbsgo5yt47qg6tr3p7dl6lw5qjku5nx24xaniqdtuu
-  tests/behaviours/test_request.py: bafybeia7bfbs3svpi2bf3pvj7be33teknh57p6xp36i2r5kk6rdfghkymi
+  tests/behaviours/test_purchase_subscription.py: bafybeihiwtbvwi46hanxxhcoivgaes47326w7atz34p4236hxp2yax6734
+  tests/behaviours/test_request.py: bafybeihypbtxkpw6rn4vdwtoohr6nuoqyfrssekmyelb53mij7yq5aikji
   tests/behaviours/test_response.py: bafybeidhggai73ma3dc63exntkuot2tdplcyl3n5jdhg7uhlj6jdieekvi
   tests/states/__init__.py: bafybeieo3txynlsaxtuqxvvhjyjn2hft3ztsnr5v6byoccqg2allecx2vm
   tests/states/test_base.py: bafybeidkoar7akjjotow4dp3zvldsh5lrwsjrzhoestplh6pbnp2lbuque

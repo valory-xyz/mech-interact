@@ -19,6 +19,7 @@
 
 """Tests for the request behaviour module properties."""
 
+from typing import Any, Callable, Dict, Generator
 from unittest.mock import MagicMock
 
 import pytest
@@ -38,7 +39,7 @@ from packages.valory.skills.mech_interact_abci.tests.behaviours.conftest import 
 )
 
 
-def _drive_generator(gen):
+def _drive_generator(gen: Generator[Any, Any, Any]) -> Any:
     """Drive a generator until it returns, ignoring yielded values."""
     try:
         while True:
@@ -268,10 +269,10 @@ class TestDecodeHexToBytes:
         request_behaviour.context.logger.error.assert_called_once()
 
 
-def _gen_returning(value):
+def _gen_returning(value: Any) -> Callable[..., Generator[Any, Any, Any]]:
     """Build a generator-function that yields once and returns ``value``."""
 
-    def _g(*_args, **_kwargs):
+    def _g(*_args: Any, **_kwargs: Any) -> Generator[Any, Any, Any]:
         yield
         return value
 
@@ -281,10 +282,15 @@ def _gen_returning(value):
 class TestApproveBalanceTracker:
     """Tests for _approve_balance_tracker (thin wrapper around contract_interact)."""
 
-    def _setup(self, request_behaviour, *, return_value=True):
-        captured = {}
+    def _setup(
+        self,
+        request_behaviour: MagicMock,
+        *,
+        return_value: bool = True,
+    ) -> Dict[str, Any]:
+        captured: Dict[str, Any] = {}
 
-        def mock_contract_interact(**kwargs):
+        def mock_contract_interact(**kwargs: Any) -> Generator[Any, Any, Any]:
             captured.update(kwargs)
             yield
             return return_value
@@ -297,7 +303,7 @@ class TestApproveBalanceTracker:
         return captured
 
     def test_calls_contract_interact_with_correct_kwargs(
-        self, request_behaviour
+        self, request_behaviour: MagicMock
     ) -> None:
         """Verify every kwarg passed to contract_interact matches the ERC20 approve call."""
         captured = self._setup(request_behaviour)
@@ -318,13 +324,15 @@ class TestApproveBalanceTracker:
         assert captured["amount"] == 1234
         assert captured["chain_id"] == 100
 
-    def test_propagates_failure_from_contract_interact(self, request_behaviour) -> None:
+    def test_propagates_failure_from_contract_interact(
+        self, request_behaviour: MagicMock
+    ) -> None:
         """A False from contract_interact propagates back unchanged."""
         self._setup(request_behaviour, return_value=False)
         result = _drive_generator(request_behaviour._approve_balance_tracker())
         assert result is False
 
-    def test_logs_info_on_invocation(self, request_behaviour) -> None:
+    def test_logs_info_on_invocation(self, request_behaviour: MagicMock) -> None:
         """The behaviour announces that it is building the approval."""
         self._setup(request_behaviour)
         _drive_generator(request_behaviour._approve_balance_tracker())
@@ -337,7 +345,7 @@ class TestBuildTokenApproval:
     """Tests for _build_token_approval orchestration and batch construction."""
 
     def test_appends_multisend_batch_with_approval_bytes(
-        self, request_behaviour
+        self, request_behaviour: MagicMock
     ) -> None:
         """Approval bytes are passed through to MultisendBatch.data unchanged.
 
@@ -361,7 +369,7 @@ class TestBuildTokenApproval:
         assert isinstance(batch.data, bytes)
 
     def test_skips_get_balance_tracker_when_already_set(
-        self, request_behaviour
+        self, request_behaviour: MagicMock
     ) -> None:
         """If _balance_tracker is already populated, _get_balance_tracker is skipped."""
         request_behaviour._balance_tracker = "0xtracker"
@@ -369,7 +377,7 @@ class TestBuildTokenApproval:
         request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
         get_called = False
 
-        def get_tracker():
+        def get_tracker() -> Generator[Any, Any, Any]:
             nonlocal get_called
             get_called = True
             yield
@@ -383,7 +391,9 @@ class TestBuildTokenApproval:
         assert result is True
         assert get_called is False
 
-    def test_calls_get_balance_tracker_when_unset(self, request_behaviour) -> None:
+    def test_calls_get_balance_tracker_when_unset(
+        self, request_behaviour: MagicMock
+    ) -> None:
         """If _balance_tracker is unset, _get_balance_tracker runs first."""
         request_behaviour._balance_tracker = None
         request_behaviour._approval_data = b"\x01"
@@ -397,14 +407,14 @@ class TestBuildTokenApproval:
         assert len(request_behaviour.multisend_batches) == 1
 
     def test_returns_false_and_warns_when_get_balance_tracker_fails(
-        self, request_behaviour
+        self, request_behaviour: MagicMock
     ) -> None:
         """A failure to fetch the balance tracker short-circuits with a warning."""
         request_behaviour._balance_tracker = None
         request_behaviour._get_balance_tracker = _gen_returning(False)
         approve_called = False
 
-        def approve():
+        def approve() -> Generator[Any, Any, Any]:
             nonlocal approve_called
             approve_called = True
             yield
@@ -422,7 +432,7 @@ class TestBuildTokenApproval:
         )
 
     def test_returns_false_and_errors_when_approve_fails(
-        self, request_behaviour
+        self, request_behaviour: MagicMock
     ) -> None:
         """A failure to build the approval short-circuits with an error log."""
         request_behaviour._balance_tracker = "0xtracker"
