@@ -24,7 +24,7 @@ import math
 import time
 from dataclasses import InitVar, asdict, dataclass, field, is_dataclass
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Set, Type, cast
+from typing import Any, Dict, List, Mapping, Optional, Set, Type, Union, cast
 
 from packages.valory.skills.abstract_round_abci.base import (
     BaseTxPayload,
@@ -55,7 +55,7 @@ COLD_START_LIVENESS = LAPLACE_SMOOTHING_ALPHA / (
     LAPLACE_SMOOTHING_ALPHA + LAPLACE_SMOOTHING_BETA
 )
 
-NestedSubgraphItemType = List[Dict[str, str]]
+NestedSubgraphItemType = List[Dict[str, Any]]
 
 
 class Event(Enum):
@@ -85,9 +85,14 @@ class MechMetadata:
 
 @dataclass
 class MechRequest:
-    """A Mech's request."""
+    """A Mech's request.
 
-    data: str = ""
+    ``data`` is ``bytes`` when populated from a parsed contract event and
+    ``str`` (hex-encoded) when carried through synchronized data across
+    rounds; both forms are handled by the consumers.
+    """
+
+    data: Union[str, bytes] = ""
     requestId: int = 0
     requestIds: List[int] = field(default_factory=list)
     numRequests: int = 0
@@ -279,7 +284,7 @@ class MechInfoEncoder(json.JSONEncoder):
 
     def default(self, obj: Any) -> Any:
         """The default JSON encoder."""
-        if is_dataclass(obj):
+        if is_dataclass(obj) and not isinstance(obj, type):
             return asdict(obj)
 
         # convert relevant_tools set to list as JSON doesn't support sets
@@ -302,7 +307,7 @@ class SynchronizedData(TxSynchronizedData):
         mechs_info = self.db.get("mechs_info", SERIALIZED_EMPTY_LIST)
         if isinstance(mechs_info, str):
             mechs_info = json.loads(mechs_info)
-        return [MechInfo(**item) for item in mechs_info]
+        return [MechInfo(**item) for item in (mechs_info or [])]
 
     @property
     def mech_tool(self) -> str:
@@ -373,7 +378,7 @@ class SynchronizedData(TxSynchronizedData):
         requests = self.db.get("mech_requests", SERIALIZED_EMPTY_LIST)
         if isinstance(requests, str):
             requests = json.loads(requests)
-        return [MechMetadata(**metadata_item) for metadata_item in requests]
+        return [MechMetadata(**metadata_item) for metadata_item in (requests or [])]
 
     @property
     def mech_responses(self) -> List[MechInteractionResponse]:
@@ -381,7 +386,10 @@ class SynchronizedData(TxSynchronizedData):
         responses = self.db.get("mech_responses", SERIALIZED_EMPTY_LIST)
         if isinstance(responses, str):
             responses = json.loads(responses)
-        return [MechInteractionResponse(**response_item) for response_item in responses]
+        return [
+            MechInteractionResponse(**response_item)
+            for response_item in (responses or [])
+        ]
 
     @property
     def participant_to_info(self) -> Mapping[str, JSONPayload]:
@@ -412,9 +420,9 @@ class SynchronizedData(TxSynchronizedData):
         return cast(Mapping[str, PrepareTxPayload], deserialized)
 
     @property
-    def final_tx_hash(self) -> Optional[str]:
+    def final_tx_hash(self) -> Optional[str]:  # type: ignore[override]
         """Get the verified tx hash."""
-        return cast(str, self.db.get("final_tx_hash", None))
+        return cast(Optional[str], self.db.get("final_tx_hash", None))
 
     @property
     def chain_id(self) -> Optional[str]:

@@ -19,6 +19,7 @@
 
 """Tests for the base behaviour module."""
 
+from typing import Any, Generator
 from unittest.mock import MagicMock
 
 import pytest
@@ -36,12 +37,12 @@ class _ConcreteBehaviour(MechInteractBaseBehaviour):
 
     matching_round = MagicMock()
 
-    def async_act(self):
+    def async_act(self) -> Generator[None, None, None]:
         """No-op async_act."""
         yield
 
 
-def _make_base_behaviour(**overrides) -> MechInteractBaseBehaviour:
+def _make_base_behaviour(**overrides: Any) -> MechInteractBaseBehaviour:
     """Create a MechInteractBaseBehaviour with mocked dependencies."""
     behaviour = _ConcreteBehaviour.__new__(_ConcreteBehaviour)
     mock_context = MagicMock()
@@ -56,7 +57,7 @@ def _make_base_behaviour(**overrides) -> MechInteractBaseBehaviour:
     return behaviour
 
 
-def _drive_generator(gen):
+def _drive_generator(gen: Generator[Any, Any, Any]) -> Any:
     """Drive a generator that yields once and returns a value."""
     try:
         next(gen)
@@ -155,7 +156,7 @@ class TestContractInteractionError:
     """Tests for contract_interaction_error routing logic."""
 
     @pytest.mark.parametrize("level", ["info", "warning", "error"])
-    def test_routes_to_correct_log_level(self, level) -> None:
+    def test_routes_to_correct_log_level(self, level: MagicMock) -> None:
         """Test that the method uses the log level from the response body."""
         behaviour = _make_base_behaviour()
         response_msg = MagicMock()
@@ -204,14 +205,16 @@ class TestContractInteract:
         response_msg.performative = ContractApiMessage.Performative.RAW_TRANSACTION
         response_msg.raw_transaction.body = {"data_key": "result_value"}
 
-        def mock_get_contract_api_response(*args, **kwargs):
+        def mock_get_contract_api_response(
+            *args: Any, **kwargs: Any
+        ) -> Generator[None, None, MagicMock]:
             yield
             return response_msg
 
-        behaviour.get_contract_api_response = mock_get_contract_api_response
+        behaviour.get_contract_api_response = mock_get_contract_api_response  # type: ignore[method-assign]
 
         gen = behaviour.contract_interact(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore[arg-type]
             contract_address="0xaddr",
             contract_public_id=MagicMock(),
             contract_callable="do_thing",
@@ -230,14 +233,16 @@ class TestContractInteract:
         response_msg = MagicMock()
         response_msg.performative = ContractApiMessage.Performative.ERROR
 
-        def mock_get_contract_api_response(*args, **kwargs):
+        def mock_get_contract_api_response(
+            *args: Any, **kwargs: Any
+        ) -> Generator[None, None, MagicMock]:
             yield
             return response_msg
 
-        behaviour.get_contract_api_response = mock_get_contract_api_response
+        behaviour.get_contract_api_response = mock_get_contract_api_response  # type: ignore[method-assign]
 
         gen = behaviour.contract_interact(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore[arg-type]
             contract_address="0xaddr",
             contract_public_id=MagicMock(),
             contract_callable="do_thing",
@@ -257,14 +262,16 @@ class TestContractInteract:
         response_msg.performative = ContractApiMessage.Performative.RAW_TRANSACTION
         response_msg.raw_transaction.body = {"other_key": "value"}
 
-        def mock_get_contract_api_response(*args, **kwargs):
+        def mock_get_contract_api_response(
+            *args: Any, **kwargs: Any
+        ) -> Generator[None, None, MagicMock]:
             yield
             return response_msg
 
-        behaviour.get_contract_api_response = mock_get_contract_api_response
+        behaviour.get_contract_api_response = mock_get_contract_api_response  # type: ignore[method-assign]
 
         gen = behaviour.contract_interact(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore[arg-type]
             contract_address="0xaddr",
             contract_public_id=MagicMock(),
             contract_callable="do_thing",
@@ -289,11 +296,13 @@ class TestBuildMultisendData:
         response_msg.performative = ContractApiMessage.Performative.RAW_TRANSACTION
         response_msg.raw_transaction.body = {"data": "0xaabbccdd"}
 
-        def mock_get_contract_api_response(*args, **kwargs):
+        def mock_get_contract_api_response(
+            *args: Any, **kwargs: Any
+        ) -> Generator[None, None, MagicMock]:
             yield
             return response_msg
 
-        behaviour.get_contract_api_response = mock_get_contract_api_response
+        behaviour.get_contract_api_response = mock_get_contract_api_response  # type: ignore[method-assign]
 
         gen = behaviour._build_multisend_data()
         result = _drive_generator(gen)
@@ -310,11 +319,13 @@ class TestBuildMultisendData:
         response_msg = MagicMock()
         response_msg.performative = ContractApiMessage.Performative.ERROR
 
-        def mock_get_contract_api_response(*args, **kwargs):
+        def mock_get_contract_api_response(
+            *args: Any, **kwargs: Any
+        ) -> Generator[None, None, MagicMock]:
             yield
             return response_msg
 
-        behaviour.get_contract_api_response = mock_get_contract_api_response
+        behaviour.get_contract_api_response = mock_get_contract_api_response  # type: ignore[method-assign]
 
         gen = behaviour._build_multisend_data()
         result = _drive_generator(gen)
@@ -331,11 +342,13 @@ class TestBuildMultisendData:
         response_msg.performative = ContractApiMessage.Performative.RAW_TRANSACTION
         response_msg.raw_transaction.body = {"other": "value"}
 
-        def mock_get_contract_api_response(*args, **kwargs):
+        def mock_get_contract_api_response(
+            *args: Any, **kwargs: Any
+        ) -> Generator[None, None, MagicMock]:
             yield
             return response_msg
 
-        behaviour.get_contract_api_response = mock_get_contract_api_response
+        behaviour.get_contract_api_response = mock_get_contract_api_response  # type: ignore[method-assign]
 
         gen = behaviour._build_multisend_data()
         result = _drive_generator(gen)

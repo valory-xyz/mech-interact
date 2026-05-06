@@ -19,6 +19,8 @@
 
 """Tests for the request behaviour module properties."""
 
+from typing import Any, Callable, Dict, Generator
+
 import pytest
 
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
@@ -27,6 +29,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import (
     DECIMALS_6,
     DECIMALS_18,
     METADATA_FILENAME,
+    MechRequestBehaviour,
     NVM_PAYMENT_TYPES,
     PaymentType,
     TOKEN_PAYMENT_TYPES,
@@ -36,7 +39,7 @@ from packages.valory.skills.mech_interact_abci.tests.behaviours.conftest import 
 )
 
 
-def _drive_generator(gen):
+def _drive_generator(gen: Generator[Any, Any, Any]) -> Any:
     """Drive a generator until it returns, ignoring yielded values."""
     try:
         while True:
@@ -66,13 +69,15 @@ class TestPaymentType:
 class TestRequestDataAndPrice:
     """Tests for request_data and price getters/setters."""
 
-    def test_request_data_roundtrip(self, request_behaviour) -> None:
+    def test_request_data_roundtrip(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """Test request_data getter and setter."""
         assert request_behaviour.request_data == b""
         request_behaviour.request_data = b"new_data"
         assert request_behaviour.request_data == b"new_data"
 
-    def test_price_roundtrip(self, request_behaviour) -> None:
+    def test_price_roundtrip(self, request_behaviour: MechRequestBehaviour) -> None:
         """Test price getter and setter."""
         assert request_behaviour.price == 0
         request_behaviour.price = 42
@@ -82,12 +87,14 @@ class TestRequestDataAndPrice:
 class TestMechPaymentTypeSetter:
     """Tests for mech_payment_type setter."""
 
-    def test_valid_payment_type(self, request_behaviour) -> None:
+    def test_valid_payment_type(self, request_behaviour: MechRequestBehaviour) -> None:
         """Test setting a valid payment type."""
         request_behaviour.mech_payment_type = PaymentType.TOKEN_OLAS.value
         assert request_behaviour.mech_payment_type == PaymentType.TOKEN_OLAS
 
-    def test_invalid_payment_type_warns(self, request_behaviour) -> None:
+    def test_invalid_payment_type_warns(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """Test setting an invalid payment type logs warning and keeps default."""
         request_behaviour.mech_payment_type = "0xinvalid"
         request_behaviour.context.logger.warning.assert_called_once()
@@ -109,7 +116,11 @@ class TestPaymentTypeProperties:
         ],
     )
     def test_payment_type_boolean_properties(
-        self, request_behaviour, payment_type, prop, expected
+        self,
+        request_behaviour: MechRequestBehaviour,
+        payment_type: Any,
+        prop: Any,
+        expected: Any,
     ) -> None:
         """Test boolean payment type properties for various types."""
         request_behaviour._mech_payment_type = payment_type
@@ -125,7 +136,10 @@ class TestPaymentTypeProperties:
         ],
     )
     def test_token_decimals(
-        self, request_behaviour, payment_type, expected_decimals
+        self,
+        request_behaviour: MechRequestBehaviour,
+        payment_type: Any,
+        expected_decimals: Any,
     ) -> None:
         """Test token_decimals returns correct value per payment type."""
         request_behaviour._mech_payment_type = payment_type
@@ -139,12 +153,14 @@ class TestNvmBalanceTrackerContractId:
         "payment_type",
         [PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM_USDC],
     )
-    def test_valid_nvm_types(self, request_behaviour, payment_type) -> None:
+    def test_valid_nvm_types(
+        self, request_behaviour: MechRequestBehaviour, payment_type: Any
+    ) -> None:
         """Test nvm_balance_tracker_contract_id returns a value for NVM types."""
         request_behaviour._mech_payment_type = payment_type
         assert request_behaviour.nvm_balance_tracker_contract_id is not None
 
-    def test_non_nvm_type_raises(self, request_behaviour) -> None:
+    def test_non_nvm_type_raises(self, request_behaviour: MechRequestBehaviour) -> None:
         """Test nvm_balance_tracker_contract_id raises for non-NVM type."""
         request_behaviour._mech_payment_type = PaymentType.NATIVE
         with pytest.raises(ValueError, match="Unknown"):
@@ -166,18 +182,22 @@ class TestNonePropertyLogging:
             ("approval_data", "warning"),
         ],
     )
-    def test_none_logs_message(self, request_behaviour, prop, log_method) -> None:
+    def test_none_logs_message(
+        self, request_behaviour: MechRequestBehaviour, prop: Any, log_method: Any
+    ) -> None:
         """Test that accessing unset properties logs the appropriate message."""
         assert_unset_property_logs(request_behaviour, prop, log_method)
 
     def test_subscription_balance_returns_value_when_set(
-        self, request_behaviour
+        self, request_behaviour: MechRequestBehaviour
     ) -> None:
         """Test subscription_balance returns value when set."""
         request_behaviour._subscription_balance = 100
         assert request_behaviour.subscription_balance == 100
 
-    def test_nvm_balance_returns_value_when_set(self, request_behaviour) -> None:
+    def test_nvm_balance_returns_value_when_set(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """Test nvm_balance returns value when set."""
         request_behaviour._nvm_balance = 200
         assert request_behaviour.nvm_balance == 200
@@ -186,13 +206,15 @@ class TestNonePropertyLogging:
 class TestTotalNvmBalance:
     """Tests for total_nvm_balance."""
 
-    def test_both_set(self, request_behaviour) -> None:
+    def test_both_set(self, request_behaviour: MechRequestBehaviour) -> None:
         """Test total_nvm_balance when both balances are set."""
         request_behaviour._subscription_balance = 100
         request_behaviour._nvm_balance = 200
         assert request_behaviour.total_nvm_balance == 300
 
-    def test_returns_none_when_partial(self, request_behaviour) -> None:
+    def test_returns_none_when_partial(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """Test total_nvm_balance returns None when one balance is missing."""
         request_behaviour._subscription_balance = 100
         assert request_behaviour.total_nvm_balance is None
@@ -209,11 +231,19 @@ class TestWeiToUnit:
             (5 * 10**17, 18, 0.5),
         ],
     )
-    def test_conversion(self, request_behaviour, wei, decimals, expected) -> None:
+    def test_conversion(
+        self,
+        request_behaviour: MechRequestBehaviour,
+        wei: Any,
+        decimals: Any,
+        expected: Any,
+    ) -> None:
         """Test wei_to_unit converts correctly."""
         assert request_behaviour.wei_to_unit(wei, decimals=decimals) == expected
 
-    def test_default_decimals_uses_token_decimals(self, request_behaviour) -> None:
+    def test_default_decimals_uses_token_decimals(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """Test wei_to_unit uses token_decimals when decimals is not provided."""
         # Default payment type is NATIVE (18 decimals)
         assert request_behaviour.wei_to_unit(10**18) == 1.0
@@ -222,7 +252,7 @@ class TestWeiToUnit:
 class TestMetadataFilepath:
     """Tests for metadata_filepath."""
 
-    def test_ends_with_filename(self, request_behaviour) -> None:
+    def test_ends_with_filename(self, request_behaviour: MechRequestBehaviour) -> None:
         """Test metadata_filepath creates a path ending with METADATA_FILENAME."""
         assert request_behaviour.metadata_filepath.endswith(METADATA_FILENAME)
 
@@ -230,25 +260,27 @@ class TestMetadataFilepath:
 class TestDecodeHexToBytes:
     """Tests for _decode_hex_to_bytes."""
 
-    def test_with_0x_prefix(self, request_behaviour) -> None:
+    def test_with_0x_prefix(self, request_behaviour: MechRequestBehaviour) -> None:
         """Test strips 0x prefix and decodes."""
         assert request_behaviour._decode_hex_to_bytes("0xabcd", "t") == b"\xab\xcd"
 
-    def test_without_prefix(self, request_behaviour) -> None:
+    def test_without_prefix(self, request_behaviour: MechRequestBehaviour) -> None:
         """Test decodes without 0x prefix."""
         assert request_behaviour._decode_hex_to_bytes("abcd", "t") == b"\xab\xcd"
 
-    def test_invalid_hex_returns_none(self, request_behaviour) -> None:
+    def test_invalid_hex_returns_none(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """Test returns None and logs error on invalid hex."""
         result = request_behaviour._decode_hex_to_bytes("0xZZZZ", "t")
         assert result is None
         request_behaviour.context.logger.error.assert_called_once()
 
 
-def _gen_returning(value):
+def _gen_returning(value: Any) -> Callable[..., Generator[Any, Any, Any]]:
     """Build a generator-function that yields once and returns ``value``."""
 
-    def _g(*_args, **_kwargs):
+    def _g(*_args: Any, **_kwargs: Any) -> Generator[Any, Any, Any]:
         yield
         return value
 
@@ -258,15 +290,20 @@ def _gen_returning(value):
 class TestApproveBalanceTracker:
     """Tests for _approve_balance_tracker (thin wrapper around contract_interact)."""
 
-    def _setup(self, request_behaviour, *, return_value=True):
-        captured = {}
+    def _setup(
+        self,
+        request_behaviour: MechRequestBehaviour,
+        *,
+        return_value: bool = True,
+    ) -> Dict[str, Any]:
+        captured: Dict[str, Any] = {}
 
-        def mock_contract_interact(**kwargs):
+        def mock_contract_interact(**kwargs: Any) -> Generator[Any, Any, Any]:
             captured.update(kwargs)
             yield
             return return_value
 
-        request_behaviour.contract_interact = mock_contract_interact
+        request_behaviour.contract_interact = mock_contract_interact  # type: ignore[method-assign,assignment]
         request_behaviour._balance_tracker = "0xtracker"
         request_behaviour._mech_max_delivery_rate = 1234
         request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
@@ -274,7 +311,7 @@ class TestApproveBalanceTracker:
         return captured
 
     def test_calls_contract_interact_with_correct_kwargs(
-        self, request_behaviour
+        self, request_behaviour: MechRequestBehaviour
     ) -> None:
         """Verify every kwarg passed to contract_interact matches the ERC20 approve call."""
         captured = self._setup(request_behaviour)
@@ -295,13 +332,17 @@ class TestApproveBalanceTracker:
         assert captured["amount"] == 1234
         assert captured["chain_id"] == 100
 
-    def test_propagates_failure_from_contract_interact(self, request_behaviour) -> None:
+    def test_propagates_failure_from_contract_interact(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """A False from contract_interact propagates back unchanged."""
         self._setup(request_behaviour, return_value=False)
         result = _drive_generator(request_behaviour._approve_balance_tracker())
         assert result is False
 
-    def test_logs_info_on_invocation(self, request_behaviour) -> None:
+    def test_logs_info_on_invocation(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """The behaviour announces that it is building the approval."""
         self._setup(request_behaviour)
         _drive_generator(request_behaviour._approve_balance_tracker())
@@ -314,7 +355,7 @@ class TestBuildTokenApproval:
     """Tests for _build_token_approval orchestration and batch construction."""
 
     def test_appends_multisend_batch_with_approval_bytes(
-        self, request_behaviour
+        self, request_behaviour: MechRequestBehaviour
     ) -> None:
         """Approval bytes are passed through to MultisendBatch.data unchanged.
 
@@ -326,7 +367,7 @@ class TestBuildTokenApproval:
         request_behaviour._balance_tracker = "0xtracker"
         request_behaviour._approval_data = b"\xab\xcd\xef"
         request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
-        request_behaviour._approve_balance_tracker = _gen_returning(True)
+        request_behaviour._approve_balance_tracker = _gen_returning(True)  # type: ignore[method-assign]
 
         result = _drive_generator(request_behaviour._build_token_approval())
 
@@ -338,7 +379,7 @@ class TestBuildTokenApproval:
         assert isinstance(batch.data, bytes)
 
     def test_skips_get_balance_tracker_when_already_set(
-        self, request_behaviour
+        self, request_behaviour: MechRequestBehaviour
     ) -> None:
         """If _balance_tracker is already populated, _get_balance_tracker is skipped."""
         request_behaviour._balance_tracker = "0xtracker"
@@ -346,27 +387,29 @@ class TestBuildTokenApproval:
         request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
         get_called = False
 
-        def get_tracker():
+        def get_tracker() -> Generator[Any, Any, Any]:
             nonlocal get_called
             get_called = True
             yield
             return True
 
-        request_behaviour._get_balance_tracker = get_tracker
-        request_behaviour._approve_balance_tracker = _gen_returning(True)
+        request_behaviour._get_balance_tracker = get_tracker  # type: ignore[method-assign]
+        request_behaviour._approve_balance_tracker = _gen_returning(True)  # type: ignore[method-assign]
 
         result = _drive_generator(request_behaviour._build_token_approval())
 
         assert result is True
         assert get_called is False
 
-    def test_calls_get_balance_tracker_when_unset(self, request_behaviour) -> None:
+    def test_calls_get_balance_tracker_when_unset(
+        self, request_behaviour: MechRequestBehaviour
+    ) -> None:
         """If _balance_tracker is unset, _get_balance_tracker runs first."""
         request_behaviour._balance_tracker = None
         request_behaviour._approval_data = b"\x01"
         request_behaviour.context.params.price_token = "0xtoken"  # nosec B105
-        request_behaviour._get_balance_tracker = _gen_returning(True)
-        request_behaviour._approve_balance_tracker = _gen_returning(True)
+        request_behaviour._get_balance_tracker = _gen_returning(True)  # type: ignore[method-assign]
+        request_behaviour._approve_balance_tracker = _gen_returning(True)  # type: ignore[method-assign]
 
         result = _drive_generator(request_behaviour._build_token_approval())
 
@@ -374,20 +417,20 @@ class TestBuildTokenApproval:
         assert len(request_behaviour.multisend_batches) == 1
 
     def test_returns_false_and_warns_when_get_balance_tracker_fails(
-        self, request_behaviour
+        self, request_behaviour: MechRequestBehaviour
     ) -> None:
         """A failure to fetch the balance tracker short-circuits with a warning."""
         request_behaviour._balance_tracker = None
-        request_behaviour._get_balance_tracker = _gen_returning(False)
+        request_behaviour._get_balance_tracker = _gen_returning(False)  # type: ignore[method-assign]
         approve_called = False
 
-        def approve():
+        def approve() -> Generator[Any, Any, Any]:
             nonlocal approve_called
             approve_called = True
             yield
             return True
 
-        request_behaviour._approve_balance_tracker = approve
+        request_behaviour._approve_balance_tracker = approve  # type: ignore[method-assign]
 
         result = _drive_generator(request_behaviour._build_token_approval())
 
@@ -399,11 +442,11 @@ class TestBuildTokenApproval:
         )
 
     def test_returns_false_and_errors_when_approve_fails(
-        self, request_behaviour
+        self, request_behaviour: MechRequestBehaviour
     ) -> None:
         """A failure to build the approval short-circuits with an error log."""
         request_behaviour._balance_tracker = "0xtracker"
-        request_behaviour._approve_balance_tracker = _gen_returning(False)
+        request_behaviour._approve_balance_tracker = _gen_returning(False)  # type: ignore[method-assign]
 
         result = _drive_generator(request_behaviour._build_token_approval())
 

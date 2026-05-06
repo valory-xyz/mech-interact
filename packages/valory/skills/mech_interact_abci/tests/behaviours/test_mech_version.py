@@ -20,6 +20,7 @@
 """Tests for the mech_version behaviour module."""
 
 import logging
+from typing import Any
 
 import pytest
 
@@ -67,6 +68,6 @@ class TestGetVersionName:
         "is_v2,expected",
         [(True, V2), (False, V1)],
     )
-    def test_returns_correct_version(self, is_v2, expected) -> None:
+    def test_returns_correct_version(self, is_v2: Any, expected: Any) -> None:
         """Test get_version_name maps booleans to version strings."""
         assert get_version_name(is_v2) == expected

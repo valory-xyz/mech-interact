@@ -69,7 +69,9 @@ class BaseMechInteractTest(FSMBehaviourBaseCase):
     def current_behaviour_id(self) -> str:
         """Current RoundBehaviour's behaviour id"""
 
-        return self.behaviour.current_behaviour.behaviour_id
+        current = self.behaviour.current_behaviour
+        assert current is not None, "current_behaviour is not set"
+        return current.behaviour_id
 
     def fast_forward(self, data: Optional[Dict[str, Any]] = None) -> None:
         """Fast-forward on initialization"""
@@ -98,7 +100,7 @@ class TestMechInteractRoundBehaviour(BaseMechInteractTest):
 
     behaviour_class: Type[BaseBehaviour] = MechRequestBehaviour
 
-    def test_all_behaviours_registered(self):
+    def test_all_behaviours_registered(self) -> None:
         """Test that all behaviours are registered."""
         expected = {
             MechVersionDetectionBehaviour,

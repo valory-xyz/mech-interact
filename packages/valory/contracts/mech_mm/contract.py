@@ -56,6 +56,8 @@ class MechMM(Contract):
         :param ledger_api: the ledger API object
         :param contract_address: the contract's address
         :param request_data: the request data
+        :param kwargs: extra keyword arguments forwarded to the contract call.
+        :return: the encoded request data wrapped in a ``{"data": ...}`` dict.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
@@ -115,7 +117,14 @@ class MechMM(Contract):
     ) -> JSONLike:
         """Filter the `Deliver` events emitted by the contract and get the data of the given `request_id`.
 
-        :param request_id: bytes32 request ID to match against event logs
+        :param ledger_api: the ledger API object.
+        :param contract_address: the contract address.
+        :param request_id: bytes32 request ID to match against event logs.
+        :param from_block: the block from which to start filtering.
+        :param to_block: the block at which to stop filtering.
+        :param timeout: the timeout for the RPC call, in seconds.
+        :param kwargs: extra keyword arguments forwarded to the RPC call.
+        :return: the response data, or an info/error dict if not delivered.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         ledger_api = cast(EthereumApi, ledger_api)
@@ -179,6 +188,7 @@ class MechMM(Contract):
 
         :param ledger_api: the ledger API object
         :param contract_address: the contract address
+        :param kwargs: extra keyword arguments forwarded to the contract call.
         :return: the payment type as a hex string with '0x' prefix
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
@@ -200,6 +210,7 @@ class MechMM(Contract):
 
         :param ledger_api: the ledger API object
         :param contract_address: the contract address
+        :param kwargs: extra keyword arguments forwarded to the contract call.
         :return: the max delivery rate
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
@@ -220,6 +231,7 @@ class MechMM(Contract):
 
         :param ledger_api: the ledger API object
         :param contract_address: the contract address
+        :param kwargs: extra keyword arguments forwarded to the contract call.
         :return: the service id
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)

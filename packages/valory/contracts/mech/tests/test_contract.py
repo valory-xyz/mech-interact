@@ -19,6 +19,7 @@
 
 """Tests for the Mech contract module."""
 
+from typing import Dict
 from unittest.mock import MagicMock, patch
 
 from packages.valory.contracts.mech.contract import Mech
@@ -31,13 +32,13 @@ TX_HASH = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 class TestMechExecuteWithTimeout:
     """Tests for Mech.execute_with_timeout."""
 
-    def test_execute_with_timeout_success(self):
+    def test_execute_with_timeout_success(self) -> None:
         """Test successful execution within timeout."""
         result, err = Mech.execute_with_timeout(lambda: {"data": "ok"}, timeout=5.0)
         assert result == {"data": "ok"}
         assert err is None
 
-    def test_execute_with_timeout_returns_string_error(self):
+    def test_execute_with_timeout_returns_string_error(self) -> None:
         """Test that string return values are treated as errors."""
         result, err = Mech.execute_with_timeout(
             lambda: "something went wrong", timeout=5.0
@@ -45,11 +46,11 @@ class TestMechExecuteWithTimeout:
         assert result is None
         assert err == "something went wrong"
 
-    def test_execute_with_timeout_timeout(self):
+    def test_execute_with_timeout_timeout(self) -> None:
         """Test timeout handling."""
         import time
 
-        def slow_func():
+        def slow_func() -> Dict[str, str]:
             time.sleep(10)
             return {"data": "ok"}
 
@@ -62,7 +63,9 @@ class TestMechGetPrice:
     """Tests for Mech.get_price."""
 
     @patch.object(Mech, "get_instance")
-    def test_get_price(self, mock_get_instance, ledger_api):
+    def test_get_price(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_price returns the price."""
         mock_instance = MagicMock()
         mock_get_instance.return_value = mock_instance
@@ -81,7 +84,9 @@ class TestMechGetRequestData:
     """Tests for Mech.get_request_data."""
 
     @patch.object(Mech, "get_instance")
-    def test_get_request_data(self, mock_get_instance, ledger_api):
+    def test_get_request_data(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_request_data encodes arguments correctly."""
         mock_instance = MagicMock()
         mock_instance.encode_abi.return_value = "0xaabbccdd"
@@ -104,7 +109,7 @@ class TestMechGetRequestData:
 class TestMechProcessEvent:
     """Tests for Mech._process_event."""
 
-    def test_process_event_success(self, ledger_api):
+    def test_process_event_success(self, ledger_api: MagicMock) -> None:
         """Test _process_event with matching logs."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -127,7 +132,7 @@ class TestMechProcessEvent:
         assert len(result["results"]) == 1
         assert result["results"][0] == {"requestId": 1, "data": b"response"}
 
-    def test_process_event_wrong_log_count(self, ledger_api):
+    def test_process_event_wrong_log_count(self, ledger_api: MagicMock) -> None:
         """Test _process_event with mismatched log count."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -146,7 +151,7 @@ class TestMechProcessEvent:
         assert "error" in result
         assert "1 'Request' events were expected" in result["error"]
 
-    def test_process_event_missing_args_key(self, ledger_api):
+    def test_process_event_missing_args_key(self, ledger_api: MagicMock) -> None:
         """Test _process_event when expected keys are missing from args."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -167,7 +172,7 @@ class TestMechProcessEvent:
         assert "error" in result
         assert "do not match the expected format" in result["error"]
 
-    def test_process_event_none_args(self, ledger_api):
+    def test_process_event_none_args(self, ledger_api: MagicMock) -> None:
         """Test _process_event when args is None."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -185,7 +190,7 @@ class TestMechProcessEvent:
 
         assert "error" in result
 
-    def test_process_event_multiple_logs(self, ledger_api):
+    def test_process_event_multiple_logs(self, ledger_api: MagicMock) -> None:
         """Test _process_event with multiple logs."""
         mock_contract = MagicMock()
         mock_event = MagicMock()
@@ -214,8 +219,8 @@ class TestMechProcessRequestEvent:
 
     @patch.object(Mech, "_process_event")
     def test_process_request_event_first_abi_succeeds(
-        self, mock_process_event, ledger_api
-    ):
+        self, mock_process_event: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test process_request_event succeeds with first ABI."""
         mock_process_event.return_value = {
             "results": [{"requestId": 1, "data": b"test"}]
@@ -233,8 +238,8 @@ class TestMechProcessRequestEvent:
 
     @patch.object(Mech, "_process_event")
     def test_process_request_event_falls_back_to_second_abi(
-        self, mock_process_event, ledger_api
-    ):
+        self, mock_process_event: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test process_request_event falls back to second ABI on error."""
         mock_process_event.side_effect = [
             {"error": "wrong abi"},
@@ -251,7 +256,9 @@ class TestMechProcessRequestEvent:
         assert mock_process_event.call_count == 2
 
     @patch.object(Mech, "_process_event")
-    def test_process_request_event_all_abis_fail(self, mock_process_event, ledger_api):
+    def test_process_request_event_all_abis_fail(
+        self, mock_process_event: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test process_request_event returns error when all ABIs fail."""
         mock_process_event.return_value = {"error": "no matching events"}
 
@@ -268,7 +275,9 @@ class TestMechProcessDeliverEvent:
     """Tests for Mech.process_deliver_event."""
 
     @patch.object(Mech, "_process_event")
-    def test_process_deliver_event_success(self, mock_process_event, ledger_api):
+    def test_process_deliver_event_success(
+        self, mock_process_event: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test process_deliver_event succeeds."""
         mock_process_event.return_value = {
             "results": [{"requestId": 1, "data": b"delivered"}]
@@ -283,7 +292,9 @@ class TestMechProcessDeliverEvent:
         assert "results" in result
 
     @patch.object(Mech, "_process_event")
-    def test_process_deliver_event_falls_back(self, mock_process_event, ledger_api):
+    def test_process_deliver_event_falls_back(
+        self, mock_process_event: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test process_deliver_event falls back to second ABI."""
         mock_process_event.side_effect = [
             {"error": "wrong abi"},
@@ -302,7 +313,7 @@ class TestMechProcessDeliverEvent:
 class TestMechGetBlockNumber:
     """Tests for Mech.get_block_number."""
 
-    def test_get_block_number(self, ledger_api):
+    def test_get_block_number(self, ledger_api: MagicMock) -> None:
         """Test get_block_number returns the block number."""
         result = Mech.get_block_number(
             ledger_api=ledger_api,
@@ -318,7 +329,9 @@ class TestMechGetMechId:
     """Tests for Mech.get_mech_id."""
 
     @patch.object(Mech, "get_instance")
-    def test_get_mech_id(self, mock_get_instance, ledger_api):
+    def test_get_mech_id(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_mech_id returns the token ID."""
         mock_instance = MagicMock()
         mock_get_instance.return_value = mock_instance
@@ -339,7 +352,9 @@ class TestMechGetRequestsCount:
     """Tests for Mech.get_requests_count."""
 
     @patch.object(Mech, "get_instance")
-    def test_get_requests_count(self, mock_get_instance, ledger_api):
+    def test_get_requests_count(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_requests_count returns the count."""
         mock_instance = MagicMock()
         mock_instance.functions.getRequestsCount.return_value.call.return_value = 10
@@ -358,7 +373,9 @@ class TestMechGetPendingRequests:
     """Tests for Mech.get_pending_requests."""
 
     @patch.object(Mech, "get_instance")
-    def test_get_pending_requests(self, mock_get_instance, ledger_api):
+    def test_get_pending_requests(
+        self, mock_get_instance: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_pending_requests returns pending count."""
         mock_instance = MagicMock()
         mock_instance.functions.mapUndeliveredRequestsCounts.return_value.call.return_value = (
@@ -378,7 +395,7 @@ class TestMechGetPendingRequests:
 class TestMechProcessAbiForResponse:
     """Tests for Mech._process_abi_for_response."""
 
-    def test_no_deliver_event_in_abi(self, ledger_api):
+    def test_no_deliver_event_in_abi(self, ledger_api: MagicMock) -> None:
         """Test _process_abi_for_response when no Deliver event in ABI."""
         abi = [{"name": "Request", "type": "event"}]
 
@@ -396,7 +413,7 @@ class TestMechProcessAbiForResponse:
         assert "No Deliver event found" in result["error"]
         assert is_final is False
 
-    def test_no_matching_response(self, ledger_api):
+    def test_no_matching_response(self, ledger_api: MagicMock) -> None:
         """Test _process_abi_for_response when no matching response found."""
         mock_event = MagicMock()
         mock_event.topic = b"\x00" * 32
@@ -431,7 +448,7 @@ class TestMechProcessAbiForResponse:
         assert "has not delivered" in result["info"]
         assert is_final is False
 
-    def test_single_matching_response(self, ledger_api):
+    def test_single_matching_response(self, ledger_api: MagicMock) -> None:
         """Test _process_abi_for_response with exactly one matching response."""
         mock_log = MagicMock()
         ledger_api.api.eth.get_logs.return_value = [mock_log]
@@ -469,7 +486,7 @@ class TestMechProcessAbiForResponse:
         assert result == {"data": b"response data"}
         assert is_final is True
 
-    def test_multiple_matching_responses(self, ledger_api):
+    def test_multiple_matching_responses(self, ledger_api: MagicMock) -> None:
         """Test _process_abi_for_response with multiple matching responses."""
         ledger_api.api.eth.get_logs.return_value = [MagicMock(), MagicMock()]
         mock_event = MagicMock()
@@ -507,7 +524,7 @@ class TestMechProcessAbiForResponse:
         assert "A single response was expected" in result["error"]
         assert is_final is False
 
-    def test_matching_response_missing_data(self, ledger_api):
+    def test_matching_response_missing_data(self, ledger_api: MagicMock) -> None:
         """Test _process_abi_for_response when response has no data field."""
         ledger_api.api.eth.get_logs.return_value = [MagicMock()]
         mock_event = MagicMock()
@@ -548,7 +565,9 @@ class TestMechGetResponse:
     """Tests for Mech.get_response."""
 
     @patch.object(Mech, "_process_abi_for_response")
-    def test_get_response_success(self, mock_process, ledger_api):
+    def test_get_response_success(
+        self, mock_process: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response returns data on success."""
         mock_process.return_value = ({"data": b"response"}, True)
 
@@ -562,7 +581,9 @@ class TestMechGetResponse:
         assert result == {"data": b"response"}
 
     @patch.object(Mech, "_process_abi_for_response")
-    def test_get_response_no_delivery(self, mock_process, ledger_api):
+    def test_get_response_no_delivery(
+        self, mock_process: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response when no delivery found."""
         mock_process.return_value = (
             {"info": "not delivered yet"},
@@ -579,7 +600,9 @@ class TestMechGetResponse:
         assert "info" in result
 
     @patch.object(Mech, "execute_with_timeout")
-    def test_get_response_timeout(self, mock_exec, ledger_api):
+    def test_get_response_timeout(
+        self, mock_exec: MagicMock, ledger_api: MagicMock
+    ) -> None:
         """Test get_response handles timeout error."""
         mock_exec.return_value = (None, "The RPC didn't respond in 5.0.")
 

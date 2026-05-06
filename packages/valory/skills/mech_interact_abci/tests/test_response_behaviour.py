@@ -21,6 +21,7 @@
 
 import json
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from packages.valory.skills.mech_interact_abci.behaviours.response import (
@@ -31,7 +32,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 )
 
 
-def _make_response_behaviour(**overrides) -> MechResponseBehaviour:
+def _make_response_behaviour(**overrides: Any) -> MechResponseBehaviour:
     """Create a MechResponseBehaviour with mocked dependencies."""
     behaviour = MechResponseBehaviour.__new__(MechResponseBehaviour)
     mock_context = MagicMock()
@@ -94,7 +95,7 @@ class TestDeliveryMech:
     def test_none_request_info_returns_fallback(self) -> None:
         """Test delivery_mech handles None request_info gracefully."""
         behaviour = _make_response_behaviour()
-        behaviour._request_info = None
+        behaviour._request_info = None  # type: ignore[assignment]
         behaviour._context.state.last_called_mech = None
         address_zero = "0x" + "0" * 40
 
@@ -200,8 +201,7 @@ class TestIsLegacyMatch:
         pending = MechInteractionResponse(nonce="n1", data="aabbcc")
 
         request = MagicMock()
-        request.data = MagicMock()
-        request.data.hex.return_value = "aabbcc"
+        request.data = b"\xaa\xbb\xcc"
         request.requestId = 99
 
         result = behaviour._is_legacy_match(pending, request)
@@ -215,8 +215,7 @@ class TestIsLegacyMatch:
         pending = MechInteractionResponse(nonce="n1", data="aabbcc")
 
         request = MagicMock()
-        request.data = MagicMock()
-        request.data.hex.return_value = "ddeeff"
+        request.data = b"\xdd\xee\xff"
         request.requestId = 99
 
         result = behaviour._is_legacy_match(pending, request)
@@ -276,7 +275,9 @@ class TestIsMarketplaceMatch:
         request = SimpleNamespace(data="abc")  # no requestIds attr
 
         result = behaviour._is_marketplace_match(
-            pending, request, is_first_pending=True
+            pending,
+            request,  # type: ignore[arg-type]
+            is_first_pending=True,
         )
 
         assert result is False
@@ -286,7 +287,9 @@ class TestCheckMatch:
     """Tests for _check_match dispatch logic."""
 
     @patch.object(MechResponseBehaviour, "should_use_marketplace_v2", return_value=True)
-    def test_dispatches_to_marketplace_when_enabled_and_v2(self, _mock) -> None:
+    def test_dispatches_to_marketplace_when_enabled_and_v2(
+        self, _mock: MagicMock
+    ) -> None:
         """Test _check_match delegates to marketplace match when marketplace v2 is active."""
         behaviour = _make_response_behaviour()
         behaviour._context.params.use_mech_marketplace = True
@@ -305,8 +308,7 @@ class TestCheckMatch:
 
         pending = MechInteractionResponse(nonce="n1", data="aabb")
         request = MagicMock()
-        request.data = MagicMock()
-        request.data.hex.return_value = "aabb"
+        request.data = b"\xaa\xbb"
         request.requestId = 5
 
         result = behaviour._check_match(pending, request, is_first_pending=True)
@@ -316,15 +318,14 @@ class TestCheckMatch:
     @patch.object(
         MechResponseBehaviour, "should_use_marketplace_v2", return_value=False
     )
-    def test_dispatches_to_legacy_when_v1(self, _mock) -> None:
+    def test_dispatches_to_legacy_when_v1(self, _mock: MagicMock) -> None:
         """Test _check_match delegates to legacy match when marketplace is v1."""
         behaviour = _make_response_behaviour()
         behaviour._context.params.use_mech_marketplace = True
 
         pending = MechInteractionResponse(nonce="n1", data="ccdd")
         request = MagicMock()
-        request.data = MagicMock()
-        request.data.hex.return_value = "ccdd"
+        request.data = b"\xcc\xdd"
         request.requestId = 10
 
         result = behaviour._check_match(pending, request, is_first_pending=True)

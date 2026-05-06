@@ -19,6 +19,7 @@
 
 """Tests for the request behaviour module."""
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,7 +32,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import (
 )
 
 
-def _make_request_behaviour(**overrides) -> MechRequestBehaviour:
+def _make_request_behaviour(**overrides: Any) -> MechRequestBehaviour:
     """Create a MechRequestBehaviour with mocked dependencies."""
     behaviour = MechRequestBehaviour.__new__(MechRequestBehaviour)
     mock_context = MagicMock()
@@ -233,7 +234,7 @@ class TestGetPriorityMechAddress:
         assert result == "0xlegacy_mech"
 
     @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=False)
-    def test_marketplace_v1_returns_config_address(self, _mock) -> None:
+    def test_marketplace_v1_returns_config_address(self, _mock: MagicMock) -> None:
         """Test returns priority_mech_address from config when marketplace v1."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
@@ -245,7 +246,7 @@ class TestGetPriorityMechAddress:
         assert result == "0xv1_mech"
 
     @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
-    def test_marketplace_v2_dynamic_skips_penalized(self, _mock) -> None:
+    def test_marketplace_v2_dynamic_skips_penalized(self, _mock: MagicMock) -> None:
         """Test v2 with dynamic selection skips penalized mechs."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
@@ -270,7 +271,9 @@ class TestGetPriorityMechAddress:
         assert result == "0xgood"
 
     @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
-    def test_marketplace_v2_dynamic_all_penalized_returns_fallback(self, _mock) -> None:
+    def test_marketplace_v2_dynamic_all_penalized_returns_fallback(
+        self, _mock: MagicMock
+    ) -> None:
         """Test v2 with dynamic selection returns fallback when all mechs penalized."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
@@ -295,7 +298,7 @@ class TestGetPriorityMechAddress:
         assert result == "0xfallback"
 
     @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
-    def test_marketplace_v2_no_dynamic_returns_config(self, _mock) -> None:
+    def test_marketplace_v2_no_dynamic_returns_config(self, _mock: MagicMock) -> None:
         """Test v2 without dynamic selection returns config address."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True

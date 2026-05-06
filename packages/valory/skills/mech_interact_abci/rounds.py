@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 
 """This package contains the rounds of MechInteractAbciApp."""
 
-from typing import Dict, Set
+from typing import Dict, FrozenSet, Set
 
 from packages.valory.skills.abstract_round_abci.base import (
     AbciApp,
@@ -168,7 +168,9 @@ class MechInteractAbciApp(AbciApp[Event]):
     event_to_timeout: EventToTimeout = {
         Event.ROUND_TIMEOUT: 30.0,
     }
-    cross_period_persisted_keys: Set[str] = {get_name(SynchronizedData.mech_responses)}
+    cross_period_persisted_keys: FrozenSet[str] = frozenset(
+        {get_name(SynchronizedData.mech_responses)}
+    )
     db_pre_conditions: Dict[AppState, Set[str]] = {
         MechVersionDetectionRound: set(),
         # using `set(get_name(SynchronizedData.mech_requests))`

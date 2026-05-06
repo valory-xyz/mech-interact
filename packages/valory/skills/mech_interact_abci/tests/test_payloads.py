@@ -20,6 +20,7 @@
 """This package contains payload tests for the MechInteractAbciApp."""
 
 import json
+from typing import Optional, cast
 
 import pytest
 
@@ -53,7 +54,7 @@ class TestPrepareTxPayload:
         payload = PrepareTxPayload(
             sender=SAMPLE_SENDER, tx_submitter=None, tx_hash=None
         )
-        restored = PrepareTxPayload.from_json(payload.json)
+        restored = cast(PrepareTxPayload, PrepareTxPayload.from_json(payload.json))
         assert restored == payload
         assert restored.tx_submitter is None
         assert restored.tx_hash is None
@@ -106,7 +107,7 @@ class TestJSONPayload:
     def test_none_information_roundtrip(self) -> None:
         """Test roundtrip with None information."""
         payload = JSONPayload(sender=SAMPLE_SENDER, information=None)
-        restored = JSONPayload.from_json(payload.json)
+        restored = cast(JSONPayload, JSONPayload.from_json(payload.json))
         assert restored == payload
         assert restored.information is None
 
@@ -115,9 +116,9 @@ class TestVotingPayload:
     """Tests for VotingPayload."""
 
     @pytest.mark.parametrize("vote", [True, False, None])
-    def test_json_roundtrip(self, vote) -> None:
+    def test_json_roundtrip(self, vote: Optional[bool]) -> None:
         """Test roundtrip for all valid vote values."""
         payload = VotingPayload(sender=SAMPLE_SENDER, vote=vote)
-        restored = VotingPayload.from_json(payload.json)
+        restored = cast(VotingPayload, VotingPayload.from_json(payload.json))
         assert restored == payload
         assert restored.vote is vote

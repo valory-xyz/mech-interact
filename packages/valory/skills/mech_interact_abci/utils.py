@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -29,6 +29,8 @@ class DataclassEncoder(json.JSONEncoder):
 
     def default(self, o: Any) -> Any:
         """The default JSON encoder."""
+        if isinstance(o, bytes):
+            return o.hex()
         if is_dataclass(o) and not isinstance(o, type):
             result = asdict(o)
             # Ensure important fields are preserved even if they have default values
@@ -36,5 +38,9 @@ class DataclassEncoder(json.JSONEncoder):
                 result["requestId"] = o.requestId
             if hasattr(o, "result") and o.result is not None:
                 result["result"] = o.result
+            # asdict preserves bytes — encode them so json doesn't choke.
+            for key, value in result.items():
+                if isinstance(value, bytes):
+                    result[key] = value.hex()
             return result
         return super().default(o)

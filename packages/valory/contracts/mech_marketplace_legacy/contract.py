@@ -103,6 +103,8 @@ class MechMarketplaceLegacy(Contract):
         :param requester_staking_instance: the requester staking instance address
         :param requester_service_id: the requester service id
         :param response_timeout: the response timeout
+        :param kwargs: extra keyword arguments forwarded to the contract call.
+        :return: the encoded request data wrapped in a ``{"data": ...}`` dict.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
@@ -171,8 +173,10 @@ class MechMarketplaceLegacy(Contract):
         :param contract_address: the contract address.
         :param tx_hash: the hash of a request tx to be processed.
         :param expected_logs: the number of logs expected.
-        :return: a dictionary with a key named `results`
-        which contains a list of dictionaries (as many as the expected logs) containing the request id and the data.
+        :param kwargs: extra keyword arguments forwarded to the contract call.
+        :return: a dictionary with a key named ``results`` which contains a list
+            of dictionaries (as many as the expected logs) containing the
+            request id and the data.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         contract_instance = cls.get_instance(ledger_api, contract_address)
@@ -204,6 +208,7 @@ class MechMarketplaceLegacy(Contract):
         :param contract_address: the contract address.
         :param tx_hash: the hash of a request tx to be processed.
         :param expected_logs: the number of logs expected.
+        :param kwargs: extra keyword arguments forwarded to the contract call.
         :return: a dictionary with the request id and the data.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
