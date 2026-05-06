@@ -20,7 +20,6 @@
 """Tests for the purchase_subscription behaviour module."""
 
 from typing import Any, List
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -98,7 +97,7 @@ class TestNonePropertyLogging:
         ],
     )
     def test_unset_property_returns_none_and_logs_error(
-        self, purchase_behaviour: MagicMock, prop: str
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour, prop: str
     ) -> None:
         """Test that accessing an unset property returns None and logs error."""
         assert_unset_property_logs(purchase_behaviour, prop)
@@ -107,12 +106,16 @@ class TestNonePropertyLogging:
 class TestDdoEndpoint:
     """Tests for ddo_endpoint property."""
 
-    def test_extracts_correct_index(self, purchase_behaviour: MagicMock) -> None:
+    def test_extracts_correct_index(
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour
+    ) -> None:
         """Test ddo_endpoint extracts the endpoint from ddo_register."""
         purchase_behaviour._ddo_register = ["a", "b", "http://endpoint"]
         assert purchase_behaviour.ddo_endpoint == "http://endpoint"
 
-    def test_returns_none_on_index_error(self, purchase_behaviour: MagicMock) -> None:
+    def test_returns_none_on_index_error(
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour
+    ) -> None:
         """Test ddo_endpoint returns None when list is too short."""
         purchase_behaviour._ddo_register = ["a"]
         assert purchase_behaviour.ddo_endpoint is None
@@ -121,17 +124,23 @@ class TestDdoEndpoint:
 class TestPropertySetters:
     """Tests for property setters."""
 
-    def test_ddo_values_roundtrip(self, purchase_behaviour: MagicMock) -> None:
+    def test_ddo_values_roundtrip(
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour
+    ) -> None:
         """Test ddo_values setter and getter."""
         purchase_behaviour.ddo_values = {"key": "value"}
         assert purchase_behaviour.ddo_values == {"key": "value"}
 
-    def test_receivers_roundtrip(self, purchase_behaviour: MagicMock) -> None:
+    def test_receivers_roundtrip(
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour
+    ) -> None:
         """Test receivers setter and getter."""
         purchase_behaviour.receivers = ["0xaddr1", "0xaddr2"]
         assert purchase_behaviour.receivers == ["0xaddr1", "0xaddr2"]
 
-    def test_agreement_id_seed_roundtrip(self, purchase_behaviour: MagicMock) -> None:
+    def test_agreement_id_seed_roundtrip(
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour
+    ) -> None:
         """Test agreement_id_seed setter and getter."""
         purchase_behaviour.agreement_id_seed = "seed123"
         assert purchase_behaviour.agreement_id_seed == "seed123"
@@ -141,18 +150,20 @@ class TestFromAddress:
     """Tests for from_address property."""
 
     def test_returns_none_when_no_ddo_values(
-        self, purchase_behaviour: MagicMock
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour
     ) -> None:
         """Test returns None when ddo_values is unset."""
         assert purchase_behaviour.from_address is None
 
-    def test_extracts_owner(self, purchase_behaviour: MagicMock) -> None:
+    def test_extracts_owner(
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour
+    ) -> None:
         """Test extracts owner from ddo_values using OWNER_PATH."""
         purchase_behaviour._ddo_values = {"proof": {"creator": "0xowner"}}
         assert purchase_behaviour.from_address == "0xowner"
 
     def test_returns_none_when_owner_missing(
-        self, purchase_behaviour: MagicMock
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour
     ) -> None:
         """Test returns None when owner path is absent in ddo_values."""
         purchase_behaviour._ddo_values = {"proof": {}}
@@ -171,7 +182,7 @@ class TestTxDataProperties:
         ],
     )
     def test_returns_none_when_unset(
-        self, purchase_behaviour: MagicMock, prop: str
+        self, purchase_behaviour: MechPurchaseSubscriptionBehaviour, prop: str
     ) -> None:
         """Test returns None and logs error when backing field is None."""
         assert_unset_property_logs(purchase_behaviour, prop)
@@ -189,7 +200,7 @@ class TestTxDataProperties:
     )
     def test_returns_bytes_when_set(
         self,
-        purchase_behaviour: MagicMock,
+        purchase_behaviour: MechPurchaseSubscriptionBehaviour,
         attr: str,
         prop: str,
     ) -> None:

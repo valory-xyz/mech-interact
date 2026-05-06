@@ -931,12 +931,17 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         steps: List[Callable[[], Generator[None, None, bool]]] = []
         if self.using_nevermined:
             yield from self.set_total_nvm_balance()
-            if (
-                self.mech_max_delivery_rate is None
-                or self.total_nvm_balance is None
-                or self.total_nvm_balance < self.mech_max_delivery_rate
-            ):
-                # if the total nvm balance is not enough, we should stop and return to buy a subscription first
+            if self.mech_max_delivery_rate is None or self.total_nvm_balance is None:
+                # Fetch failed; the property logs the underlying error.
+                # Skip the multisend rather than treating the missing value
+                # as "balance insufficient → buy subscription".
+                self.context.logger.error(
+                    "Cannot decide on subscription purchase: "
+                    "mech_max_delivery_rate / total_nvm_balance unavailable."
+                )
+                return False
+            if self.total_nvm_balance < self.mech_max_delivery_rate:
+                # Balance insufficient — stop and buy a subscription first.
                 return True
         else:
             steps.append(self._ensure_available_balance)

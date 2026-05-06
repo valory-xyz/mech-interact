@@ -517,16 +517,16 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         self, pending_response: MechInteractionResponse, request: MechRequest
     ) -> bool:
         """Check if a legacy pending response matches the request based on data."""
-        # request.data is declared as `str` on the dataclass but is populated
-        # with raw `bytes` from the contract event payload at runtime, so we
-        # call `.hex()` on it here.
-        match = pending_response.data == request.data.hex()  # type: ignore[attr-defined]
+        request_hex = (
+            request.data.hex() if isinstance(request.data, bytes) else request.data
+        )
+        match = pending_response.data == request_hex
         if match:
             # Log detailed match info only if it matches
             self.context.logger.info(
                 f"Matched LEGACY pending response (Nonce: {pending_response.nonce}) "
                 f"to parsed event request (ID: {hex(int(request.requestId))}) "
-                f"based on data field matching. Data: {request.data}"
+                f"based on data field matching. Data: {request_hex}"
             )
             pending_response.requestId = (
                 request.requestId

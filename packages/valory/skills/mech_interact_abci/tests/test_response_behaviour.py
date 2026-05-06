@@ -201,8 +201,7 @@ class TestIsLegacyMatch:
         pending = MechInteractionResponse(nonce="n1", data="aabbcc")
 
         request = MagicMock()
-        request.data = MagicMock()
-        request.data.hex.return_value = "aabbcc"
+        request.data = b"\xaa\xbb\xcc"
         request.requestId = 99
 
         result = behaviour._is_legacy_match(pending, request)
@@ -216,8 +215,7 @@ class TestIsLegacyMatch:
         pending = MechInteractionResponse(nonce="n1", data="aabbcc")
 
         request = MagicMock()
-        request.data = MagicMock()
-        request.data.hex.return_value = "ddeeff"
+        request.data = b"\xdd\xee\xff"
         request.requestId = 99
 
         result = behaviour._is_legacy_match(pending, request)
@@ -310,8 +308,7 @@ class TestCheckMatch:
 
         pending = MechInteractionResponse(nonce="n1", data="aabb")
         request = MagicMock()
-        request.data = MagicMock()
-        request.data.hex.return_value = "aabb"
+        request.data = b"\xaa\xbb"
         request.requestId = 5
 
         result = behaviour._check_match(pending, request, is_first_pending=True)
@@ -328,8 +325,7 @@ class TestCheckMatch:
 
         pending = MechInteractionResponse(nonce="n1", data="ccdd")
         request = MagicMock()
-        request.data = MagicMock()
-        request.data.hex.return_value = "ccdd"
+        request.data = b"\xcc\xdd"
         request.requestId = 10
 
         result = behaviour._check_match(pending, request, is_first_pending=True)

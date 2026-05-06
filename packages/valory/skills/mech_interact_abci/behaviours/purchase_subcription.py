@@ -385,11 +385,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
 
     def _extract_and_set_receivers(self) -> None:  # pragma: no cover
         """Extract and set the receivers."""
-        ddo_values = self.ddo_values or {}
+        if self.ddo_values is None:
+            self.context.logger.error("Cannot extract receivers: DDO not fetched.")
+            return
         service = next(
             (
                 s
-                for s in ddo_values.get(SERVICE_KEY, [])
+                for s in self.ddo_values.get(SERVICE_KEY, [])
                 if s.get(SERVICE_TYPE_KEY) == SERVICE_TYPE
             ),
             None,
@@ -607,13 +609,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             receivers=self.receivers,
             chain_id=self.params.mech_chain_id,
         )
-        if not status or self.agreement_tx_data is None:
+        if not status or self._agreement_tx_data is None:
             self.context.logger.error("Failed to build create-agreement tx data.")
             return False
 
         batch = MultisendBatch(
             to=self.nvm_config.nft_sales_address,
-            data=self.agreement_tx_data,
+            data=self._agreement_tx_data,
             value=self.nvm_config.agreement_cost,
         )
         self.multisend_batches.append(batch)
@@ -639,13 +641,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             amount=self.nvm_config.subscription_cost,
             chain_id=self.params.mech_chain_id,
         )
-        if not status or self.subscription_token_approval_tx_data is None:
+        if not status or self._subscription_token_approval_tx_data is None:
             self.context.logger.error("Failed to build data for a USDC approval tx.")
             return False
 
         batch = MultisendBatch(
             to=self.nvm_config.subscription_token_address,
-            data=self.subscription_token_approval_tx_data,
+            data=self._subscription_token_approval_tx_data,
         )
         self.multisend_batches.append(batch)
         self.context.logger.info("Built transaction to approve USDC spending.")
@@ -681,13 +683,13 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
             fulfill_params=self.fulfill_params,
             chain_id=self.params.mech_chain_id,
         )
-        if not status or self.fulfill_tx_data is None:
+        if not status or self._fulfill_tx_data is None:
             self.context.logger.error("Failed to build data for a fulfill tx.")
             return False
 
         batch = MultisendBatch(
             to=self.nvm_config.subscription_provider_address,
-            data=self.fulfill_tx_data,
+            data=self._fulfill_tx_data,
         )
         self.multisend_batches.append(batch)
         self.context.logger.info("Built transaction to fulfill.")

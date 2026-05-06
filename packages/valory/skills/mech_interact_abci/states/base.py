@@ -24,7 +24,7 @@ import math
 import time
 from dataclasses import InitVar, asdict, dataclass, field, is_dataclass
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Set, Type, cast
+from typing import Any, Dict, List, Mapping, Optional, Set, Type, Union, cast
 
 from packages.valory.skills.abstract_round_abci.base import (
     BaseTxPayload,
@@ -85,9 +85,14 @@ class MechMetadata:
 
 @dataclass
 class MechRequest:
-    """A Mech's request."""
+    """A Mech's request.
 
-    data: str = ""
+    ``data`` is ``bytes`` when populated from a parsed contract event and
+    ``str`` (hex-encoded) when carried through synchronized data across
+    rounds; both forms are handled by the consumers.
+    """
+
+    data: Union[str, bytes] = ""
     requestId: int = 0
     requestIds: List[int] = field(default_factory=list)
     numRequests: int = 0
