@@ -654,6 +654,17 @@ class MechPurchaseSubscriptionBehaviour(MechInteractBaseBehaviour):
     def _build_create_fulfill_tx_data(
         self,
     ) -> WaitableConditionType:  # pragma: no cover
+        if (
+            self.from_address is None
+            or self.lock_id is None
+            or self.transfer_id is None
+            or self.receivers is None
+        ):
+            self.context.logger.error(
+                "Cannot build fulfill tx: from_address / lock_id / transfer_id "
+                "/ receivers must be fetched first."
+            )
+            return False
         self.context.logger.info(
             f"Creating a fulfill tx with {self.fulfill_for_delegate_params=} and {self.fulfill_params=}."
         )

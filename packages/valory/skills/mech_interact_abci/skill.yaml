@@ -14,8 +14,8 @@ fingerprint:
   behaviours/base.py: bafybeiggfcw7zt6glthh47kszk7ymadzgkr27qixswfmsqiezxr5hmekb4
   behaviours/mech_info.py: bafybeiewytod36pjvumqbdhfbgoextpwzjmuvknxnu426c7tooqedujxiu
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
-  behaviours/purchase_subcription.py: bafybeibdzr724xlfakn344l2bgc2gzharpnwaphmqlh6afbrgrvbwi3kt4
-  behaviours/request.py: bafybeih2yij2xklvclu5dm7y7t6kkcpwldng7wivpb6wsrtlvm3ntywzuy
+  behaviours/purchase_subcription.py: bafybeicq26crte7oybx2svihdg673tpgi5hr7r4yp3nnxdy3eoa4fsa3dy
+  behaviours/request.py: bafybeictiquzxlsdpgjbiety5ixotyybftsy5dhh4a7yruqr5uk4v67eum
   behaviours/response.py: bafybeifygninefxeekqnmqmpkrvxpvgv3leb6ga7od26243iahw4yodrsy
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeiachjgarkgv4hxprddn7dtb5h3q4qge72rc2kysmureooq5xggxxi
@@ -25,7 +25,7 @@ fingerprint:
   graph_tooling/queries/mechs_info.py: bafybeigmk3y3uwlsmzommqwimirko6vph3j6mmymxbncshjdzebne4nija
   graph_tooling/requests.py: bafybeifttswb246rc3g2gsrkf4jyx6rk6b67ns46xqmotgngz4spyld5yq
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
-  models.py: bafybeiblg2ma6y2l6jkuyump4dex4imtutocpkp5pt3q7w3heqtcqtcg74
+  models.py: bafybeigdk4npi5zfynz6uzw56fbj5alz7674hywvsvrobabfnktqw4m6hq
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeidwg2xei3fbrhe4qtr6c7ngpnjdpmfi6p2wpnkx5ig76schegiuv4
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm

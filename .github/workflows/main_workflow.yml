@@ -63,6 +63,8 @@ jobs:
         run: tomte tox -e check-dependencies
       - name: Check third-party package hashes match upstream
         run: tomte tox -e check-third-party-hashes
+      - name: Check doc links
+        run: tomte check-doc-links
       - name: Check doc IPFS hashes
         run: tomte tox -e check-doc-hashes
 

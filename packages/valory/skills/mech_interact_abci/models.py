@@ -287,13 +287,12 @@ class MechParams(BaseParams):
         self.mech_marketplace_config: MechMarketplaceConfig = MechMarketplaceConfig(
             **kwargs["mech_marketplace_config"]
         )
-        self.agent_registry_address: str = cast(
-            str, kwargs.get("agent_registry_address")
-        )
+        agent_registry_address = kwargs.get("agent_registry_address")
         enforce(
-            self.agent_registry_address is not None,
+            agent_registry_address is not None,
             "Agent registry address not specified!",
         )
+        self.agent_registry_address: str = cast(str, agent_registry_address)
         self.use_acn_for_delivers: bool = self._ensure(
             "use_acn_for_delivers", kwargs, bool
         )

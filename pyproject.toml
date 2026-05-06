@@ -47,6 +47,7 @@ Repository = "https://github.com/valory-xyz/mech-interact"
 
 [dependency-groups]
 dev = [
+    # TODO: flip to ==0.7.0 once tomte v0.7.0 publishes to PyPI.
     "tomte[cli, tests] @ git+https://github.com/valory-xyz/tomte.git@v0.7.0",
 ]
 
@@ -55,11 +56,13 @@ default-groups = "all"
 prerelease = "allow"
 
 [tool.tomte]
-# Narrows pytest scope: only the abci skill ships tests; the contracts
-# under packages/valory/contracts/ have no Python tests yet.
 pytest_targets = [
     "packages/valory/skills/mech_interact_abci/tests",
+    "packages/valory/contracts/mech/tests",
+    "packages/valory/contracts/mech_mm/tests",
+    "packages/valory/contracts/mech_marketplace_legacy/tests",
 ]
+# TODO: flip to ==0.7.0 once tomte v0.7.0 publishes to PyPI.
 tomte_dep_pin = " @ git+https://github.com/valory-xyz/tomte.git@v0.7.0"
 
 [tool.uv.build-backend]

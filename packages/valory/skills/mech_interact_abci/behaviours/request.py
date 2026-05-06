@@ -24,7 +24,7 @@ from dataclasses import asdict, fields
 from enum import Enum
 from pathlib import Path
 from tempfile import mkdtemp
-from typing import Any, Callable, Generator, List, Optional, Tuple, cast
+from typing import Any, Callable, Generator, List, Optional, Tuple
 
 from aea.configurations.data_types import PublicId
 from aea.exceptions import AEAEnforceError
@@ -469,9 +469,15 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self, contract_callable: str, data_key: str, placeholder: str, **kwargs: Any
     ) -> WaitableConditionType:
         """Interact with the subscription contract."""
+        subscription_address = self._subscription_address
+        if subscription_address is None:
+            self.context.logger.error(
+                "Cannot interact with subscription contract: address not fetched."
+            )
+            return False
         status = yield from self.contract_interact(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,  # type: ignore
-            contract_address=cast(str, self.subscription_address),
+            contract_address=subscription_address,
             contract_public_id=IERC1155.contract_id,
             contract_callable=contract_callable,
             data_key=data_key,
