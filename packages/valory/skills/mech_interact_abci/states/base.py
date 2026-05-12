@@ -350,9 +350,21 @@ class SynchronizedData(TxSynchronizedData):
 
     @property
     def mech_tools(self) -> Set[str]:
-        """Get the mechs' tools."""
+        """Get the mechs' tools.
+
+        Mirrors `relevant_mechs_info`: when `selected_mechs` is non-empty,
+        only tools served by pinned mechs are exposed. Otherwise the
+        consumer could pick a tool that no eligible mech serves and the
+        round would dead-end at request prep.
+
+        :return: tool names served by at least one eligible mech.
+        """
+        pinned = self.selected_mechs
         return {
-            tool for mech_info in self.mechs_info for tool in mech_info.relevant_tools
+            tool
+            for mech_info in self.mechs_info
+            if not pinned or mech_info.address.lower() in pinned
+            for tool in mech_info.relevant_tools
         }
 
     @property

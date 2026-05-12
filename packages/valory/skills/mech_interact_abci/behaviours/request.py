@@ -568,30 +568,31 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             self.should_use_marketplace_v2()
             and self.mech_marketplace_config.use_dynamic_mech_selection
         ):
-            # get the next priority mech that is not penalized.
-            # if all mechs are penalized, return the priority mech to avoid getting blocked
+            ranked = self.synchronized_data.ranked_mechs_addresses
+            penalized = self.shared_state.penalized_mechs
             priority_mech = next(
-                (
-                    mech
-                    for mech in self.synchronized_data.ranked_mechs_addresses
-                    if mech not in self.shared_state.penalized_mechs
-                ),
-                self.synchronized_data.priority_mech_address,
+                (mech for mech in ranked if mech not in penalized), None
             )
-            if not priority_mech:
-                self.context.logger.warning("No whitelisted priority mech found!")
-                # Distinguish "no pinned mech serves the selected tool" from
-                # generic empty-candidate so the trader ChatUI can surface a
-                # specific remediation.
-                if self.synchronized_data.selected_mechs:
-                    self.shared_state.last_failure_reason = (
-                        "no_overlap_with_selected_mechs"
-                    )
+            if priority_mech:
+                return priority_mech
 
-            return priority_mech
+            # Distinguish (a) every relevant candidate is penalized vs
+            # (b) the user's pin yielded no overlap with the chosen tool.
+            # Per spec, each is a fail-fast terminal — never return a
+            # penalized mech as a fallback.
+            self.context.logger.warning("No whitelisted priority mech found!")
+            if ranked:
+                self.shared_state.last_failure_reason = "no_non_penalized_valid_mech"
+            elif self.synchronized_data.selected_mechs:
+                self.shared_state.last_failure_reason = "no_overlap_with_selected_mechs"
+            return None
 
         if self.params.use_mech_marketplace:
             static_priority = self.mech_marketplace_config.priority_mech_address
+            # `valid_mechs` empty is treated as "not yet configured" so this
+            # path doesn't regress deployers who haven't migrated to the
+            # allowlist. The trust boundary is enforced only when the
+            # operator has populated `valid_mechs`.
             if (
                 static_priority
                 and self.params.valid_mechs
