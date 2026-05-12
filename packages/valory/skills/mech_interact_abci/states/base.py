@@ -328,9 +328,11 @@ class SynchronizedData(TxSynchronizedData):
         try:
             if isinstance(raw, str):
                 raw = json.loads(raw)
-            return [str(addr).lower() for addr in (raw or [])]
-        except (json.JSONDecodeError, TypeError, AttributeError):
+        except (json.JSONDecodeError, TypeError):
             return []
+        if not isinstance(raw, list):
+            return []
+        return [str(addr).lower() for addr in raw]
 
     @property
     def relevant_mechs_info(self) -> MechsInfo:

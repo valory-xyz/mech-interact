@@ -953,6 +953,16 @@ class TestSynchronizedData:
         sd = _make_synced_data(selected_mechs=json.dumps(42))
         assert sd.selected_mechs == []
 
+    def test_selected_mechs_falls_back_on_string_payload(self) -> None:
+        """A JSON-decoded string must not be iterated as characters."""
+        sd = _make_synced_data(selected_mechs=json.dumps("0xabc"))
+        assert sd.selected_mechs == []
+
+    def test_selected_mechs_falls_back_on_object_payload(self) -> None:
+        """A JSON-decoded object must not be iterated as keys."""
+        sd = _make_synced_data(selected_mechs=json.dumps({"0xabc": True}))
+        assert sd.selected_mechs == []
+
     def test_relevant_mechs_info_filters_by_selected_mechs(self) -> None:
         """Mechs not in `selected_mechs` are dropped from relevant_mechs_info."""
         info_data = [

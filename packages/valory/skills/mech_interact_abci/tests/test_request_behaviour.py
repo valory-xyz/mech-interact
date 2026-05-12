@@ -446,3 +446,85 @@ class TestGetPriorityMechAddress:
 
         result = behaviour.get_priority_mech_address()
         assert result == "0xallowed"
+
+    def test_async_act_skips_when_priority_mech_empty(self) -> None:
+        """An empty `priority_mech_address` must skip `_prepare_safe_tx` cleanly."""
+        from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
+
+        behaviour = _make_request_behaviour()
+        behaviour._mech_requests = [MechMetadata(prompt="p", tool="t", nonce="n")]
+        behaviour.priority_mech_address = ""
+
+        mock_synced = MagicMock()
+        mock_synced.safe_contract_address = "0xsafe"
+
+        mock_shared = MagicMock()
+        mock_shared.last_failure_reason = "no_non_penalized_valid_mech"
+        behaviour._context.state = mock_shared
+        behaviour._context.params.mech_chain_id = "gnosis"
+
+        benchmark_ctx = MagicMock()
+        behaviour._context.benchmark_tool.measure.return_value = benchmark_ctx
+        benchmark_ctx.local.return_value.__enter__ = MagicMock()
+        benchmark_ctx.local.return_value.__exit__ = MagicMock(return_value=False)
+
+        prepare_calls = {"count": 0}
+
+        def fake_prepare() -> Any:
+            prepare_calls["count"] += 1
+            yield
+            return False
+
+        captured = {}
+
+        def capture_finish(payload: Any) -> Any:
+            captured["payload"] = payload
+            yield
+
+        with patch.object(
+            type(behaviour),
+            "synchronized_data",
+            new_callable=lambda: property(lambda self: mock_synced),
+        ):
+            behaviour._prepare_safe_tx = fake_prepare  # type: ignore[method-assign]
+            behaviour.finish_behaviour = capture_finish  # type: ignore[method-assign]
+
+            gen = behaviour.async_act()
+            try:
+                while True:
+                    next(gen)
+            except StopIteration:
+                pass
+
+        assert prepare_calls["count"] == 0
+        assert "payload" in captured
+
+    @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
+    def test_successful_selection_clears_stale_failure_reason(
+        self, _mock: MagicMock
+    ) -> None:
+        """A successful selection must not leak a stale reason from a prior round."""
+        behaviour = _make_request_behaviour()
+        behaviour._context.params.use_mech_marketplace = True
+        behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
+            True
+        )
+
+        mock_synced = MagicMock()
+        mock_synced.ranked_mechs_addresses = ["0xgood"]
+        mock_synced.selected_mechs = []
+
+        mock_shared = MagicMock()
+        mock_shared.penalized_mechs = set()
+        mock_shared.last_failure_reason = "no_non_penalized_valid_mech"
+        behaviour._context.state = mock_shared
+
+        with patch.object(
+            type(behaviour),
+            "synchronized_data",
+            new_callable=lambda: property(lambda self: mock_synced),
+        ):
+            result = behaviour.get_priority_mech_address()
+
+        assert result == "0xgood"
+        assert mock_shared.last_failure_reason is None

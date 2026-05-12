@@ -564,6 +564,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def get_priority_mech_address(self) -> Optional[str]:
         """Get the priority mech's address. Warning: the result is based on the time of access."""
+        self.shared_state.last_failure_reason = None
         if (
             self.should_use_marketplace_v2()
             and self.mech_marketplace_config.use_dynamic_mech_selection
@@ -979,6 +980,25 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Do the action."""
 
         if not self._mech_requests:
+            with self.context.benchmark_tool.measure(self.behaviour_id).local():
+                payload = MechRequestPayload(
+                    self.context.agent_address,
+                    self.matching_round.auto_round_id(),
+                    None,
+                    None,
+                    self.params.mech_chain_id,
+                    self.synchronized_data.safe_contract_address,
+                    SERIALIZED_EMPTY_LIST,
+                    SERIALIZED_EMPTY_LIST,
+                )
+            yield from self.finish_behaviour(payload)
+            return
+
+        if not self.priority_mech_address:
+            self.context.logger.warning(
+                "No priority mech available this round; skipping request "
+                f"(last_failure_reason={self.shared_state.last_failure_reason!r})."
+            )
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
                 payload = MechRequestPayload(
                     self.context.agent_address,
