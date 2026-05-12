@@ -238,7 +238,7 @@ class TestGetPriorityMechAddress:
         """Test returns priority_mech_address from config when marketplace v1."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
-        behaviour._context.params.valid_mech_tools = {}
+        behaviour._context.params.valid_mechs = frozenset()
         behaviour._context.params.mech_marketplace_config.priority_mech_address = (
             "0xv1_mech"
         )
@@ -303,7 +303,7 @@ class TestGetPriorityMechAddress:
         """Test v2 without dynamic selection returns config address."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
-        behaviour._context.params.valid_mech_tools = {}
+        behaviour._context.params.valid_mechs = frozenset()
         behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
             False
         )
@@ -318,13 +318,10 @@ class TestGetPriorityMechAddress:
     def test_static_priority_mech_outside_allowlist_returns_none(
         self, _mock: MagicMock
     ) -> None:
-        """A configured priority mech missing from `valid_mech_tools` is rejected."""
+        """A configured priority mech missing from `valid_mechs` is rejected."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
-        behaviour._context.params.valid_mech_tools = {
-            "0xallowed": frozenset({"tool_a"})
-        }
-        behaviour._context.params.valid_mech_addresses = frozenset({"0xallowed"})
+        behaviour._context.params.valid_mechs = frozenset({"0xallowed"})
         behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
             False
         )
@@ -340,13 +337,10 @@ class TestGetPriorityMechAddress:
     def test_static_priority_mech_in_allowlist_returns_config(
         self, _mock: MagicMock
     ) -> None:
-        """A configured priority mech present in `valid_mech_tools` is honored."""
+        """A configured priority mech present in `valid_mechs` is honored."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
-        behaviour._context.params.valid_mech_tools = {
-            "0xallowed": frozenset({"tool_a"})
-        }
-        behaviour._context.params.valid_mech_addresses = frozenset({"0xallowed"})
+        behaviour._context.params.valid_mechs = frozenset({"0xallowed"})
         behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
             False
         )

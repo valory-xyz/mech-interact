@@ -130,7 +130,7 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         query = mechs_info_query.substitute(
             first=QUERY_BATCH_SIZE,
             mechs_id_gt=mechs_id_gt,
-            valid_mech_addresses='", "'.join(sorted(self.params.valid_mech_addresses)),
+            valid_mechs='", "'.join(sorted(self.params.valid_mechs)),
             block_timestamp_gt=block_timestamp_gt,
         )
         res_raw = yield from self.get_http_response(
@@ -156,10 +156,9 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         self,
     ) -> MechsInfoFetcher:
         """Fetch mechs' information from the subgraph."""
-        if not self.params.valid_mech_addresses:
+        if not self.params.valid_mechs:
             self.context.logger.warning(
-                "`valid_mech_tools` is empty; skipping subgraph fetch. "
-                "Configure the allowlist to enable mech-interact requests."
+                "`valid_mechs` is empty; skipping subgraph fetch."
             )
             self._fetch_status = FetchStatus.SUCCESS
             return []

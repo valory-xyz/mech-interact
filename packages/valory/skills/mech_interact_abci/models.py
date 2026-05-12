@@ -297,10 +297,11 @@ class MechParams(BaseParams):
             "use_acn_for_delivers", kwargs, bool
         )
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
-        self.valid_mech_tools: Dict[str, FrozenSet[str]] = (
-            self._normalize_valid_mech_tools(
-                self._ensure("valid_mech_tools", kwargs, dict)
-            )
+        self.valid_mechs: FrozenSet[str] = frozenset(
+            str(addr).lower() for addr in self._ensure("valid_mechs", kwargs, List[str])
+        )
+        self.valid_tools: FrozenSet[str] = frozenset(
+            self._ensure("valid_tools", kwargs, List[str])
         )
         self.penalize_mech_time_window: int = self._ensure(
             "penalize_mech_time_window", kwargs, int
@@ -356,38 +357,6 @@ class MechParams(BaseParams):
             return self.mech_marketplace_config.mech_marketplace_address
         return self.mech_contract_address
 
-    @property
-    def valid_mech_addresses(self) -> FrozenSet[str]:
-        """Allowed mech addresses (lowercase), keys of `valid_mech_tools`."""
-        return frozenset(self.valid_mech_tools.keys())
-
-    @staticmethod
-    def _normalize_valid_mech_tools(
-        raw: Dict[str, Any],
-    ) -> Dict[str, FrozenSet[str]]:
-        """Normalize the allowlist to lowercase keys and frozen tool sets.
-
-        :param raw: the dict loaded from skill params.
-        :return: a dict of lowercase address -> frozenset of allowed tool names.
-        :raises ValueError: if the allowlist has the wrong shape.
-        """
-        normalized: Dict[str, FrozenSet[str]] = {}
-        for raw_address, tools in raw.items():
-            if not isinstance(raw_address, str):
-                raise ValueError(
-                    "valid_mech_tools keys must be strings (mech addresses), "
-                    f"got {type(raw_address).__name__}"
-                )
-            if not isinstance(tools, list) or not all(
-                isinstance(tool, str) for tool in tools
-            ):
-                raise ValueError(
-                    f"valid_mech_tools[{raw_address!r}] must be a list of tool name "
-                    f"strings, got {tools!r}"
-                )
-            normalized[raw_address.lower()] = frozenset(tools)
-        return normalized
-
     def validate_configuration(self) -> None:  # pragma: no cover
         """Validate the entire configuration for consistency."""
         try:
@@ -404,6 +373,15 @@ class MechParams(BaseParams):
                     raise ValueError(
                         "priority_mech_address is required "
                         "when use_mech_marketplace is True and use_dynamic_mech_selection is False"
+                    )
+                if (
+                    self.mech_marketplace_config.use_dynamic_mech_selection
+                    and not self.valid_mechs
+                ):
+                    self.context.logger.warning(
+                        "`valid_mechs` is empty while marketplace v2 dynamic "
+                        "selection is enabled. No mech requests will be attempted "
+                        "until the allowlist is configured."
                     )
 
             # Validate sleep time

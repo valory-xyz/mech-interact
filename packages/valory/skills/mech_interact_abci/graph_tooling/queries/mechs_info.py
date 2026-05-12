@@ -30,7 +30,7 @@ info = Template("""
                 where: {
                     id_gt: "${mechs_id_gt}",
                     service_: {totalDeliveries_gt: 0},
-                    address_in: ["${valid_mech_addresses}"]
+                    address_in: ["${valid_mechs}"]
                 }
             ) {
                 id

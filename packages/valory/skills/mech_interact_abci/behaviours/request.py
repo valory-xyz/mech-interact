@@ -587,12 +587,12 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             static_priority = self.mech_marketplace_config.priority_mech_address
             if (
                 static_priority
-                and self.params.valid_mech_tools
-                and static_priority.lower() not in self.params.valid_mech_addresses
+                and self.params.valid_mechs
+                and static_priority.lower() not in self.params.valid_mechs
             ):
                 self.context.logger.warning(
                     f"Configured priority_mech_address {static_priority} is not in "
-                    f"`valid_mech_tools`; skipping mech request."
+                    f"`valid_mechs`; skipping mech request."
                 )
                 return None
             return static_priority

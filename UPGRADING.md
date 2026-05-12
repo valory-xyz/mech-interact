@@ -2,6 +2,39 @@
 
 Below, we describe the additional manual steps required to upgrade between different versions:
 
+## Unreleased (built with `open-aea@2.2.3` and `open-autonomy@0.21.20`)
+
+#### Breaking Changes
+- The `ignored_mechs` blocklist has been removed. Any overlay
+  (`aea-config.yaml`, `service.yaml`) that still sets `ignored_mechs` will be
+  silently ignored. Replace it with the new `valid_mechs` allowlist.
+- The marketplace subgraph query now uses `address_in` over `valid_mechs`
+  instead of `address_not_in` over `ignored_mechs`. Mechs that were
+  previously allowed by omission are no longer eligible until they are
+  added to `valid_mechs`.
+- A statically configured `mech_marketplace_config.priority_mech_address`
+  that is not present in `valid_mechs` is rejected at runtime: a warning is
+  logged and the round skips the mech request. Add any priority mech you
+  rely on to `valid_mechs`.
+
+#### New features
+- New `valid_mechs: List[str]` skill param: a flat allowlist of mech
+  addresses (case-insensitive, lowercased on load). Empty default. With
+  marketplace v2 dynamic selection enabled and `valid_mechs` empty, the
+  skill logs a startup warning and short-circuits the subgraph fetch.
+- New `valid_tools: List[str]` skill param: a flat allowlist of tool
+  names. Each mech's IPFS manifest is intersected with this set; only
+  tools that appear in both are surfaced as `relevant_tools`.
+- New `SynchronizedData.selected_mechs` property: a list of lowercase mech
+  addresses that further restricts `relevant_mechs_info` when non-empty.
+  Trader writes this from its ChatUI pin via the existing consensus
+  mechanism.
+- New `SharedState.last_failure_reason` diagnostic string set by
+  `MechInformationBehaviour` on each failure path:
+  `subgraph_unavailable`, `allowlist_not_configured`,
+  `valid_mech_list_empty`, `no_overlap_with_valid_tools`. Consumed by the
+  trader-side ChatUI handler to surface why a round produced no candidate.
+
 ## `v0.22.2` to `v0.22.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 
 #### Breaking Changes

@@ -135,12 +135,11 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                 self.mech_tools_api.reset_retries()
                 continue
 
-            metadata_tools = set(res) - self.params.irrelevant_tools
+            allowed_tools = (
+                set(res) - self.params.irrelevant_tools
+            ) & self.params.valid_tools
             for mech in mechs:
-                allowlist = self.params.valid_mech_tools.get(
-                    mech.address.lower(), frozenset()
-                )
-                mech.relevant_tools |= metadata_tools & allowlist
+                mech.relevant_tools |= allowed_tools
             self.mech_tools_api.reset_retries()
 
         return True
@@ -157,7 +156,10 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             return None
 
         if not mech_info:
-            self.shared_state.last_failure_reason = "valid_mech_list_empty"
+            if not self.params.valid_mechs:
+                self.shared_state.last_failure_reason = "allowlist_not_configured"
+            else:
+                self.shared_state.last_failure_reason = "valid_mech_list_empty"
             return None
 
         while True:
@@ -175,7 +177,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             self.context.logger.warning(
                 "No mechs have usable tools after fetch; emitting NONE to retry."
             )
-            self.shared_state.last_failure_reason = "no_allowed_tools_for_valid_mechs"
+            self.shared_state.last_failure_reason = "no_overlap_with_valid_tools"
             return None
 
         # truncate the information, otherwise logs get too big
