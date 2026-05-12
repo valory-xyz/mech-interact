@@ -297,8 +297,10 @@ class MechParams(BaseParams):
             "use_acn_for_delivers", kwargs, bool
         )
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
-        self.ignored_mechs: FrozenSet[str] = frozenset(
-            self._ensure("ignored_mechs", kwargs, List[str])
+        self.valid_mech_tools: Dict[str, FrozenSet[str]] = (
+            self._normalize_valid_mech_tools(
+                self._ensure("valid_mech_tools", kwargs, dict)
+            )
         )
         self.penalize_mech_time_window: int = self._ensure(
             "penalize_mech_time_window", kwargs, int
@@ -354,6 +356,38 @@ class MechParams(BaseParams):
             return self.mech_marketplace_config.mech_marketplace_address
         return self.mech_contract_address
 
+    @property
+    def valid_mech_addresses(self) -> FrozenSet[str]:
+        """Allowed mech addresses (lowercase), keys of `valid_mech_tools`."""
+        return frozenset(self.valid_mech_tools.keys())
+
+    @staticmethod
+    def _normalize_valid_mech_tools(
+        raw: Dict[str, Any],
+    ) -> Dict[str, FrozenSet[str]]:
+        """Normalize the allowlist to lowercase keys and frozen tool sets.
+
+        :param raw: the dict loaded from skill params.
+        :return: a dict of lowercase address -> frozenset of allowed tool names.
+        :raises ValueError: if the allowlist has the wrong shape.
+        """
+        normalized: Dict[str, FrozenSet[str]] = {}
+        for raw_address, tools in raw.items():
+            if not isinstance(raw_address, str):
+                raise ValueError(
+                    "valid_mech_tools keys must be strings (mech addresses), "
+                    f"got {type(raw_address).__name__}"
+                )
+            if not isinstance(tools, list) or not all(
+                isinstance(tool, str) for tool in tools
+            ):
+                raise ValueError(
+                    f"valid_mech_tools[{raw_address!r}] must be a list of tool name "
+                    f"strings, got {tools!r}"
+                )
+            normalized[raw_address.lower()] = frozenset(tools)
+        return normalized
+
     def validate_configuration(self) -> None:  # pragma: no cover
         """Validate the entire configuration for consistency."""
         try:
@@ -398,6 +432,7 @@ class SharedState(BaseSharedState):
         # defined here so developers can penalize mechs (e.g., based on the response) to lower their ranking
         self._penalized_mechs: Dict[str, int] = {}
         self.last_called_mech: Optional[str] = None
+        self.last_failure_reason: Optional[str] = None
 
     @property
     def params(self) -> MechParams:  # pragma: no cover
