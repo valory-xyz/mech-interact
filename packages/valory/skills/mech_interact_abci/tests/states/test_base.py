@@ -953,6 +953,16 @@ class TestSynchronizedData:
         sd = _make_synced_data(selected_mechs=json.dumps(42))
         assert sd.selected_mechs == []
 
+    def test_selected_mechs_falls_back_on_string_payload(self) -> None:
+        """A JSON-decoded string must not be iterated as characters."""
+        sd = _make_synced_data(selected_mechs=json.dumps("0xabc"))
+        assert sd.selected_mechs == []
+
+    def test_selected_mechs_falls_back_on_object_payload(self) -> None:
+        """A JSON-decoded object must not be iterated as keys."""
+        sd = _make_synced_data(selected_mechs=json.dumps({"0xabc": True}))
+        assert sd.selected_mechs == []
+
     def test_relevant_mechs_info_filters_by_selected_mechs(self) -> None:
         """Mechs not in `selected_mechs` are dropped from relevant_mechs_info."""
         info_data = [
@@ -1064,6 +1074,70 @@ class TestSynchronizedData:
         ]
         sd = _make_synced_data(mechs_info=json.dumps(info_data))
         assert sd.mech_tools == {"tool_a", "tool_b", "tool_c"}
+
+    def test_mech_tools_narrows_by_selected_mechs(self) -> None:
+        """When `selected_mechs` is set, mech_tools exposes only tools served by pinned mechs.
+
+        Without this narrowing, trader could pick a tool that no pinned
+        mech serves and the round would dead-end at request prep.
+        """
+        info_data = [
+            {
+                "id": "1",
+                "address": "0xa",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+            {
+                "id": "2",
+                "address": "0xb",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_b"],
+            },
+        ]
+        sd = _make_synced_data(
+            mechs_info=json.dumps(info_data),
+            selected_mechs=json.dumps(["0xb"]),
+        )
+        assert sd.mech_tools == {"tool_b"}
+
+    def test_mech_tools_empty_pin_is_no_op(self) -> None:
+        """Empty `selected_mechs` does not narrow mech_tools."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0xa",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+            {
+                "id": "2",
+                "address": "0xb",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_b"],
+            },
+        ]
+        sd = _make_synced_data(
+            mechs_info=json.dumps(info_data),
+            selected_mechs=json.dumps([]),
+        )
+        assert sd.mech_tools == {"tool_a", "tool_b"}
 
     def test_priority_mech_returns_best(self) -> None:
         """Test priority_mech returns the mech with highest ranking."""

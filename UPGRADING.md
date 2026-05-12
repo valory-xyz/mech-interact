@@ -15,7 +15,16 @@ Below, we describe the additional manual steps required to upgrade between diffe
 - A statically configured `mech_marketplace_config.priority_mech_address`
   that is not present in `valid_mechs` is rejected at runtime: a warning is
   logged and the round skips the mech request. Add any priority mech you
-  rely on to `valid_mechs`.
+  rely on to `valid_mechs`. The guard intentionally short-circuits when
+  `valid_mechs` is empty so deployers who haven't migrated yet are not
+  regressed; once `valid_mechs` is set, the priority must be inside it.
+- Dynamic-V2 mech selection no longer falls back to a penalized mech.
+  Previously, if every ranked candidate was under active penalty, the
+  code returned the top-ranked (penalized) mech "to avoid getting
+  blocked." Per the spec, the round now fails fast with
+  `no_non_penalized_valid_mech` written to `last_failure_reason` and
+  `get_priority_mech_address` returns `None`. Operators relying on the
+  old behavior should adjust their penalty windows accordingly.
 
 #### New features
 - New `valid_mechs: List[str]` skill param: a flat allowlist of mech
@@ -28,16 +37,26 @@ Below, we describe the additional manual steps required to upgrade between diffe
   sides of the intersect are lowercased, so a `Prediction-Online` in
   `service.yaml` will match a `prediction-online` manifest entry.
 - New `SynchronizedData.selected_mechs` property: a list of lowercase mech
-  addresses that further restricts `relevant_mechs_info` when non-empty.
+  addresses that further restricts `relevant_mechs_info` AND `mech_tools`
+  when non-empty (so a consumer can't pick a tool no pinned mech serves).
   Trader writes this from its ChatUI pin via the existing consensus
   mechanism.
 - New `SharedState.last_failure_reason` diagnostic string set on each
   failure path: `subgraph_unavailable`, `allowlist_not_configured`,
-  `valid_mech_list_empty`, `no_overlap_with_valid_tools` (written by
-  `MechInformationBehaviour`), and `no_overlap_with_selected_mechs`
-  (written by `MechRequestBehaviour` when a non-empty `selected_mechs`
-  pin yields no candidate for the chosen tool). Consumed by the
-  trader-side ChatUI handler to surface why a round produced no candidate.
+  `valid_mech_list_empty`, `no_overlap_with_valid_tools`,
+  `pinned_mechs_offline` (written by `MechInformationBehaviour` when a
+  non-empty `selected_mechs` has no overlap with this round's
+  `mech_info`), `pinned_mechs_no_valid_tools` (written when pinned mechs
+  are visible but their IPFS manifests don't intersect `valid_tools`),
+  `no_overlap_with_selected_mechs` (written by `MechRequestBehaviour`
+  when a non-empty `selected_mechs` pin yields no candidate for the
+  chosen tool), `no_overlap_with_selected_tool` (written when no pin is
+  set but no allowed mech serves the chosen tool),
+  `static_priority_not_in_valid_mechs` (written when the static priority
+  is rejected by the allowlist), and `no_non_penalized_valid_mech`
+  (written when every ranked candidate is under active penalty).
+  Consumed by the trader-side ChatUI handler to surface why a round
+  produced no candidate.
 
 ## `v0.22.2` to `v0.22.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 

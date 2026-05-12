@@ -564,34 +564,38 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
     def get_priority_mech_address(self) -> Optional[str]:
         """Get the priority mech's address. Warning: the result is based on the time of access."""
+        self.shared_state.last_failure_reason = None
         if (
             self.should_use_marketplace_v2()
             and self.mech_marketplace_config.use_dynamic_mech_selection
         ):
-            # get the next priority mech that is not penalized.
-            # if all mechs are penalized, return the priority mech to avoid getting blocked
+            ranked = self.synchronized_data.ranked_mechs_addresses
+            penalized = self.shared_state.penalized_mechs
             priority_mech = next(
-                (
-                    mech
-                    for mech in self.synchronized_data.ranked_mechs_addresses
-                    if mech not in self.shared_state.penalized_mechs
-                ),
-                self.synchronized_data.priority_mech_address,
+                (mech for mech in ranked if mech not in penalized), None
             )
-            if not priority_mech:
-                self.context.logger.warning("No whitelisted priority mech found!")
-                # Distinguish "no pinned mech serves the selected tool" from
-                # generic empty-candidate so the trader ChatUI can surface a
-                # specific remediation.
-                if self.synchronized_data.selected_mechs:
-                    self.shared_state.last_failure_reason = (
-                        "no_overlap_with_selected_mechs"
-                    )
+            if priority_mech:
+                return priority_mech
 
-            return priority_mech
+            # Distinguish (a) every relevant candidate is penalized vs
+            # (b) the user's pin yielded no overlap with the chosen tool.
+            # Per spec, each is a fail-fast terminal — never return a
+            # penalized mech as a fallback.
+            self.context.logger.warning("No whitelisted priority mech found!")
+            if ranked:
+                self.shared_state.last_failure_reason = "no_non_penalized_valid_mech"
+            elif self.synchronized_data.selected_mechs:
+                self.shared_state.last_failure_reason = "no_overlap_with_selected_mechs"
+            else:
+                self.shared_state.last_failure_reason = "no_overlap_with_selected_tool"
+            return None
 
         if self.params.use_mech_marketplace:
             static_priority = self.mech_marketplace_config.priority_mech_address
+            # `valid_mechs` empty is treated as "not yet configured" so this
+            # path doesn't regress deployers who haven't migrated to the
+            # allowlist. The trust boundary is enforced only when the
+            # operator has populated `valid_mechs`.
             if (
                 static_priority
                 and self.params.valid_mechs
@@ -600,6 +604,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 self.context.logger.warning(
                     f"Configured priority_mech_address {static_priority} is not in "
                     f"`valid_mechs`; skipping mech request."
+                )
+                self.shared_state.last_failure_reason = (
+                    "static_priority_not_in_valid_mechs"
                 )
                 return None
             return static_priority
@@ -972,21 +979,35 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return False
 
+    def _build_skip_payload(self) -> MechRequestPayload:
+        """Build the no-op payload used by both skip paths in `async_act`."""
+        return MechRequestPayload(
+            self.context.agent_address,
+            self.matching_round.auto_round_id(),
+            None,
+            None,
+            self.params.mech_chain_id,
+            self.synchronized_data.safe_contract_address,
+            SERIALIZED_EMPTY_LIST,
+            SERIALIZED_EMPTY_LIST,
+        )
+
     def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
 
         if not self._mech_requests:
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
-                payload = MechRequestPayload(
-                    self.context.agent_address,
-                    self.matching_round.auto_round_id(),
-                    None,
-                    None,
-                    self.params.mech_chain_id,
-                    self.synchronized_data.safe_contract_address,
-                    SERIALIZED_EMPTY_LIST,
-                    SERIALIZED_EMPTY_LIST,
-                )
+                payload = self._build_skip_payload()
+            yield from self.finish_behaviour(payload)
+            return
+
+        if not self.priority_mech_address:
+            self.context.logger.warning(
+                "No priority mech available this round; skipping request "
+                f"(last_failure_reason={self.shared_state.last_failure_reason!r})."
+            )
+            with self.context.benchmark_tool.measure(self.behaviour_id).local():
+                payload = self._build_skip_payload()
             yield from self.finish_behaviour(payload)
             return
 

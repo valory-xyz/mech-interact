@@ -319,8 +319,8 @@ class SynchronizedData(TxSynchronizedData):
         """Get the consumer-pinned mech addresses (lowercase). Empty means no pin.
 
         A malformed value in the db key (wrong shape or invalid JSON) returns
-        an empty list with a warning, rather than raising on every subsequent
-        round until the key is cleared.
+        an empty list rather than raising on every subsequent round until
+        the key is cleared.
 
         :return: lowercase mech addresses.
         """
@@ -328,9 +328,11 @@ class SynchronizedData(TxSynchronizedData):
         try:
             if isinstance(raw, str):
                 raw = json.loads(raw)
-            return [str(addr).lower() for addr in (raw or [])]
-        except (json.JSONDecodeError, TypeError, AttributeError):
+        except (json.JSONDecodeError, TypeError):
             return []
+        if not isinstance(raw, list):
+            return []
+        return [str(addr).lower() for addr in raw]
 
     @property
     def relevant_mechs_info(self) -> MechsInfo:
@@ -350,9 +352,21 @@ class SynchronizedData(TxSynchronizedData):
 
     @property
     def mech_tools(self) -> Set[str]:
-        """Get the mechs' tools."""
+        """Get the mechs' tools.
+
+        Mirrors `relevant_mechs_info`: when `selected_mechs` is non-empty,
+        only tools served by pinned mechs are exposed. Otherwise the
+        consumer could pick a tool that no eligible mech serves and the
+        round would dead-end at request prep.
+
+        :return: tool names served by at least one eligible mech.
+        """
+        pinned = self.selected_mechs
         return {
-            tool for mech_info in self.mechs_info for tool in mech_info.relevant_tools
+            tool
+            for mech_info in self.mechs_info
+            if not pinned or mech_info.address.lower() in pinned
+            for tool in mech_info.relevant_tools
         }
 
     @property
