@@ -320,7 +320,6 @@ class TestGetPriorityMechAddress:
 
         mock_synced = MagicMock()
         mock_synced.ranked_mechs_addresses = ["0xpinned"]
-        mock_synced.priority_mech_address = "0xpinned"
         mock_synced.selected_mechs = ["0xpinned"]
 
         mock_shared = MagicMock()
@@ -350,7 +349,6 @@ class TestGetPriorityMechAddress:
 
         mock_synced = MagicMock()
         mock_synced.ranked_mechs_addresses = []
-        mock_synced.priority_mech_address = None
         mock_synced.selected_mechs = ["0xpinned"]
 
         mock_shared = MagicMock()
@@ -366,6 +364,35 @@ class TestGetPriorityMechAddress:
 
         assert result is None
         assert mock_shared.last_failure_reason == "no_overlap_with_selected_mechs"
+
+    @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
+    def test_v2_dynamic_writes_no_overlap_with_selected_tool_when_no_pin(
+        self, _mock: MagicMock
+    ) -> None:
+        """No pin + no mech serves the chosen tool writes `no_overlap_with_selected_tool`."""
+        behaviour = _make_request_behaviour()
+        behaviour._context.params.use_mech_marketplace = True
+        behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
+            True
+        )
+
+        mock_synced = MagicMock()
+        mock_synced.ranked_mechs_addresses = []
+        mock_synced.selected_mechs = []
+
+        mock_shared = MagicMock()
+        mock_shared.penalized_mechs = set()
+        behaviour._context.state = mock_shared
+
+        with patch.object(
+            type(behaviour),
+            "synchronized_data",
+            new_callable=lambda: property(lambda self: mock_synced),
+        ):
+            result = behaviour.get_priority_mech_address()
+
+        assert result is None
+        assert mock_shared.last_failure_reason == "no_overlap_with_selected_tool"
 
     @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
     def test_marketplace_v2_no_dynamic_returns_config(self, _mock: MagicMock) -> None:

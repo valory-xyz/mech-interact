@@ -585,6 +585,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 self.shared_state.last_failure_reason = "no_non_penalized_valid_mech"
             elif self.synchronized_data.selected_mechs:
                 self.shared_state.last_failure_reason = "no_overlap_with_selected_mechs"
+            else:
+                self.shared_state.last_failure_reason = "no_overlap_with_selected_tool"
             return None
 
         if self.params.use_mech_marketplace:

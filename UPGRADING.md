@@ -48,10 +48,11 @@ Below, we describe the additional manual steps required to upgrade between diffe
   non-empty `selected_mechs` has no overlap with this round's
   `mech_info`), `no_overlap_with_selected_mechs` (written by
   `MechRequestBehaviour` when a non-empty `selected_mechs` pin yields no
-  candidate for the chosen tool), and `no_non_penalized_valid_mech`
-  (written when every ranked candidate is under active penalty). Consumed
-  by the trader-side ChatUI handler to surface why a round produced no
-  candidate.
+  candidate for the chosen tool), `no_overlap_with_selected_tool`
+  (written when no pin is set but no allowed mech serves the chosen
+  tool), and `no_non_penalized_valid_mech` (written when every ranked
+  candidate is under active penalty). Consumed by the trader-side
+  ChatUI handler to surface why a round produced no candidate.
 
 ## `v0.22.2` to `v0.22.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 
