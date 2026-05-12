@@ -24,15 +24,19 @@ Below, we describe the additional manual steps required to upgrade between diffe
   skill logs a startup warning and short-circuits the subgraph fetch.
 - New `valid_tools: List[str]` skill param: a flat allowlist of tool
   names. Each mech's IPFS manifest is intersected with this set; only
-  tools that appear in both are surfaced as `relevant_tools`.
+  tools that appear in both are surfaced as `relevant_tools`. Both
+  sides of the intersect are lowercased, so a `Prediction-Online` in
+  `service.yaml` will match a `prediction-online` manifest entry.
 - New `SynchronizedData.selected_mechs` property: a list of lowercase mech
   addresses that further restricts `relevant_mechs_info` when non-empty.
   Trader writes this from its ChatUI pin via the existing consensus
   mechanism.
-- New `SharedState.last_failure_reason` diagnostic string set by
-  `MechInformationBehaviour` on each failure path:
-  `subgraph_unavailable`, `allowlist_not_configured`,
-  `valid_mech_list_empty`, `no_overlap_with_valid_tools`. Consumed by the
+- New `SharedState.last_failure_reason` diagnostic string set on each
+  failure path: `subgraph_unavailable`, `allowlist_not_configured`,
+  `valid_mech_list_empty`, `no_overlap_with_valid_tools` (written by
+  `MechInformationBehaviour`), and `no_overlap_with_selected_mechs`
+  (written by `MechRequestBehaviour` when a non-empty `selected_mechs`
+  pin yields no candidate for the chosen tool). Consumed by the
   trader-side ChatUI handler to surface why a round produced no candidate.
 
 ## `v0.22.2` to `v0.22.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)

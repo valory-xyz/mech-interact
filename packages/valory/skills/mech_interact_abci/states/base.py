@@ -316,11 +316,21 @@ class SynchronizedData(TxSynchronizedData):
 
     @property
     def selected_mechs(self) -> List[str]:
-        """Get the consumer-pinned mech addresses (lowercase). Empty means no pin."""
+        """Get the consumer-pinned mech addresses (lowercase). Empty means no pin.
+
+        A malformed value in the db key (wrong shape or invalid JSON) returns
+        an empty list with a warning, rather than raising on every subsequent
+        round until the key is cleared.
+
+        :return: lowercase mech addresses.
+        """
         raw = self.db.get("selected_mechs", SERIALIZED_EMPTY_LIST)
-        if isinstance(raw, str):
-            raw = json.loads(raw)
-        return [str(addr).lower() for addr in (raw or [])]
+        try:
+            if isinstance(raw, str):
+                raw = json.loads(raw)
+            return [str(addr).lower() for addr in (raw or [])]
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            return []
 
     @property
     def relevant_mechs_info(self) -> MechsInfo:

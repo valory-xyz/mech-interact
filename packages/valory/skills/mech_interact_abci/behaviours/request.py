@@ -580,6 +580,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
             if not priority_mech:
                 self.context.logger.warning("No whitelisted priority mech found!")
+                # Distinguish "no pinned mech serves the selected tool" from
+                # generic empty-candidate so the trader ChatUI can surface a
+                # specific remediation.
+                if self.synchronized_data.selected_mechs:
+                    self.shared_state.last_failure_reason = (
+                        "no_overlap_with_selected_mechs"
+                    )
 
             return priority_mech
 

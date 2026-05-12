@@ -301,7 +301,7 @@ class MechParams(BaseParams):
             str(addr).lower() for addr in self._ensure("valid_mechs", kwargs, List[str])
         )
         self.valid_tools: FrozenSet[str] = frozenset(
-            self._ensure("valid_tools", kwargs, List[str])
+            str(tool).lower() for tool in self._ensure("valid_tools", kwargs, List[str])
         )
         self.penalize_mech_time_window: int = self._ensure(
             "penalize_mech_time_window", kwargs, int
@@ -374,14 +374,21 @@ class MechParams(BaseParams):
                         "priority_mech_address is required "
                         "when use_mech_marketplace is True and use_dynamic_mech_selection is False"
                     )
-                if (
-                    self.mech_marketplace_config.use_dynamic_mech_selection
-                    and not self.valid_mechs
+                if self.mech_marketplace_config.use_dynamic_mech_selection and (
+                    not self.valid_mechs or not self.valid_tools
                 ):
+                    missing = ", ".join(
+                        name
+                        for name, populated in (
+                            ("valid_mechs", self.valid_mechs),
+                            ("valid_tools", self.valid_tools),
+                        )
+                        if not populated
+                    )
                     self.context.logger.warning(
-                        "`valid_mechs` is empty while marketplace v2 dynamic "
-                        "selection is enabled. No mech requests will be attempted "
-                        "until the allowlist is configured."
+                        f"{missing} is empty while marketplace v2 dynamic selection "
+                        "is enabled. No mech requests will succeed until the "
+                        "allowlist is configured."
                     )
 
             # Validate sleep time

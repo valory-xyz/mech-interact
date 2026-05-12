@@ -625,8 +625,8 @@ class TestLastFailureReason:
 
         assert behaviour._context.state.last_failure_reason == "valid_mech_list_empty"
 
-    def test_writes_no_overlap_when_metadata_disjoint_from_valid_tools(self) -> None:
-        """Mechs whose IPFS manifest doesn't overlap `valid_tools` write `no_overlap_with_valid_tools`."""
+    def test_writes_no_overlap_when_valid_tools_empty(self) -> None:
+        """Empty `valid_tools` writes `no_overlap_with_valid_tools`."""
         behaviour = _make_mech_info_behaviour()
         api = _setup_api(behaviour, valid_tools=frozenset())
         api.process_response.return_value = ["tool_a"]
@@ -643,6 +643,30 @@ class TestLastFailureReason:
 
         _drive(behaviour.get_mechs_info())
 
+        assert (
+            behaviour._context.state.last_failure_reason
+            == "no_overlap_with_valid_tools"
+        )
+
+    def test_writes_no_overlap_when_metadata_disjoint_from_valid_tools(self) -> None:
+        """Non-empty `valid_tools` that doesn't intersect manifest writes the same reason."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour, valid_tools=frozenset({"tool_x"}))
+        api.process_response.return_value = ["tool_a", "tool_b"]
+
+        mech = _make_mech_info(address="0xmech1", relevant_tools=set())
+
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [mech]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        _drive(behaviour.get_mechs_info())
+
+        assert mech.relevant_tools == set()
         assert (
             behaviour._context.state.last_failure_reason
             == "no_overlap_with_valid_tools"

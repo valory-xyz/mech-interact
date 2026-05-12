@@ -135,8 +135,9 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                 self.mech_tools_api.reset_retries()
                 continue
 
+            metadata_tools = {str(t).lower() for t in res}
             allowed_tools = (
-                set(res) - self.params.irrelevant_tools
+                metadata_tools - self.params.irrelevant_tools
             ) & self.params.valid_tools
             for mech in mechs:
                 mech.relevant_tools |= allowed_tools

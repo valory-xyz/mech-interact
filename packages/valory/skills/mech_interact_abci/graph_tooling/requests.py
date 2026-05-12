@@ -157,9 +157,9 @@ class QueryingBehaviour(BaseBehaviour, ABC):
     ) -> MechsInfoFetcher:
         """Fetch mechs' information from the subgraph."""
         if not self.params.valid_mechs:
-            self.context.logger.warning(
-                "`valid_mechs` is empty; skipping subgraph fetch."
-            )
+            # Boot-time warning in `validate_configuration` already surfaces
+            # the misconfig; downstream gets `allowlist_not_configured` as
+            # the failure reason. No per-round log needed.
             self._fetch_status = FetchStatus.SUCCESS
             return []
         self._fetch_status = FetchStatus.IN_PROGRESS

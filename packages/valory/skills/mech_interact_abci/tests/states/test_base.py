@@ -943,6 +943,16 @@ class TestSynchronizedData:
         sd = _make_synced_data(selected_mechs=json.dumps(["0xAbC", "0xDEF"]))
         assert sd.selected_mechs == ["0xabc", "0xdef"]
 
+    def test_selected_mechs_falls_back_on_malformed_json(self) -> None:
+        """A bad write (not-json or wrong shape) is tolerated, not raised."""
+        sd = _make_synced_data(selected_mechs="not-json")
+        assert sd.selected_mechs == []
+
+    def test_selected_mechs_falls_back_on_wrong_shape(self) -> None:
+        """JSON that decodes to a non-iterable yields an empty list."""
+        sd = _make_synced_data(selected_mechs=json.dumps(42))
+        assert sd.selected_mechs == []
+
     def test_relevant_mechs_info_filters_by_selected_mechs(self) -> None:
         """Mechs not in `selected_mechs` are dropped from relevant_mechs_info."""
         info_data = [
