@@ -20,7 +20,7 @@
 """Tests for the mech_info behaviour module."""
 
 from typing import Any, FrozenSet, Generator, List, Optional, Set
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
     CID_PREFIX,
@@ -490,7 +490,12 @@ class TestGetMechsInfo:
         behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
         _wire_get_http_response(behaviour, [MagicMock(), MagicMock()])
 
-        result = _drive(behaviour.get_mechs_info())
+        with patch.object(
+            MechInformationBehaviour,
+            "synchronized_data",
+            new_callable=lambda: property(lambda _self: MagicMock(selected_mechs=[])),
+        ):
+            result = _drive(behaviour.get_mechs_info())
 
         assert result is not None
         assert "0xgood" in result
@@ -690,7 +695,68 @@ class TestLastFailureReason:
         behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
         _wire_get_http_response(behaviour, [MagicMock()])
 
-        result = _drive(behaviour.get_mechs_info())
+        with patch.object(
+            MechInformationBehaviour,
+            "synchronized_data",
+            new_callable=lambda: property(lambda _self: MagicMock(selected_mechs=[])),
+        ):
+            result = _drive(behaviour.get_mechs_info())
+
+        assert result is not None
+        assert behaviour._context.state.last_failure_reason is None
+
+    def test_writes_pinned_mechs_offline_when_pin_not_in_mech_info(self) -> None:
+        """Pinned addresses absent from this round's mech_info write `pinned_mechs_offline`."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour, valid_tools=frozenset({"tool_a"}))
+        api.process_response.return_value = ["tool_a"]
+
+        mech = _make_mech_info(address="0xa", relevant_tools=set())
+
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [mech]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        with patch.object(
+            MechInformationBehaviour,
+            "synchronized_data",
+            new_callable=lambda: property(
+                lambda _self: MagicMock(selected_mechs=["0xb"])
+            ),
+        ):
+            result = _drive(behaviour.get_mechs_info())
+
+        assert result is None
+        assert behaviour._context.state.last_failure_reason == "pinned_mechs_offline"
+
+    def test_pinned_mech_in_mech_info_does_not_trip_pinned_mechs_offline(self) -> None:
+        """When a pinned address IS visible, no failure reason is written."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour, valid_tools=frozenset({"tool_a"}))
+        api.process_response.return_value = ["tool_a"]
+
+        mech = _make_mech_info(address="0xa", relevant_tools=set())
+
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [mech]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        with patch.object(
+            MechInformationBehaviour,
+            "synchronized_data",
+            new_callable=lambda: property(
+                lambda _self: MagicMock(selected_mechs=["0xA"])
+            ),
+        ):
+            result = _drive(behaviour.get_mechs_info())
 
         assert result is not None
         assert behaviour._context.state.last_failure_reason is None

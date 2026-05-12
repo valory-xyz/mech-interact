@@ -284,7 +284,6 @@ class TestGetPriorityMechAddress:
 
         mock_synced = MagicMock()
         mock_synced.ranked_mechs_addresses = ["0xpenalized1", "0xpenalized2"]
-        mock_synced.priority_mech_address = "0xpenalized1"
         mock_synced.selected_mechs = []
 
         mock_shared = MagicMock()

@@ -43,10 +43,12 @@ Below, we describe the additional manual steps required to upgrade between diffe
   mechanism.
 - New `SharedState.last_failure_reason` diagnostic string set on each
   failure path: `subgraph_unavailable`, `allowlist_not_configured`,
-  `valid_mech_list_empty`, `no_overlap_with_valid_tools` (written by
-  `MechInformationBehaviour`), `no_overlap_with_selected_mechs` (written
-  by `MechRequestBehaviour` when a non-empty `selected_mechs` pin yields
-  no candidate for the chosen tool), and `no_non_penalized_valid_mech`
+  `valid_mech_list_empty`, `no_overlap_with_valid_tools`,
+  `pinned_mechs_offline` (written by `MechInformationBehaviour` when a
+  non-empty `selected_mechs` has no overlap with this round's
+  `mech_info`), `no_overlap_with_selected_mechs` (written by
+  `MechRequestBehaviour` when a non-empty `selected_mechs` pin yields no
+  candidate for the chosen tool), and `no_non_penalized_valid_mech`
   (written when every ranked candidate is under active penalty). Consumed
   by the trader-side ChatUI handler to surface why a round produced no
   candidate.

@@ -181,6 +181,18 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             self.shared_state.last_failure_reason = "no_overlap_with_valid_tools"
             return None
 
+        pinned = self.synchronized_data.selected_mechs
+        if pinned:
+            pinned_set = {addr.lower() for addr in pinned}
+            visible = {mech.address.lower() for mech in mech_info}
+            if not (pinned_set & visible):
+                self.context.logger.warning(
+                    f"Pinned mechs {sorted(pinned_set)} are not visible in this "
+                    f"round's mech_info (visible: {sorted(visible)})."
+                )
+                self.shared_state.last_failure_reason = "pinned_mechs_offline"
+                return None
+
         # truncate the information, otherwise logs get too big
         serialized_info = json.dumps(mech_info, cls=MechInfoEncoder)
         info_str = serialized_info[:MAX_LOG_SIZE]
