@@ -126,10 +126,11 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         """Fetch a batch of mechs' information from the subgraph."""
         lookback_seconds = self.params.deliveries_lookback_days * SECONDS_PER_DAY
         block_timestamp_gt = int(time.time()) - lookback_seconds
+        # sorted: query string must be deterministic across agents in the same round
         query = mechs_info_query.substitute(
             first=QUERY_BATCH_SIZE,
             mechs_id_gt=mechs_id_gt,
-            ignored_mechs='", "'.join(self.params.ignored_mechs),
+            valid_mech_addresses='", "'.join(sorted(self.params.valid_mech_addresses)),
             block_timestamp_gt=block_timestamp_gt,
         )
         res_raw = yield from self.get_http_response(
@@ -155,6 +156,13 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         self,
     ) -> MechsInfoFetcher:
         """Fetch mechs' information from the subgraph."""
+        if not self.params.valid_mech_addresses:
+            self.context.logger.warning(
+                "`valid_mech_tools` is empty; skipping subgraph fetch. "
+                "Configure the allowlist to enable mech-interact requests."
+            )
+            self._fetch_status = FetchStatus.SUCCESS
+            return []
         self._fetch_status = FetchStatus.IN_PROGRESS
 
         # used to allow for pagination based on mechs' ids

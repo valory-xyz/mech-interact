@@ -135,9 +135,12 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                 self.mech_tools_api.reset_retries()
                 continue
 
-            relevant_tools = set(res) - self.params.irrelevant_tools
+            metadata_tools = set(res) - self.params.irrelevant_tools
             for mech in mechs:
-                mech.relevant_tools |= relevant_tools
+                allowlist = self.params.valid_mech_tools.get(
+                    mech.address.lower(), frozenset()
+                )
+                mech.relevant_tools |= metadata_tools & allowlist
             self.mech_tools_api.reset_retries()
 
         return True
@@ -146,13 +149,15 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         self,
     ) -> Generator[None, None, Optional[str]]:
         """Get the mechs' information serialized as a JSON string."""
+        self.shared_state.last_failure_reason = None
         mech_info = yield from self.fetch_mechs_info()
 
         if self._fetch_status != FetchStatus.SUCCESS:
+            self.shared_state.last_failure_reason = "subgraph_unavailable"
             return None
 
         if not mech_info:
-            # if the info is None or empty, return None
+            self.shared_state.last_failure_reason = "valid_mech_list_empty"
             return None
 
         while True:
@@ -170,6 +175,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             self.context.logger.warning(
                 "No mechs have usable tools after fetch; emitting NONE to retry."
             )
+            self.shared_state.last_failure_reason = "no_allowed_tools_for_valid_mechs"
             return None
 
         # truncate the information, otherwise logs get too big
