@@ -939,7 +939,7 @@ class TestSynchronizedData:
         assert sd.selected_mechs == []
 
     def test_selected_mechs_lowercases_addresses(self) -> None:
-        """ChatUI may pass mixed-case addresses; selected_mechs returns lowercase."""
+        """Consumers may send mixed-case addresses; selected_mechs returns lowercase."""
         sd = _make_synced_data(selected_mechs=json.dumps(["0xAbC", "0xDEF"]))
         assert sd.selected_mechs == ["0xabc", "0xdef"]
 

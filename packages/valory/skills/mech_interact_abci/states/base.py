@@ -316,7 +316,7 @@ class SynchronizedData(TxSynchronizedData):
 
     @property
     def selected_mechs(self) -> List[str]:
-        """Get the ChatUI-pinned mech addresses (lowercase). Empty means no pin."""
+        """Get the consumer-pinned mech addresses (lowercase). Empty means no pin."""
         raw = self.db.get("selected_mechs", SERIALIZED_EMPTY_LIST)
         if isinstance(raw, str):
             raw = json.loads(raw)
@@ -326,7 +326,7 @@ class SynchronizedData(TxSynchronizedData):
     def relevant_mechs_info(self) -> MechsInfo:
         """Get the relevant mechs' information.
 
-        :return: mechs that serve the selected tool. If the ChatUI has pinned
+        :return: mechs that serve the selected tool. If a consumer has pinned
             a subset of mechs via `selected_mechs`, the result is further
             restricted to that subset.
         """
