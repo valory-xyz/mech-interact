@@ -19,7 +19,7 @@
 
 """Tests for the mech_info behaviour module."""
 
-from typing import Any, Generator, List, Optional, Set
+from typing import Any, Dict, FrozenSet, Generator, List, Optional, Set
 from unittest.mock import MagicMock
 
 from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
@@ -88,11 +88,16 @@ def _wire_get_http_response(
     behaviour.get_http_response = mock_get_http_response  # type: ignore[method-assign,assignment]
 
 
-def _setup_api(behaviour: MechInformationBehaviour, **overrides: Any) -> MagicMock:
+def _setup_api(
+    behaviour: MechInformationBehaviour,
+    valid_mech_tools: Optional[Dict[str, FrozenSet[str]]] = None,
+    **overrides: Any,
+) -> MagicMock:
     """Set up a behaviour with mocked context.params and mech_tools_api."""
     behaviour._context.params = MagicMock()
     behaviour._context.params.ipfs_address = "https://ipfs.io/"
     behaviour._context.params.irrelevant_tools = set()
+    behaviour._context.params.valid_mech_tools = valid_mech_tools or {}
 
     api = MagicMock()
     api.__dict__["_frozen"] = True
@@ -162,7 +167,10 @@ class TestPopulateTools:
     def test_populates_tools_from_http_response(self) -> None:
         """Tools fetched via HTTP and populated on the mech."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour)
+        api = _setup_api(
+            behaviour,
+            valid_mech_tools={"0xmech1": frozenset({"tool_a", "tool_b"})},
+        )
         api.process_response.return_value = ["tool_a", "tool_b", "irrelevant_tool"]
         behaviour._context.params.irrelevant_tools = {"irrelevant_tool"}
 
@@ -294,7 +302,8 @@ class TestCidGrouping:
     def test_shared_cid_fetched_once_for_all_mechs(self) -> None:
         """N mechs with identical metadata_str result in a single HTTP fetch."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour)
+        allowlist = {f"0x{i}": frozenset({"tool_x", "tool_y"}) for i in range(4)}
+        api = _setup_api(behaviour, valid_mech_tools=allowlist)
         api.process_response.return_value = ["tool_x", "tool_y"]
 
         mechs = [
@@ -323,7 +332,13 @@ class TestCidGrouping:
     def test_distinct_cids_fetched_separately(self) -> None:
         """Each distinct CID gets its own HTTP fetch."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour)
+        api = _setup_api(
+            behaviour,
+            valid_mech_tools={
+                "0xa": frozenset({"tool_a"}),
+                "0xb": frozenset({"tool_b"}),
+            },
+        )
         api.process_response.side_effect = [["tool_a"], ["tool_b"]]
 
         mech_a = _make_mech_info(
@@ -454,7 +469,10 @@ class TestGetMechsInfo:
     def test_partial_success_returns_serialized_json(self) -> None:
         """One good mech + one broken mech returns JSON; broken has empty tools."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour)
+        api = _setup_api(
+            behaviour,
+            valid_mech_tools={"0xgood": frozenset({"tool_good"})},
+        )
         api.process_response.side_effect = [["tool_good"], None]
         api.is_permanent_error.return_value = True
         api.url = "http://test/broken"
@@ -505,6 +523,155 @@ class TestGetMechsInfo:
 
         assert result is None
         assert "0xbroken" in behaviour._failed_mechs
+
+
+class TestAllowlistIntersect:
+    """Tests for the per-mech `valid_mech_tools` allowlist intersect in populate_tools."""
+
+    def test_drops_metadata_tools_not_in_allowlist(self) -> None:
+        """Tools present in IPFS metadata but absent from the allowlist are dropped."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(
+            behaviour,
+            valid_mech_tools={"0xmech1": frozenset({"tool_a"})},
+        )
+        api.process_response.return_value = ["tool_a", "tool_b", "tool_c"]
+
+        mech = _make_mech_info(relevant_tools=set())
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        _drive(behaviour.populate_tools([mech]))
+
+        assert mech.relevant_tools == {"tool_a"}
+
+    def test_drops_address_not_in_allowlist(self) -> None:
+        """A mech address missing from the allowlist yields empty relevant_tools."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(
+            behaviour,
+            valid_mech_tools={"0xother": frozenset({"tool_a"})},
+        )
+        api.process_response.return_value = ["tool_a", "tool_b"]
+
+        mech = _make_mech_info(address="0xmech1", relevant_tools=set())
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        _drive(behaviour.populate_tools([mech]))
+
+        assert mech.relevant_tools == set()
+
+    def test_address_lookup_is_case_insensitive(self) -> None:
+        """Mech addresses are lowercased before the allowlist lookup."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(
+            behaviour,
+            valid_mech_tools={"0xmech1": frozenset({"tool_a"})},
+        )
+        api.process_response.return_value = ["tool_a"]
+
+        mech = _make_mech_info(address="0xMech1", relevant_tools=set())
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        _drive(behaviour.populate_tools([mech]))
+
+        assert mech.relevant_tools == {"tool_a"}
+
+    def test_irrelevant_tools_filtered_before_intersect(self) -> None:
+        """`irrelevant_tools` are removed before the allowlist intersect."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(
+            behaviour,
+            valid_mech_tools={"0xmech1": frozenset({"tool_a", "tool_b", "junk"})},
+        )
+        api.process_response.return_value = ["tool_a", "tool_b", "junk"]
+        behaviour._context.params.irrelevant_tools = {"junk"}
+
+        mech = _make_mech_info(relevant_tools=set())
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        _drive(behaviour.populate_tools([mech]))
+
+        assert mech.relevant_tools == {"tool_a", "tool_b"}
+
+
+class TestLastFailureReason:
+    """Tests for `last_failure_reason` writes from get_mechs_info."""
+
+    def test_writes_subgraph_unavailable_on_fetch_failure(self) -> None:
+        """fetch_mechs_info that never reaches SUCCESS writes `subgraph_unavailable`."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._fetch_status = FetchStatus.IN_PROGRESS
+
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
+            yield
+            return []
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
+
+        _drive(behaviour.get_mechs_info())
+
+        assert behaviour._context.state.last_failure_reason == "subgraph_unavailable"
+
+    def test_writes_valid_mech_list_empty_on_empty_info(self) -> None:
+        """Empty subgraph result writes `valid_mech_list_empty`."""
+        behaviour = _make_mech_info_behaviour()
+
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return []
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
+
+        _drive(behaviour.get_mechs_info())
+
+        assert behaviour._context.state.last_failure_reason == "valid_mech_list_empty"
+
+    def test_writes_no_allowed_tools_when_intersect_empty(self) -> None:
+        """All mechs returning no allowed tools writes `no_allowed_tools_for_valid_mechs`."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour, valid_mech_tools={"0xmech1": frozenset()})
+        api.process_response.return_value = ["tool_a"]
+
+        mech = _make_mech_info(address="0xmech1", relevant_tools=set())
+
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [mech]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        _drive(behaviour.get_mechs_info())
+
+        assert (
+            behaviour._context.state.last_failure_reason
+            == "no_allowed_tools_for_valid_mechs"
+        )
+
+    def test_clears_failure_reason_on_success(self) -> None:
+        """A successful round leaves `last_failure_reason` as None."""
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.state.last_failure_reason = "stale_reason"
+
+        api = _setup_api(behaviour, valid_mech_tools={"0xmech1": frozenset({"tool_a"})})
+        api.process_response.return_value = ["tool_a"]
+
+        mech = _make_mech_info(address="0xmech1", relevant_tools=set())
+
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [mech]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
+        _wire_get_http_response(behaviour, [MagicMock()])
+
+        result = _drive(behaviour.get_mechs_info())
+
+        assert result is not None
+        assert behaviour._context.state.last_failure_reason is None
 
 
 class TestCleanUp:

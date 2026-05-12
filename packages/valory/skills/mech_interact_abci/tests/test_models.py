@@ -30,6 +30,7 @@ from packages.valory.skills.abstract_round_abci.test_tools.base import DummyCont
 from packages.valory.skills.mech_interact_abci.models import (
     CHAIN_TO_NVM_CONFIG,
     MechMarketplaceConfig,
+    MechParams,
     MechToolsSpecs,
     MultisendBatch,
     NVMConfig,
@@ -98,6 +99,52 @@ class TestMechMarketplaceConfig:
         )
         assert config.priority_mech_address == "0xpriority"
         assert config.use_dynamic_mech_selection is False
+
+
+class TestNormalizeValidMechTools:
+    """Tests for MechParams._normalize_valid_mech_tools."""
+
+    def test_empty_dict_returns_empty_dict(self) -> None:
+        """An empty allowlist is a valid configured state."""
+        assert MechParams._normalize_valid_mech_tools({}) == {}
+
+    def test_lowercases_addresses(self) -> None:
+        """Addresses are lowercased to match the subgraph format."""
+        result = MechParams._normalize_valid_mech_tools({"0xAbCdEf": ["tool_a"]})
+        assert "0xabcdef" in result
+        assert "0xAbCdEf" not in result
+
+    def test_wraps_tool_lists_in_frozensets(self) -> None:
+        """Values are frozen so the loaded config is immutable."""
+        result = MechParams._normalize_valid_mech_tools(
+            {"0xmech": ["tool_a", "tool_b"]}
+        )
+        assert isinstance(result["0xmech"], frozenset)
+        assert result["0xmech"] == frozenset({"tool_a", "tool_b"})
+
+    def test_non_string_key_raises(self) -> None:
+        """A non-string key is a configuration bug."""
+        with pytest.raises(ValueError, match="keys must be strings"):
+            MechParams._normalize_valid_mech_tools({123: ["tool_a"]})  # type: ignore[dict-item]
+
+    def test_non_list_value_raises(self) -> None:
+        """A non-list value is a configuration bug."""
+        with pytest.raises(ValueError, match="must be a list"):
+            MechParams._normalize_valid_mech_tools({"0xmech": "tool_a"})  # type: ignore[dict-item]
+
+    def test_non_string_tool_raises(self) -> None:
+        """A non-string tool entry is a configuration bug."""
+        with pytest.raises(ValueError, match="must be a list"):
+            MechParams._normalize_valid_mech_tools({"0xmech": ["tool_a", 1]})
+
+
+class TestSharedStateLastFailureReason:
+    """Tests for SharedState.last_failure_reason."""
+
+    def test_default_is_none(self) -> None:
+        """A freshly constructed SharedState has no failure reason."""
+        state = SharedState(name="", skill_context=DummyContext())
+        assert state.last_failure_reason is None
 
 
 class TestMultisendBatch:
