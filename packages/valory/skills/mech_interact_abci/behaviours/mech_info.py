@@ -185,12 +185,23 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         if pinned:
             pinned_set = {addr.lower() for addr in pinned}
             visible = {mech.address.lower() for mech in mech_info}
-            if not (pinned_set & visible):
+            visible_pinned = pinned_set & visible
+            if not visible_pinned:
                 self.context.logger.warning(
                     f"Pinned mechs {sorted(pinned_set)} are not visible in this "
                     f"round's mech_info (visible: {sorted(visible)})."
                 )
                 self.shared_state.last_failure_reason = "pinned_mechs_offline"
+                return None
+            if not any(
+                mech.address.lower() in visible_pinned and mech.relevant_tools
+                for mech in mech_info
+            ):
+                self.context.logger.warning(
+                    f"Pinned mechs {sorted(visible_pinned)} are visible but expose "
+                    f"no tools in `valid_tools`."
+                )
+                self.shared_state.last_failure_reason = "pinned_mechs_no_valid_tools"
                 return None
 
         # truncate the information, otherwise logs get too big

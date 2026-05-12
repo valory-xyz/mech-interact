@@ -46,13 +46,17 @@ Below, we describe the additional manual steps required to upgrade between diffe
   `valid_mech_list_empty`, `no_overlap_with_valid_tools`,
   `pinned_mechs_offline` (written by `MechInformationBehaviour` when a
   non-empty `selected_mechs` has no overlap with this round's
-  `mech_info`), `no_overlap_with_selected_mechs` (written by
-  `MechRequestBehaviour` when a non-empty `selected_mechs` pin yields no
-  candidate for the chosen tool), `no_overlap_with_selected_tool`
-  (written when no pin is set but no allowed mech serves the chosen
-  tool), and `no_non_penalized_valid_mech` (written when every ranked
-  candidate is under active penalty). Consumed by the trader-side
-  ChatUI handler to surface why a round produced no candidate.
+  `mech_info`), `pinned_mechs_no_valid_tools` (written when pinned mechs
+  are visible but their IPFS manifests don't intersect `valid_tools`),
+  `no_overlap_with_selected_mechs` (written by `MechRequestBehaviour`
+  when a non-empty `selected_mechs` pin yields no candidate for the
+  chosen tool), `no_overlap_with_selected_tool` (written when no pin is
+  set but no allowed mech serves the chosen tool),
+  `static_priority_not_in_valid_mechs` (written when the static priority
+  is rejected by the allowlist), and `no_non_penalized_valid_mech`
+  (written when every ranked candidate is under active penalty).
+  Consumed by the trader-side ChatUI handler to surface why a round
+  produced no candidate.
 
 ## `v0.22.2` to `v0.22.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 

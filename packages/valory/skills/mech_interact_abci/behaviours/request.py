@@ -605,6 +605,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                     f"Configured priority_mech_address {static_priority} is not in "
                     f"`valid_mechs`; skipping mech request."
                 )
+                self.shared_state.last_failure_reason = (
+                    "static_priority_not_in_valid_mechs"
+                )
                 return None
             return static_priority
 
@@ -976,21 +979,25 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return False
 
+    def _build_skip_payload(self) -> MechRequestPayload:
+        """Build the no-op payload used by both skip paths in `async_act`."""
+        return MechRequestPayload(
+            self.context.agent_address,
+            self.matching_round.auto_round_id(),
+            None,
+            None,
+            self.params.mech_chain_id,
+            self.synchronized_data.safe_contract_address,
+            SERIALIZED_EMPTY_LIST,
+            SERIALIZED_EMPTY_LIST,
+        )
+
     def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
 
         if not self._mech_requests:
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
-                payload = MechRequestPayload(
-                    self.context.agent_address,
-                    self.matching_round.auto_round_id(),
-                    None,
-                    None,
-                    self.params.mech_chain_id,
-                    self.synchronized_data.safe_contract_address,
-                    SERIALIZED_EMPTY_LIST,
-                    SERIALIZED_EMPTY_LIST,
-                )
+                payload = self._build_skip_payload()
             yield from self.finish_behaviour(payload)
             return
 
@@ -1000,16 +1007,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 f"(last_failure_reason={self.shared_state.last_failure_reason!r})."
             )
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
-                payload = MechRequestPayload(
-                    self.context.agent_address,
-                    self.matching_round.auto_round_id(),
-                    None,
-                    None,
-                    self.params.mech_chain_id,
-                    self.synchronized_data.safe_contract_address,
-                    SERIALIZED_EMPTY_LIST,
-                    SERIALIZED_EMPTY_LIST,
-                )
+                payload = self._build_skip_payload()
             yield from self.finish_behaviour(payload)
             return
 

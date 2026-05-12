@@ -319,8 +319,8 @@ class SynchronizedData(TxSynchronizedData):
         """Get the consumer-pinned mech addresses (lowercase). Empty means no pin.
 
         A malformed value in the db key (wrong shape or invalid JSON) returns
-        an empty list with a warning, rather than raising on every subsequent
-        round until the key is cleared.
+        an empty list rather than raising on every subsequent round until
+        the key is cleared.
 
         :return: lowercase mech addresses.
         """

@@ -414,7 +414,7 @@ class TestGetPriorityMechAddress:
     def test_static_priority_mech_outside_allowlist_returns_none(
         self, _mock: MagicMock
     ) -> None:
-        """A configured priority mech missing from `valid_mechs` is rejected."""
+        """A configured priority mech missing from `valid_mechs` is rejected with reason."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
         behaviour._context.params.valid_mechs = frozenset({"0xallowed"})
@@ -428,6 +428,10 @@ class TestGetPriorityMechAddress:
         result = behaviour.get_priority_mech_address()
         assert result is None
         behaviour.context.logger.warning.assert_called()
+        assert (
+            behaviour._context.state.last_failure_reason
+            == "static_priority_not_in_valid_mechs"
+        )
 
     @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
     def test_static_priority_mech_in_allowlist_returns_config(

@@ -733,6 +733,46 @@ class TestLastFailureReason:
         assert result is None
         assert behaviour._context.state.last_failure_reason == "pinned_mechs_offline"
 
+    def test_writes_pinned_mechs_no_valid_tools_when_pinned_visible_but_no_tools(
+        self,
+    ) -> None:
+        """Pinned mech visible but with no tools in `valid_tools` writes `pinned_mechs_no_valid_tools`."""
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour, valid_tools=frozenset({"tool_x"}))
+        # First CID ("good") advertises tool_x; second CID ("pinned")
+        # advertises tool_a — only `good` ends up with relevant_tools.
+        api.process_response.side_effect = [["tool_x"], ["tool_a"]]
+
+        good = _make_mech_info(
+            address="0xgood", metadata_str="good", relevant_tools=set()
+        )
+        pinned = _make_mech_info(
+            address="0xpinned", metadata_str="pinned", relevant_tools=set()
+        )
+
+        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
+            behaviour._fetch_status = FetchStatus.SUCCESS
+            yield
+            return [good, pinned]
+
+        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
+        _wire_get_http_response(behaviour, [MagicMock(), MagicMock()])
+
+        with patch.object(
+            MechInformationBehaviour,
+            "synchronized_data",
+            new_callable=lambda: property(
+                lambda _self: MagicMock(selected_mechs=["0xpinned"])
+            ),
+        ):
+            result = _drive(behaviour.get_mechs_info())
+
+        assert result is None
+        assert (
+            behaviour._context.state.last_failure_reason
+            == "pinned_mechs_no_valid_tools"
+        )
+
     def test_pinned_mech_in_mech_info_does_not_trip_pinned_mechs_offline(self) -> None:
         """When a pinned address IS visible, no failure reason is written."""
         behaviour = _make_mech_info_behaviour()
