@@ -238,6 +238,7 @@ class TestGetPriorityMechAddress:
         """Test returns priority_mech_address from config when marketplace v1."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
+        behaviour._context.params.valid_mechs = frozenset()
         behaviour._context.params.mech_marketplace_config.priority_mech_address = (
             "0xv1_mech"
         )
@@ -298,10 +299,41 @@ class TestGetPriorityMechAddress:
         assert result == "0xfallback"
 
     @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
+    def test_v2_dynamic_writes_no_overlap_with_selected_mechs_when_empty(
+        self, _mock: MagicMock
+    ) -> None:
+        """No candidates + non-empty pin writes `no_overlap_with_selected_mechs`."""
+        behaviour = _make_request_behaviour()
+        behaviour._context.params.use_mech_marketplace = True
+        behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
+            True
+        )
+
+        mock_synced = MagicMock()
+        mock_synced.ranked_mechs_addresses = []
+        mock_synced.priority_mech_address = None
+        mock_synced.selected_mechs = ["0xpinned"]
+
+        mock_shared = MagicMock()
+        mock_shared.penalized_mechs = set()
+        behaviour._context.state = mock_shared
+
+        with patch.object(
+            type(behaviour),
+            "synchronized_data",
+            new_callable=lambda: property(lambda self: mock_synced),
+        ):
+            result = behaviour.get_priority_mech_address()
+
+        assert result is None
+        assert mock_shared.last_failure_reason == "no_overlap_with_selected_mechs"
+
+    @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
     def test_marketplace_v2_no_dynamic_returns_config(self, _mock: MagicMock) -> None:
         """Test v2 without dynamic selection returns config address."""
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
+        behaviour._context.params.valid_mechs = frozenset()
         behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
             False
         )
@@ -311,3 +343,40 @@ class TestGetPriorityMechAddress:
 
         result = behaviour.get_priority_mech_address()
         assert result == "0xconfig_mech"
+
+    @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
+    def test_static_priority_mech_outside_allowlist_returns_none(
+        self, _mock: MagicMock
+    ) -> None:
+        """A configured priority mech missing from `valid_mechs` is rejected."""
+        behaviour = _make_request_behaviour()
+        behaviour._context.params.use_mech_marketplace = True
+        behaviour._context.params.valid_mechs = frozenset({"0xallowed"})
+        behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
+            False
+        )
+        behaviour._context.params.mech_marketplace_config.priority_mech_address = (
+            "0xnot_allowed"
+        )
+
+        result = behaviour.get_priority_mech_address()
+        assert result is None
+        behaviour.context.logger.warning.assert_called()
+
+    @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
+    def test_static_priority_mech_in_allowlist_returns_config(
+        self, _mock: MagicMock
+    ) -> None:
+        """A configured priority mech present in `valid_mechs` is honored."""
+        behaviour = _make_request_behaviour()
+        behaviour._context.params.use_mech_marketplace = True
+        behaviour._context.params.valid_mechs = frozenset({"0xallowed"})
+        behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
+            False
+        )
+        behaviour._context.params.mech_marketplace_config.priority_mech_address = (
+            "0xallowed"
+        )
+
+        result = behaviour.get_priority_mech_address()
+        assert result == "0xallowed"

@@ -580,11 +580,29 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             )
             if not priority_mech:
                 self.context.logger.warning("No whitelisted priority mech found!")
+                # Distinguish "no pinned mech serves the selected tool" from
+                # generic empty-candidate so the trader ChatUI can surface a
+                # specific remediation.
+                if self.synchronized_data.selected_mechs:
+                    self.shared_state.last_failure_reason = (
+                        "no_overlap_with_selected_mechs"
+                    )
 
             return priority_mech
 
         if self.params.use_mech_marketplace:
-            return self.mech_marketplace_config.priority_mech_address
+            static_priority = self.mech_marketplace_config.priority_mech_address
+            if (
+                static_priority
+                and self.params.valid_mechs
+                and static_priority.lower() not in self.params.valid_mechs
+            ):
+                self.context.logger.warning(
+                    f"Configured priority_mech_address {static_priority} is not in "
+                    f"`valid_mechs`; skipping mech request."
+                )
+                return None
+            return static_priority
 
         return self.params.mech_contract_address
 

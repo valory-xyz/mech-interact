@@ -297,8 +297,11 @@ class MechParams(BaseParams):
             "use_acn_for_delivers", kwargs, bool
         )
         self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
-        self.ignored_mechs: FrozenSet[str] = frozenset(
-            self._ensure("ignored_mechs", kwargs, List[str])
+        self.valid_mechs: FrozenSet[str] = frozenset(
+            str(addr).lower() for addr in self._ensure("valid_mechs", kwargs, List[str])
+        )
+        self.valid_tools: FrozenSet[str] = frozenset(
+            str(tool).lower() for tool in self._ensure("valid_tools", kwargs, List[str])
         )
         self.penalize_mech_time_window: int = self._ensure(
             "penalize_mech_time_window", kwargs, int
@@ -371,6 +374,22 @@ class MechParams(BaseParams):
                         "priority_mech_address is required "
                         "when use_mech_marketplace is True and use_dynamic_mech_selection is False"
                     )
+                if self.mech_marketplace_config.use_dynamic_mech_selection and (
+                    not self.valid_mechs or not self.valid_tools
+                ):
+                    missing = ", ".join(
+                        name
+                        for name, populated in (
+                            ("valid_mechs", self.valid_mechs),
+                            ("valid_tools", self.valid_tools),
+                        )
+                        if not populated
+                    )
+                    self.context.logger.warning(
+                        f"{missing} is empty while marketplace v2 dynamic selection "
+                        "is enabled. No mech requests will succeed until the "
+                        "allowlist is configured."
+                    )
 
             # Validate sleep time
             if self.mech_interaction_sleep_time <= 0:
@@ -398,6 +417,7 @@ class SharedState(BaseSharedState):
         # defined here so developers can penalize mechs (e.g., based on the response) to lower their ranking
         self._penalized_mechs: Dict[str, int] = {}
         self.last_called_mech: Optional[str] = None
+        self.last_failure_reason: Optional[str] = None
 
     @property
     def params(self) -> MechParams:  # pragma: no cover

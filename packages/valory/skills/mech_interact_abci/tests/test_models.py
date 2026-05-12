@@ -100,6 +100,15 @@ class TestMechMarketplaceConfig:
         assert config.use_dynamic_mech_selection is False
 
 
+class TestSharedStateLastFailureReason:
+    """Tests for SharedState.last_failure_reason."""
+
+    def test_default_is_none(self) -> None:
+        """A freshly constructed SharedState has no failure reason."""
+        state = SharedState(name="", skill_context=DummyContext())
+        assert state.last_failure_reason is None
+
+
 class TestMultisendBatch:
     """Tests for MultisendBatch dataclass."""
 

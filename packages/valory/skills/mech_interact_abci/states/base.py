@@ -315,10 +315,37 @@ class SynchronizedData(TxSynchronizedData):
         return str(self.db.get_strict("mech_tool"))
 
     @property
+    def selected_mechs(self) -> List[str]:
+        """Get the consumer-pinned mech addresses (lowercase). Empty means no pin.
+
+        A malformed value in the db key (wrong shape or invalid JSON) returns
+        an empty list with a warning, rather than raising on every subsequent
+        round until the key is cleared.
+
+        :return: lowercase mech addresses.
+        """
+        raw = self.db.get("selected_mechs", SERIALIZED_EMPTY_LIST)
+        try:
+            if isinstance(raw, str):
+                raw = json.loads(raw)
+            return [str(addr).lower() for addr in (raw or [])]
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            return []
+
+    @property
     def relevant_mechs_info(self) -> MechsInfo:
-        """Get the relevant mechs' information."""
+        """Get the relevant mechs' information.
+
+        :return: mechs that serve the selected tool. If a consumer has pinned
+            a subset of mechs via `selected_mechs`, the result is further
+            restricted to that subset.
+        """
+        pinned = self.selected_mechs
         return [
-            info for info in self.mechs_info if self.mech_tool in info.relevant_tools
+            info
+            for info in self.mechs_info
+            if self.mech_tool in info.relevant_tools
+            and (not pinned or info.address.lower() in pinned)
         ]
 
     @property

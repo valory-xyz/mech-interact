@@ -933,6 +933,111 @@ class TestSynchronizedData:
         assert len(result) == 1
         assert result[0].id == "1"
 
+    def test_selected_mechs_empty_when_unset(self) -> None:
+        """selected_mechs defaults to empty when the key is absent."""
+        sd = _make_synced_data()
+        assert sd.selected_mechs == []
+
+    def test_selected_mechs_lowercases_addresses(self) -> None:
+        """Consumers may send mixed-case addresses; selected_mechs returns lowercase."""
+        sd = _make_synced_data(selected_mechs=json.dumps(["0xAbC", "0xDEF"]))
+        assert sd.selected_mechs == ["0xabc", "0xdef"]
+
+    def test_selected_mechs_falls_back_on_malformed_json(self) -> None:
+        """A bad write (not-json or wrong shape) is tolerated, not raised."""
+        sd = _make_synced_data(selected_mechs="not-json")
+        assert sd.selected_mechs == []
+
+    def test_selected_mechs_falls_back_on_wrong_shape(self) -> None:
+        """JSON that decodes to a non-iterable yields an empty list."""
+        sd = _make_synced_data(selected_mechs=json.dumps(42))
+        assert sd.selected_mechs == []
+
+    def test_relevant_mechs_info_filters_by_selected_mechs(self) -> None:
+        """Mechs not in `selected_mechs` are dropped from relevant_mechs_info."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0x1",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+            {
+                "id": "2",
+                "address": "0x2",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+        ]
+        sd = _make_synced_data(
+            mechs_info=json.dumps(info_data),
+            mech_tool="tool_a",
+            selected_mechs=json.dumps(["0x2"]),
+        )
+        result = sd.relevant_mechs_info
+        assert len(result) == 1
+        assert result[0].id == "2"
+
+    def test_relevant_mechs_info_empty_pin_is_no_op(self) -> None:
+        """Empty `selected_mechs` does not restrict beyond `mech_tool`."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0x1",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+            {
+                "id": "2",
+                "address": "0x2",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+        ]
+        sd = _make_synced_data(
+            mechs_info=json.dumps(info_data),
+            mech_tool="tool_a",
+            selected_mechs=json.dumps([]),
+        )
+        assert len(sd.relevant_mechs_info) == 2
+
+    def test_relevant_mechs_info_pin_lookup_is_case_insensitive(self) -> None:
+        """Pinning with mixed-case address still matches lowercase mech addresses."""
+        info_data = [
+            {
+                "id": "1",
+                "address": "0xabc",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": "1",
+                "receivedRequests": "1",
+                "selfDeliveredFromReceived": "1",
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["tool_a"],
+            },
+        ]
+        sd = _make_synced_data(
+            mechs_info=json.dumps(info_data),
+            mech_tool="tool_a",
+            selected_mechs=json.dumps(["0xABC"]),
+        )
+        assert len(sd.relevant_mechs_info) == 1
+
     def test_mech_tools(self) -> None:
         """Test mech_tools aggregates all tools."""
         info_data = [
