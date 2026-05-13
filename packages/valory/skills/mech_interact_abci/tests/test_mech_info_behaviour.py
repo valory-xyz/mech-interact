@@ -97,7 +97,6 @@ def _setup_api(
     """Set up a behaviour with mocked context.params and mech_tools_api."""
     behaviour._context.params = MagicMock()
     behaviour._context.params.ipfs_address = "https://ipfs.io/"
-    behaviour._context.params.irrelevant_tools = set()
     behaviour._context.params.valid_mechs = valid_mechs or frozenset()
     behaviour._context.params.valid_tools = valid_tools or frozenset()
 
@@ -167,14 +166,13 @@ class TestPopulateTools:
         assert called["count"] == 0
 
     def test_populates_tools_from_http_response(self) -> None:
-        """Tools fetched via HTTP and populated on the mech."""
+        """Tools fetched via HTTP intersected with valid_tools allowlist."""
         behaviour = _make_mech_info_behaviour()
         api = _setup_api(
             behaviour,
             valid_tools=frozenset({"tool_a", "tool_b"}),
         )
-        api.process_response.return_value = ["tool_a", "tool_b", "irrelevant_tool"]
-        behaviour._context.params.irrelevant_tools = {"irrelevant_tool"}
+        api.process_response.return_value = ["tool_a", "tool_b", "tool_c"]
 
         mech = _make_mech_info(relevant_tools=set())
         _wire_get_http_response(behaviour, [MagicMock()])
@@ -559,23 +557,6 @@ class TestAllowlistIntersect:
         _drive(behaviour.populate_tools([mech]))
 
         assert mech.relevant_tools == set()
-
-    def test_irrelevant_tools_filtered_before_intersect(self) -> None:
-        """`irrelevant_tools` are removed before the `valid_tools` intersect."""
-        behaviour = _make_mech_info_behaviour()
-        api = _setup_api(
-            behaviour,
-            valid_tools=frozenset({"tool_a", "tool_b", "junk"}),
-        )
-        api.process_response.return_value = ["tool_a", "tool_b", "junk"]
-        behaviour._context.params.irrelevant_tools = {"junk"}
-
-        mech = _make_mech_info(relevant_tools=set())
-        _wire_get_http_response(behaviour, [MagicMock()])
-
-        _drive(behaviour.populate_tools([mech]))
-
-        assert mech.relevant_tools == {"tool_a", "tool_b"}
 
 
 class TestLastFailureReason:

@@ -5,6 +5,11 @@ Below, we describe the additional manual steps required to upgrade between diffe
 ## Unreleased (built with `open-aea@2.2.3` and `open-autonomy@0.21.20`)
 
 #### Breaking Changes
+- The `irrelevant_tools` blocklist has been removed. Any overlay that still
+  sets `irrelevant_tools` will be silently ignored. Curate `valid_tools`
+  as the single tool allowlist instead: anything previously in
+  `irrelevant_tools` must be omitted from `valid_tools`. Per-mech
+  `relevant_tools` is now just `metadata_tools & valid_tools`.
 - The `ignored_mechs` blocklist has been removed. Any overlay
   (`aea-config.yaml`, `service.yaml`) that still sets `ignored_mechs` will be
   silently ignored. Replace it with the new `valid_mechs` allowlist.
@@ -96,6 +101,8 @@ Below, we describe the additional manual steps required to upgrade between diffe
     - `mechs_info`: All the mechs' information.
     - `relevant_mechs_info`: The mechs' information that are relevant to the user, 
       i.e., include tools which are not in the `irrelevant_tools` set.
+      (Note: `irrelevant_tools` was removed in the Unreleased section above;
+      from that version on, the filter is `metadata_tools & valid_tools`.)
     - `mech_tools`: The set of all the mechs' tools.
     - `priority_mech`: The dynamically picked priority mech.
     - `priority_mech_address`: The address of the dynamically picked priority mech.
@@ -113,6 +120,7 @@ Below, we describe the additional manual steps required to upgrade between diffe
     - `FinishedMechInformationRound`: Triggered if the mech information gathering was successfully performed.
     - `FailedMechInformationRound`: Triggered if the mech information gathering failed.
 - The `irrelevant_tools` are now defined in this skill. This is a list of tools which should never be picked.
+  (Note: `irrelevant_tools` was removed in the Unreleased section above; see Breaking Changes there.)
 - New models have been introduced in `skill.yaml` and `models.py` and should be defined in the composed skills too:
   - `MechToolsSpecs`
   - `MechsSubgraph`
