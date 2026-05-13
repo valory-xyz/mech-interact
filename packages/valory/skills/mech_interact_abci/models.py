@@ -296,7 +296,6 @@ class MechParams(BaseParams):
         self.use_acn_for_delivers: bool = self._ensure(
             "use_acn_for_delivers", kwargs, bool
         )
-        self.irrelevant_tools: set = set(self._ensure("irrelevant_tools", kwargs, list))
         self.valid_mechs: FrozenSet[str] = frozenset(
             str(addr).lower() for addr in self._ensure("valid_mechs", kwargs, List[str])
         )

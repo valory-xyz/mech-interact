@@ -5,6 +5,11 @@ Below, we describe the additional manual steps required to upgrade between diffe
 ## Unreleased (built with `open-aea@2.2.3` and `open-autonomy@0.21.20`)
 
 #### Breaking Changes
+- The `irrelevant_tools` blocklist has been removed. Any overlay that still
+  sets `irrelevant_tools` will be silently ignored. Curate `valid_tools`
+  as the single tool allowlist instead: anything previously in
+  `irrelevant_tools` must be omitted from `valid_tools`. Per-mech
+  `relevant_tools` is now just `metadata_tools & valid_tools`.
 - The `ignored_mechs` blocklist has been removed. Any overlay
   (`aea-config.yaml`, `service.yaml`) that still sets `ignored_mechs` will be
   silently ignored. Replace it with the new `valid_mechs` allowlist.
