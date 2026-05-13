@@ -101,6 +101,8 @@ Below, we describe the additional manual steps required to upgrade between diffe
     - `mechs_info`: All the mechs' information.
     - `relevant_mechs_info`: The mechs' information that are relevant to the user, 
       i.e., include tools which are not in the `irrelevant_tools` set.
+      (Note: `irrelevant_tools` was removed in the Unreleased section above;
+      from that version on, the filter is `metadata_tools & valid_tools`.)
     - `mech_tools`: The set of all the mechs' tools.
     - `priority_mech`: The dynamically picked priority mech.
     - `priority_mech_address`: The address of the dynamically picked priority mech.
@@ -118,6 +120,7 @@ Below, we describe the additional manual steps required to upgrade between diffe
     - `FinishedMechInformationRound`: Triggered if the mech information gathering was successfully performed.
     - `FailedMechInformationRound`: Triggered if the mech information gathering failed.
 - The `irrelevant_tools` are now defined in this skill. This is a list of tools which should never be picked.
+  (Note: `irrelevant_tools` was removed in the Unreleased section above; see Breaking Changes there.)
 - New models have been introduced in `skill.yaml` and `models.py` and should be defined in the composed skills too:
   - `MechToolsSpecs`
   - `MechsSubgraph`
