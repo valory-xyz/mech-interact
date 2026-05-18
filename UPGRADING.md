@@ -2,7 +2,7 @@
 
 Below, we describe the additional manual steps required to upgrade between different versions:
 
-## Unreleased (built with `open-aea@2.2.3` and `open-autonomy@0.21.20`)
+## Unreleased (built with `open-aea@2.2.6` and `open-autonomy@0.21.22`)
 
 #### Breaking Changes
 - The `irrelevant_tools` blocklist has been removed. Any overlay that still
