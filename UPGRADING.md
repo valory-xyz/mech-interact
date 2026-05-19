@@ -5,6 +5,22 @@ Below, we describe the additional manual steps required to upgrade between diffe
 ## Unreleased (built with `open-aea@2.2.6` and `open-autonomy@0.21.22`)
 
 #### Breaking Changes
+- The `valid_tools` operator allowlist has been removed from
+  `mech_interact_abci`. The skill no longer filters per-mech
+  `relevant_tools` against an operator-curated set; each mech's
+  `relevant_tools` now carries its full IPFS manifest tool list as-is.
+  Tool-suitability decisions are the consumer's responsibility (e.g.
+  `decision_maker_abci` in trader runs an `is_prediction_tool`
+  classifier and may still keep its own `valid_tools` safety net).
+  Any overlay that still sets `valid_tools` on `mech_interact_abci`
+  will fail to load because the param is no longer declared. Move the
+  override into the consumer skill that needs it (e.g.
+  `decision_maker_abci`).
+- The `last_failure_reason` value `no_overlap_with_valid_tools` is
+  renamed to `no_tools_in_manifests` (the only way the trigger
+  condition fires now is when every fetched manifest is empty), and
+  `pinned_mechs_no_valid_tools` is renamed to `pinned_mechs_no_tools`.
+  Consumers that switch on these strings must update accordingly.
 - The `irrelevant_tools` blocklist has been removed. Any overlay that still
   sets `irrelevant_tools` will be silently ignored. Curate `valid_tools`
   as the single tool allowlist instead: anything previously in
