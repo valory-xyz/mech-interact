@@ -19,7 +19,7 @@
 
 """Tests for the mech_info behaviour module."""
 
-from typing import Any, FrozenSet, Generator, List, Optional, Set
+from typing import Any, Generator, List, Optional, Set
 from unittest.mock import MagicMock, patch
 
 from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
@@ -90,15 +90,16 @@ def _wire_get_http_response(
 
 def _setup_api(
     behaviour: MechInformationBehaviour,
-    valid_mechs: Optional[FrozenSet[str]] = None,
-    valid_tools: Optional[FrozenSet[str]] = None,
     **overrides: Any,
 ) -> MagicMock:
-    """Set up a behaviour with mocked context.params and mech_tools_api."""
+    """Set up a behaviour with mocked context.params and mech_tools_api.
+
+    Tests that need a non-empty `valid_mechs` set it directly on
+    `behaviour._context.params.valid_mechs` after calling this helper.
+    """
     behaviour._context.params = MagicMock()
     behaviour._context.params.ipfs_address = "https://ipfs.io/"
-    behaviour._context.params.valid_mechs = valid_mechs or frozenset()
-    behaviour._context.params.valid_tools = valid_tools or frozenset()
+    behaviour._context.params.valid_mechs = frozenset()
 
     api = MagicMock()
     api.__dict__["_frozen"] = True
@@ -166,12 +167,9 @@ class TestPopulateTools:
         assert called["count"] == 0
 
     def test_populates_tools_from_http_response(self) -> None:
-        """Tools fetched via HTTP intersected with valid_tools allowlist."""
+        """Manifest tools are surfaced verbatim onto each mech's relevant_tools."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(
-            behaviour,
-            valid_tools=frozenset({"tool_a", "tool_b"}),
-        )
+        api = _setup_api(behaviour)
         api.process_response.return_value = ["tool_a", "tool_b", "tool_c"]
 
         mech = _make_mech_info(relevant_tools=set())
@@ -180,7 +178,7 @@ class TestPopulateTools:
         result = _drive(behaviour.populate_tools([mech]))
 
         assert result is True
-        assert mech.relevant_tools == {"tool_a", "tool_b"}
+        assert mech.relevant_tools == {"tool_a", "tool_b", "tool_c"}
         api.reset_retries.assert_called_once()
 
     def test_returns_false_on_transient_error(self) -> None:
@@ -302,7 +300,7 @@ class TestCidGrouping:
     def test_shared_cid_fetched_once_for_all_mechs(self) -> None:
         """N mechs with identical metadata_str result in a single HTTP fetch."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour, valid_tools=frozenset({"tool_x", "tool_y"}))
+        api = _setup_api(behaviour)
         api.process_response.return_value = ["tool_x", "tool_y"]
 
         mechs = [
@@ -331,10 +329,7 @@ class TestCidGrouping:
     def test_distinct_cids_fetched_separately(self) -> None:
         """Each distinct CID gets its own HTTP fetch."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(
-            behaviour,
-            valid_tools=frozenset({"tool_a", "tool_b"}),
-        )
+        api = _setup_api(behaviour)
         api.process_response.side_effect = [["tool_a"], ["tool_b"]]
 
         mech_a = _make_mech_info(
@@ -465,10 +460,7 @@ class TestGetMechsInfo:
     def test_partial_success_returns_serialized_json(self) -> None:
         """One good mech + one broken mech returns JSON; broken has empty tools."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(
-            behaviour,
-            valid_tools=frozenset({"tool_good"}),
-        )
+        api = _setup_api(behaviour)
         api.process_response.side_effect = [["tool_good"], None]
         api.is_permanent_error.return_value = True
         api.url = "http://test/broken"
@@ -526,39 +518,6 @@ class TestGetMechsInfo:
         assert "0xbroken" in behaviour._failed_mechs
 
 
-class TestAllowlistIntersect:
-    """Tests for the `valid_tools` allowlist intersect in populate_tools."""
-
-    def test_drops_metadata_tools_not_in_allowlist(self) -> None:
-        """Tools present in IPFS metadata but absent from `valid_tools` are dropped."""
-        behaviour = _make_mech_info_behaviour()
-        api = _setup_api(
-            behaviour,
-            valid_tools=frozenset({"tool_a"}),
-        )
-        api.process_response.return_value = ["tool_a", "tool_b", "tool_c"]
-
-        mech = _make_mech_info(relevant_tools=set())
-        _wire_get_http_response(behaviour, [MagicMock()])
-
-        _drive(behaviour.populate_tools([mech]))
-
-        assert mech.relevant_tools == {"tool_a"}
-
-    def test_empty_valid_tools_yields_empty_relevant_tools(self) -> None:
-        """An empty `valid_tools` set produces no relevant tools for any mech."""
-        behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour, valid_tools=frozenset())
-        api.process_response.return_value = ["tool_a", "tool_b"]
-
-        mech = _make_mech_info(relevant_tools=set())
-        _wire_get_http_response(behaviour, [MagicMock()])
-
-        _drive(behaviour.populate_tools([mech]))
-
-        assert mech.relevant_tools == set()
-
-
 class TestLastFailureReason:
     """Tests for `last_failure_reason` writes from get_mechs_info."""
 
@@ -611,11 +570,11 @@ class TestLastFailureReason:
 
         assert behaviour._context.state.last_failure_reason == "valid_mech_list_empty"
 
-    def test_writes_no_overlap_when_valid_tools_empty(self) -> None:
-        """Empty `valid_tools` writes `no_overlap_with_valid_tools`."""
+    def test_writes_no_usable_tools_in_mechs_when_all_manifests_empty(self) -> None:
+        """All manifests returning an empty tools list writes `no_usable_tools_in_mechs`."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour, valid_tools=frozenset())
-        api.process_response.return_value = ["tool_a"]
+        api = _setup_api(behaviour)
+        api.process_response.return_value = []
 
         mech = _make_mech_info(address="0xmech1", relevant_tools=set())
 
@@ -630,32 +589,7 @@ class TestLastFailureReason:
         _drive(behaviour.get_mechs_info())
 
         assert (
-            behaviour._context.state.last_failure_reason
-            == "no_overlap_with_valid_tools"
-        )
-
-    def test_writes_no_overlap_when_metadata_disjoint_from_valid_tools(self) -> None:
-        """Non-empty `valid_tools` that doesn't intersect manifest writes the same reason."""
-        behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour, valid_tools=frozenset({"tool_x"}))
-        api.process_response.return_value = ["tool_a", "tool_b"]
-
-        mech = _make_mech_info(address="0xmech1", relevant_tools=set())
-
-        def mock_fetch_mechs_info() -> Generator[None, None, List[MechInfo]]:
-            behaviour._fetch_status = FetchStatus.SUCCESS
-            yield
-            return [mech]
-
-        behaviour.fetch_mechs_info = mock_fetch_mechs_info  # type: ignore[method-assign]
-        _wire_get_http_response(behaviour, [MagicMock()])
-
-        _drive(behaviour.get_mechs_info())
-
-        assert mech.relevant_tools == set()
-        assert (
-            behaviour._context.state.last_failure_reason
-            == "no_overlap_with_valid_tools"
+            behaviour._context.state.last_failure_reason == "no_usable_tools_in_mechs"
         )
 
     def test_clears_failure_reason_on_success(self) -> None:
@@ -663,7 +597,7 @@ class TestLastFailureReason:
         behaviour = _make_mech_info_behaviour()
         behaviour._context.state.last_failure_reason = "stale_reason"
 
-        api = _setup_api(behaviour, valid_tools=frozenset({"tool_a"}))
+        api = _setup_api(behaviour)
         api.process_response.return_value = ["tool_a"]
 
         mech = _make_mech_info(address="0xmech1", relevant_tools=set())
@@ -689,7 +623,7 @@ class TestLastFailureReason:
     def test_writes_pinned_mechs_offline_when_pin_not_in_mech_info(self) -> None:
         """Pinned addresses absent from this round's mech_info write `pinned_mechs_offline`."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour, valid_tools=frozenset({"tool_a"}))
+        api = _setup_api(behaviour)
         api.process_response.return_value = ["tool_a"]
 
         mech = _make_mech_info(address="0xa", relevant_tools=set())
@@ -714,15 +648,16 @@ class TestLastFailureReason:
         assert result is None
         assert behaviour._context.state.last_failure_reason == "pinned_mechs_offline"
 
-    def test_writes_pinned_mechs_no_valid_tools_when_pinned_visible_but_no_tools(
+    def test_writes_pinned_mechs_no_usable_tools_when_pinned_visible_but_no_tools(
         self,
     ) -> None:
-        """Pinned mech visible but with no tools in `valid_tools` writes `pinned_mechs_no_valid_tools`."""
+        """Pinned mech visible but with an empty manifest writes `pinned_mechs_no_usable_tools`."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour, valid_tools=frozenset({"tool_x"}))
-        # First CID ("good") advertises tool_x; second CID ("pinned")
-        # advertises tool_a — only `good` ends up with relevant_tools.
-        api.process_response.side_effect = [["tool_x"], ["tool_a"]]
+        api = _setup_api(behaviour)
+        # First CID ("good") advertises tool_x; second CID ("pinned") has
+        # an empty manifest tools list -- only `good` ends up with
+        # relevant_tools and the pinned mech is quarantined empty.
+        api.process_response.side_effect = [["tool_x"], []]
 
         good = _make_mech_info(
             address="0xgood", metadata_str="good", relevant_tools=set()
@@ -751,13 +686,13 @@ class TestLastFailureReason:
         assert result is None
         assert (
             behaviour._context.state.last_failure_reason
-            == "pinned_mechs_no_valid_tools"
+            == "pinned_mechs_no_usable_tools"
         )
 
     def test_pinned_mech_in_mech_info_does_not_trip_pinned_mechs_offline(self) -> None:
         """When a pinned address IS visible, no failure reason is written."""
         behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour, valid_tools=frozenset({"tool_a"}))
+        api = _setup_api(behaviour)
         api.process_response.return_value = ["tool_a"]
 
         mech = _make_mech_info(address="0xa", relevant_tools=set())

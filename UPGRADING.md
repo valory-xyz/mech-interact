@@ -5,11 +5,31 @@ Below, we describe the additional manual steps required to upgrade between diffe
 ## Unreleased (built with `open-aea@2.2.6` and `open-autonomy@0.21.22`)
 
 #### Breaking Changes
-- The `irrelevant_tools` blocklist has been removed. Any overlay that still
-  sets `irrelevant_tools` will be silently ignored. Curate `valid_tools`
-  as the single tool allowlist instead: anything previously in
-  `irrelevant_tools` must be omitted from `valid_tools`. Per-mech
-  `relevant_tools` is now just `metadata_tools & valid_tools`.
+- The `valid_tools` operator allowlist has been removed from
+  `mech_interact_abci`. The skill no longer filters per-mech
+  `relevant_tools` against an operator-curated set; each mech's
+  `relevant_tools` now carries its full IPFS manifest tool list as-is.
+  Tool-suitability decisions are the consumer's responsibility (e.g.
+  `decision_maker_abci` in trader runs an `is_prediction_tool`
+  classifier and may still keep its own `valid_tools` safety net).
+  Any overlay that still sets `valid_tools` on `mech_interact_abci`
+  will fail to load because the param is no longer declared. Move the
+  override into the consumer skill that needs it (e.g.
+  `decision_maker_abci`).
+- The `last_failure_reason` value `no_overlap_with_valid_tools` is
+  renamed to `no_usable_tools_in_mechs`, and
+  `pinned_mechs_no_valid_tools` is renamed to
+  `pinned_mechs_no_usable_tools`. Both reasons now cover the broader
+  trigger: a mech ends up with empty `relevant_tools` when its
+  manifest is empty, permanently failing, or retries-exhausted. The
+  rename reflects this — consumers that switch on the old strings
+  must update accordingly.
+- The `irrelevant_tools` blocklist has been removed. Any overlay that
+  still sets `irrelevant_tools` will be silently ignored. With this
+  release's removal of `valid_tools` too, mech_interact_abci no longer
+  filters tools at the transport layer at all — each mech's
+  `relevant_tools` carries its full IPFS manifest tool list, and any
+  tool-suitability filtering is the consumer's responsibility.
 - The `ignored_mechs` blocklist has been removed. Any overlay
   (`aea-config.yaml`, `service.yaml`) that still sets `ignored_mechs` will be
   silently ignored. Replace it with the new `valid_mechs` allowlist.
@@ -36,11 +56,6 @@ Below, we describe the additional manual steps required to upgrade between diffe
   addresses (case-insensitive, lowercased on load). Empty default. With
   marketplace v2 dynamic selection enabled and `valid_mechs` empty, the
   skill logs a startup warning and short-circuits the subgraph fetch.
-- New `valid_tools: List[str]` skill param: a flat allowlist of tool
-  names. Each mech's IPFS manifest is intersected with this set; only
-  tools that appear in both are surfaced as `relevant_tools`. Both
-  sides of the intersect are lowercased, so a `Prediction-Online` in
-  `service.yaml` will match a `prediction-online` manifest entry.
 - New `SynchronizedData.selected_mechs` property: a list of lowercase mech
   addresses that further restricts `relevant_mechs_info` AND `mech_tools`
   when non-empty (so a consumer can't pick a tool no pinned mech serves).
@@ -48,20 +63,21 @@ Below, we describe the additional manual steps required to upgrade between diffe
   mechanism.
 - New `SharedState.last_failure_reason` diagnostic string set on each
   failure path: `subgraph_unavailable`, `allowlist_not_configured`,
-  `valid_mech_list_empty`, `no_overlap_with_valid_tools`,
-  `pinned_mechs_offline` (written by `MechInformationBehaviour` when a
-  non-empty `selected_mechs` has no overlap with this round's
-  `mech_info`), `pinned_mechs_no_valid_tools` (written when pinned mechs
-  are visible but their IPFS manifests don't intersect `valid_tools`),
+  `valid_mech_list_empty`, `no_usable_tools_in_mechs` (no mech in
+  this round has usable tools — manifest empty or unreachable),
+  `pinned_mechs_offline` (written by `MechInformationBehaviour` when
+  a non-empty `selected_mechs` has no overlap with this round's
+  `mech_info`), `pinned_mechs_no_usable_tools` (written when pinned
+  mechs are visible but have empty `relevant_tools` for any reason),
   `no_overlap_with_selected_mechs` (written by `MechRequestBehaviour`
   when a non-empty `selected_mechs` pin yields no candidate for the
-  chosen tool), `no_overlap_with_selected_tool` (written when no pin is
-  set but no allowed mech serves the chosen tool),
-  `static_priority_not_in_valid_mechs` (written when the static priority
-  is rejected by the allowlist), and `no_non_penalized_valid_mech`
-  (written when every ranked candidate is under active penalty).
-  Consumed by the trader-side ChatUI handler to surface why a round
-  produced no candidate.
+  chosen tool), `no_overlap_with_selected_tool` (written when no pin
+  is set but no allowed mech serves the chosen tool),
+  `static_priority_not_in_valid_mechs` (written when the static
+  priority is rejected by the allowlist), and
+  `no_non_penalized_valid_mech` (written when every ranked candidate
+  is under active penalty). Consumed by the trader-side ChatUI
+  handler to surface why a round produced no candidate.
 
 ## `v0.22.2` to `v0.22.3` (built with `open-aea@1.65.0` and `open-autonomy@0.19.11`)
 
@@ -102,7 +118,10 @@ Below, we describe the additional manual steps required to upgrade between diffe
     - `relevant_mechs_info`: The mechs' information that are relevant to the user, 
       i.e., include tools which are not in the `irrelevant_tools` set.
       (Note: `irrelevant_tools` was removed in the Unreleased section above;
-      from that version on, the filter is `metadata_tools & valid_tools`.)
+      `valid_tools` was also removed in the same Unreleased section.
+      From that version on, `relevant_tools` carries the full IPFS manifest
+      tool list as-is; tool-suitability filtering is the consumer's
+      responsibility.)
     - `mech_tools`: The set of all the mechs' tools.
     - `priority_mech`: The dynamically picked priority mech.
     - `priority_mech_address`: The address of the dynamically picked priority mech.

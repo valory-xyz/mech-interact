@@ -136,9 +136,8 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                 continue
 
             metadata_tools = {str(t).lower() for t in res}
-            allowed_tools = metadata_tools & self.params.valid_tools
             for mech in mechs:
-                mech.relevant_tools |= allowed_tools
+                mech.relevant_tools |= metadata_tools
             self.mech_tools_api.reset_retries()
 
         return True
@@ -174,9 +173,10 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
 
         if not any(mech.relevant_tools for mech in mech_info):
             self.context.logger.warning(
-                "No mechs have usable tools after fetch; emitting NONE to retry."
+                "No mechs have usable tools after fetch (manifest empty or "
+                "unreachable); emitting NONE to retry."
             )
-            self.shared_state.last_failure_reason = "no_overlap_with_valid_tools"
+            self.shared_state.last_failure_reason = "no_usable_tools_in_mechs"
             return None
 
         pinned = self.synchronized_data.selected_mechs
@@ -196,10 +196,10 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                 for mech in mech_info
             ):
                 self.context.logger.warning(
-                    f"Pinned mechs {sorted(visible_pinned)} are visible but expose "
-                    f"no tools in `valid_tools`."
+                    f"Pinned mechs {sorted(visible_pinned)} are visible but "
+                    f"have no usable tools (manifest empty or unreachable)."
                 )
-                self.shared_state.last_failure_reason = "pinned_mechs_no_valid_tools"
+                self.shared_state.last_failure_reason = "pinned_mechs_no_usable_tools"
                 return None
 
         # truncate the information, otherwise logs get too big
