@@ -19,7 +19,7 @@
 
 """Tests for the mech_info behaviour module."""
 
-from typing import Any, FrozenSet, Generator, List, Optional, Set
+from typing import Any, Generator, List, Optional, Set
 from unittest.mock import MagicMock, patch
 
 from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
@@ -90,13 +90,16 @@ def _wire_get_http_response(
 
 def _setup_api(
     behaviour: MechInformationBehaviour,
-    valid_mechs: Optional[FrozenSet[str]] = None,
     **overrides: Any,
 ) -> MagicMock:
-    """Set up a behaviour with mocked context.params and mech_tools_api."""
+    """Set up a behaviour with mocked context.params and mech_tools_api.
+
+    Tests that need a non-empty `valid_mechs` set it directly on
+    `behaviour._context.params.valid_mechs` after calling this helper.
+    """
     behaviour._context.params = MagicMock()
     behaviour._context.params.ipfs_address = "https://ipfs.io/"
-    behaviour._context.params.valid_mechs = valid_mechs or frozenset()
+    behaviour._context.params.valid_mechs = frozenset()
 
     api = MagicMock()
     api.__dict__["_frozen"] = True
@@ -567,8 +570,8 @@ class TestLastFailureReason:
 
         assert behaviour._context.state.last_failure_reason == "valid_mech_list_empty"
 
-    def test_writes_no_tools_in_manifests_when_all_manifests_empty(self) -> None:
-        """All manifests returning an empty tools list writes `no_tools_in_manifests`."""
+    def test_writes_no_usable_tools_in_mechs_when_all_manifests_empty(self) -> None:
+        """All manifests returning an empty tools list writes `no_usable_tools_in_mechs`."""
         behaviour = _make_mech_info_behaviour()
         api = _setup_api(behaviour)
         api.process_response.return_value = []
@@ -585,7 +588,9 @@ class TestLastFailureReason:
 
         _drive(behaviour.get_mechs_info())
 
-        assert behaviour._context.state.last_failure_reason == "no_tools_in_manifests"
+        assert (
+            behaviour._context.state.last_failure_reason == "no_usable_tools_in_mechs"
+        )
 
     def test_clears_failure_reason_on_success(self) -> None:
         """A successful round leaves `last_failure_reason` as None."""
@@ -643,10 +648,10 @@ class TestLastFailureReason:
         assert result is None
         assert behaviour._context.state.last_failure_reason == "pinned_mechs_offline"
 
-    def test_writes_pinned_mechs_no_tools_when_pinned_visible_but_no_tools(
+    def test_writes_pinned_mechs_no_usable_tools_when_pinned_visible_but_no_tools(
         self,
     ) -> None:
-        """Pinned mech visible but with an empty manifest writes `pinned_mechs_no_tools`."""
+        """Pinned mech visible but with an empty manifest writes `pinned_mechs_no_usable_tools`."""
         behaviour = _make_mech_info_behaviour()
         api = _setup_api(behaviour)
         # First CID ("good") advertises tool_x; second CID ("pinned") has
@@ -679,7 +684,10 @@ class TestLastFailureReason:
             result = _drive(behaviour.get_mechs_info())
 
         assert result is None
-        assert behaviour._context.state.last_failure_reason == "pinned_mechs_no_tools"
+        assert (
+            behaviour._context.state.last_failure_reason
+            == "pinned_mechs_no_usable_tools"
+        )
 
     def test_pinned_mech_in_mech_info_does_not_trip_pinned_mechs_offline(self) -> None:
         """When a pinned address IS visible, no failure reason is written."""
