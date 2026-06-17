@@ -232,11 +232,28 @@ class MechMarketplaceConfig:
     priority_mech_service_id: int = 975
     requester_staking_instance_address: Optional[str] = NULL_ADDRESS
     use_dynamic_mech_selection: bool = True
+    # Off-chain dispatch (ships dark). False = today's on-chain MechMarketplace
+    # request, bit-for-bit unchanged. True engages the off-chain branch: the
+    # request is HTTP-POSTed to the mech and the response is polled, instead of
+    # being submitted/settled on-chain. ``offchain_url`` is the static fallback
+    # endpoint; when unset the URL is discovered per-mech from the on-chain
+    # manifest (see OFFCHAIN follow-up).
+    use_offchain: bool = False
+    offchain_url: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         if self.response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
+        if (
+            self.use_offchain
+            and not self.offchain_url
+            and not self.use_dynamic_mech_selection
+        ):
+            raise ValueError(
+                "use_offchain requires either offchain_url or "
+                "use_dynamic_mech_selection (to discover the mech's URL)"
+            )
 
 
 class MechParams(BaseParams):
