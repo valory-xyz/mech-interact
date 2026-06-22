@@ -15,7 +15,7 @@ fingerprint:
   behaviours/mech_info.py: bafybeibwwabrnhgafubf5qrldiyqgjtp6byctlaaczxlvgjvndihjtwjue
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
   behaviours/purchase_subcription.py: bafybeieet7du56scd2cltnuy7xlvvrapvk7ugmnv426k2xfnmim4wj5bfy
-  behaviours/request.py: bafybeifhy47fhj3m5rfejy7kajr55sthmzqqydavz7vm5ep3x4v6p554nm
+  behaviours/request.py: bafybeifbjs5t67ohxhxmmtx2xl42icbwv7tbeetxdfud2ey6cya2sxi26u
   behaviours/response.py: bafybeid474xrjitvkuv44nf2x2drfeuotyv2mzxvhegfh2t43qwee7enx4
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeiachjgarkgv4hxprddn7dtb5h3q4qge72rc2kysmureooq5xggxxi
@@ -29,7 +29,7 @@ fingerprint:
   payloads.py: bafybeifsk2gvtxzg2qccsjhtxp26x6ioyg7inebayqn6zz4de3pfxqm4ja
   rounds.py: bafybeidwg2xei3fbrhe4qtr6c7ngpnjdpmfi6p2wpnkx5ig76schegiuv4
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
-  states/base.py: bafybeidbgbg5nxenicvpx5tpz44fasypznm6vevo2aj5wm7n5dn5gg3p2i
+  states/base.py: bafybeicoerhecn47s55witvavenxpqosqpibp2rtbkabqng7mbm46kdnwa
   states/final_states.py: bafybeiaclul6oq3wtktpwwutgnzw4qi3untxqgnc34cofsxl3ejampou6q
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
   states/mech_version.py: bafybeig62u4mklkod7gz7h2sh5ytm42nnryltyqaze2w52ovjaa6q7ogma
@@ -45,7 +45,7 @@ fingerprint:
   tests/behaviours/test_request.py: bafybeifng4uhlb3j6fg3wriwt2rvhqh3smwvfo5ugzqjdyt36uua6t3k7y
   tests/behaviours/test_response.py: bafybeibni7zx4m7n3wktmlxyab4olt4rnduqzhaltfl7n3exru3om5fymy
   tests/states/__init__.py: bafybeieo3txynlsaxtuqxvvhjyjn2hft3ztsnr5v6byoccqg2allecx2vm
-  tests/states/test_base.py: bafybeicjdo3ni56brz4ivgt4abi6v5izoa4rqclqezcnoumejwmavqqmde
+  tests/states/test_base.py: bafybeihinlkgkqxzlmubxsllyemrzpe5pexmquxoia4nngncn43l72472e
   tests/test_base_behaviour.py: bafybeih33kcrhjqb3khr6gkhfhgaczzstgiehaajv2coieuqgtx2ijc3cu
   tests/test_behaviours.py: bafybeihsqjmxiossblhy4k643ylsslrhvvdqy7ozkgairlqllpl7oxklfi
   tests/test_dialogues.py: bafybeicztq6kz273kpq6qtp4arh5btyovj7tiwcyy227bomblv52rx2rjq

@@ -730,6 +730,39 @@ class TestMechMetadata:
         meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", request_context=ctx)
         assert meta.request_context == ctx
 
+    def test_default_extra_attributes_is_none(self) -> None:
+        """Test that extra_attributes defaults to None."""
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1")
+        assert meta.extra_attributes is None
+
+    def test_explicit_extra_attributes(self) -> None:
+        """Test constructing with explicit extra_attributes."""
+        extra = {"topics": ["sports"], "num_questions": 1}
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", extra_attributes=extra)
+        assert meta.extra_attributes == extra
+
+    def test_payload_merges_extras_top_level_and_drops_wrapper(self) -> None:
+        """Extra attributes merge top-level into the request payload; wrapper dropped."""
+        meta = MechMetadata(
+            prompt="q?",
+            tool="t1",
+            nonce="n1",
+            extra_attributes={"topics": ["sports"], "num_questions": 1},
+        )
+        payload = asdict(meta)
+        payload.update(payload.pop("extra_attributes", None) or {})
+        assert "extra_attributes" not in payload
+        assert payload["topics"] == ["sports"]
+        assert payload["num_questions"] == 1
+
+    def test_payload_byte_identical_without_extras(self) -> None:
+        """With no extra_attributes the payload equals asdict() minus the wrapper key."""
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1")
+        payload = asdict(meta)
+        payload.update(payload.pop("extra_attributes", None) or {})
+        expected = {k: v for k, v in asdict(meta).items() if k != "extra_attributes"}
+        assert payload == expected
+
     def test_explicit_schema_version_override(self) -> None:
         """Test that schema_version can be explicitly overridden."""
         meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", schema_version="3.0")
