@@ -730,6 +730,17 @@ class TestMechMetadata:
         meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", request_context=ctx)
         assert meta.request_context == ctx
 
+    def test_default_extra_attributes_is_none(self) -> None:
+        """Test that extra_attributes defaults to None."""
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1")
+        assert meta.extra_attributes is None
+
+    def test_explicit_extra_attributes(self) -> None:
+        """Test constructing with explicit extra_attributes."""
+        extra = {"topics": ["sports"], "num_questions": 1}
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", extra_attributes=extra)
+        assert meta.extra_attributes == extra
+
     def test_explicit_schema_version_override(self) -> None:
         """Test that schema_version can be explicitly overridden."""
         meta = MechMetadata(prompt="q?", tool="t1", nonce="n1", schema_version="3.0")

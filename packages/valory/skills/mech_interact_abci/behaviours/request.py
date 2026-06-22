@@ -628,8 +628,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     ) -> WaitableConditionType:
         """Send Mech metadata to IPFS."""
         metadata = self._mech_requests.pop()
+        # Merge any extra tool parameters into the payload top-level (next to
+        # prompt/tool/nonce) so the tool reads them as run() kwargs, and drop
+        # the wrapper key. With no extras this is byte-identical to asdict().
+        payload = asdict(metadata)
+        payload.update(payload.pop("extra_attributes", None) or {})
         metadata_hash = yield from self.send_to_ipfs(
-            self.metadata_filepath, asdict(metadata), filetype=SupportedFiletype.JSON
+            self.metadata_filepath, payload, filetype=SupportedFiletype.JSON
         )
         if metadata_hash is None:
             return False
