@@ -81,6 +81,10 @@ class MechMetadata:
     nonce: str
     schema_version: str = "2.0"
     request_context: Optional[Dict[str, Any]] = None
+    # Extra tool parameters, merged into the request payload top-level (next to
+    # prompt/tool/nonce) so the tool receives them as run() kwargs. Mirrors the
+    # mech-client `extra_attributes` channel. Defaults to None for back-compat.
+    extra_attributes: Optional[Dict[str, Any]] = None
 
 
 @dataclass
