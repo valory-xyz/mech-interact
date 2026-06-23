@@ -99,6 +99,48 @@ class TestMechMarketplaceConfig:
         assert config.priority_mech_address == "0xpriority"
         assert config.use_dynamic_mech_selection is False
 
+    def test_use_offchain_defaults_off(self) -> None:
+        """Off-chain dispatch ships dark: defaults to disabled with no URL."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+        )
+        assert config.use_offchain is False
+        assert config.offchain_url is None
+
+    def test_use_offchain_with_static_url(self) -> None:
+        """A static offchain_url satisfies the off-chain config."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            use_offchain=True,
+            offchain_url="https://mech.example/",
+            use_dynamic_mech_selection=False,
+        )
+        assert config.use_offchain is True
+        assert config.offchain_url == "https://mech.example/"
+
+    def test_use_offchain_with_dynamic_selection(self) -> None:
+        """Dynamic selection is allowed without a static URL (discovered per-mech)."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            use_offchain=True,
+            use_dynamic_mech_selection=True,
+        )
+        assert config.use_offchain is True
+        assert config.offchain_url is None
+
+    def test_use_offchain_without_url_or_dynamic_raises(self) -> None:
+        """Off-chain needs either a static URL or dynamic discovery."""
+        with pytest.raises(ValueError, match="use_offchain requires"):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                use_offchain=True,
+                use_dynamic_mech_selection=False,
+            )
+
 
 class TestSharedStateLastFailureReason:
     """Tests for SharedState.last_failure_reason."""

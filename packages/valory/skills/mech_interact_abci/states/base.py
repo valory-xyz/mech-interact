@@ -55,6 +55,14 @@ COLD_START_LIVENESS = LAPLACE_SMOOTHING_ALPHA / (
     LAPLACE_SMOOTHING_ALPHA + LAPLACE_SMOOTHING_BETA
 )
 
+# Off-chain dispatch `last_failure_reason` values, surfaced so operators and
+# downstream skills can branch on a stable label when the off-chain path
+# exhausts its options (see the off-chain request/response behaviours).
+OFFCHAIN_ALL_FAILED = "offchain_all_failed"
+OFFCHAIN_402_INSUFFICIENT = "offchain_402_insufficient"
+OFFCHAIN_503_ALL_MECHS = "offchain_503_all_mechs"
+OFFCHAIN_TIMEOUT_ALL_MECHS = "offchain_timeout_all_mechs"
+
 NestedSubgraphItemType = List[Dict[str, Any]]
 
 
