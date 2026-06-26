@@ -53,6 +53,11 @@ class BalanceTrackerFixedPriceNative(Contract):
 
         Mirrors the contract's ``mapRequesterBalances(account)`` getter.
         Returned value is in wei.
+
+        :param ledger_api: the ledger API object.
+        :param contract_address: the BalanceTracker contract address.
+        :param account: the requester address whose balance to read.
+        :return: ``{"balance": int}`` matching the ``GET_STATE`` shape.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         account = ledger_api.api.to_checksum_address(account)
@@ -72,6 +77,11 @@ class BalanceTrackerFixedPriceNative(Contract):
         Returned as raw bytes ready to be paired with a non-zero ``value``
         in the Safe-multisend batch. The deposit amount is carried by
         ``msg.value`` on chain rather than by the calldata.
+
+        :param ledger_api: the ledger API object.
+        :param contract_address: the BalanceTracker contract address.
+        :param account: the requester address being credited.
+        :return: ``{"data": bytes}`` calldata for the multisend batch.
         """
         contract_instance = cls.get_instance(ledger_api, contract_address)
         account = ledger_api.api.to_checksum_address(account)

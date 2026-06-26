@@ -52,7 +52,12 @@ class BalanceTrackerFixedPriceToken(Contract):
         """Read the prepaid balance for ``account`` on this BalanceTracker.
 
         Mirrors the contract's ``mapRequesterBalances(account)`` getter.
-        Returns the value in the token's smallest denomination.
+        Returned value is in the token's smallest denomination.
+
+        :param ledger_api: the ledger API object.
+        :param contract_address: the BalanceTracker contract address.
+        :param account: the requester address whose balance to read.
+        :return: ``{"balance": int}`` matching the ``GET_STATE`` shape.
         """
         contract_address = ledger_api.api.to_checksum_address(contract_address)
         account = ledger_api.api.to_checksum_address(account)
@@ -75,6 +80,12 @@ class BalanceTrackerFixedPriceToken(Contract):
         ``transferFrom(msg.sender, ...)`` on the BalanceTracker side, so the
         approval must be granted by the same caller (the Safe) before this
         call lands.
+
+        :param ledger_api: the ledger API object.
+        :param contract_address: the BalanceTracker contract address.
+        :param account: the requester address being credited.
+        :param amount: the deposit amount in the token's smallest unit.
+        :return: ``{"data": bytes}`` calldata for the multisend batch.
         """
         contract_instance = cls.get_instance(ledger_api, contract_address)
         account = ledger_api.api.to_checksum_address(account)

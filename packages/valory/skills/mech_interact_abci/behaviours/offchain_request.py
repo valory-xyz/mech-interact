@@ -57,9 +57,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
-from eth_abi import encode as abi_encode
-from eth_utils import keccak as eth_keccak
-from hexbytes import HexBytes
+from eth_abi import encode as abi_encode  # type: ignore[import-not-found]
+from eth_utils import keccak as eth_keccak  # type: ignore[import-not-found]
+from hexbytes import HexBytes  # type: ignore[import-not-found]
 
 from packages.valory.contracts.balance_tracker_fixed_price_native.contract import (
     BalanceTrackerFixedPriceNative,
@@ -75,10 +75,6 @@ from packages.valory.contracts.multisend.contract import (
     MultiSendOperation,
 )
 from packages.valory.protocols.contract_api import ContractApiMessage
-from packages.valory.protocols.http import HttpMessage
-from packages.valory.skills.abstract_round_abci.base import (
-    BaseTxPayload,
-)
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
     MechMetadata,
@@ -1310,9 +1306,3 @@ __all__ = [
     "derive_request_id_bytes",
     "parse_payment_challenge",
 ]
-
-
-# Silence unused-import warnings for symbols only referenced via string ids
-# (the framework looks them up by ``contract_id`` lazily).
-_ = BaseTxPayload
-_ = HttpMessage

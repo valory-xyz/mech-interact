@@ -167,7 +167,7 @@ class TestDeriveRequestIdBytes:
         A racing mech cannot replay the request against the contract's
         monotonic ``mapNonces`` because the hash differs.
         """
-        common = dict(
+        common: Dict[str, Any] = dict(
             marketplace_address="0x" + "11" * 20,
             requester="0x" + "33" * 20,
             data=b"{}",
@@ -202,7 +202,7 @@ class TestDeriveRequestIdBytes:
 
         Proves the EIP-712 inner-hash inputs include the nonce.
         """
-        common = dict(
+        common: Dict[str, Any] = dict(
             marketplace_address="0x" + "11" * 20,
             mech_address="0x" + "22" * 20,
             requester="0x" + "33" * 20,
@@ -220,7 +220,7 @@ class TestDeriveRequestIdBytes:
 
         Otherwise the request_id diverges from settlement.
         """
-        common = dict(
+        common: Dict[str, Any] = dict(
             marketplace_address="0x" + "11" * 20,
             mech_address="0x" + "22" * 20,
             requester="0x" + "33" * 20,

@@ -9,7 +9,7 @@ fingerprint:
   README.md: bafybeie7v6de6ncc2hrzpafqa3x6rjucedlhrc6ldqondzdckndn5qvkji
   __init__.py: bafybeiful6vpmllhury2bosawts4h36olgdz7bjuebznjfhkzic5kd74uq
   build/balance_tracker_fixed_price_token.json: bafybeiavrhhnrvhaxosbxlm7e32a7wtoue4cyekb4k5yd2jlcbq2bs6tdu
-  contract.py: bafybeihidextqjhgu2ntq5nhmo6w5aylxv3efqlydqvc3yy376hbddxdfi
+  contract.py: bafybeihtwa2iv4rjw5uoexo5yukhonyyqtufmhqta2jtov2g7t4hdyyrly
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: BalanceTrackerFixedPriceToken

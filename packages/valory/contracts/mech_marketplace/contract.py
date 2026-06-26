@@ -27,7 +27,6 @@ from aea.contracts.base import Contract
 from aea.crypto.base import LedgerApi
 from aea_ledger_ethereum import EthereumApi
 
-
 PUBLIC_ID = PublicId.from_str("valory/mech_marketplace:0.1.0")
 
 
