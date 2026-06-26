@@ -21,7 +21,7 @@ fingerprint:
   behaviours/response.py: bafybeift7qcgnehlphp4muqdo5harabo3jpw5ufb7egsf6bqnj4slhv2gq
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeiachjgarkgv4hxprddn7dtb5h3q4qge72rc2kysmureooq5xggxxi
-  fsm_specification.yaml: bafybeieyjqlctk364q6azapuiyjcekfj4gohoo6yuxkfbgp7yctbizpfq4
+  fsm_specification.yaml: bafybeia3eupr3dgohd5s5fukovgfhq2wyrdrbfh6owszalfovqjaxksg4q
   graph_tooling/__init__.py: bafybeihodjy6hetkp7curzbpae5xtbeotluwed5ekr3hb26uwfox5op5za
   graph_tooling/queries/__init__.py: bafybeiep7vka3rytzsdag2ibmcpz2qiz2bfev734vbp7snwf4nc2upgz3u
   graph_tooling/queries/mechs_info.py: bafybeifklh73m2zkd447f6e3nk6xsv53l5eg4xip3rk6gyi6s6ptuivux4
@@ -36,7 +36,7 @@ fingerprint:
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
   states/mech_version.py: bafybeig62u4mklkod7gz7h2sh5ytm42nnryltyqaze2w52ovjaa6q7ogma
   states/purchase_subscription.py: bafybeiaz2zpnpsww6p2z5aqxuonowiril4vxbj3twvqwe36gwmihn6uvwm
-  states/request.py: bafybeig4rhzi4p5ap74qeemtur25stk3ohvwx2jdk56xw333adgqi6swf4
+  states/request.py: bafybeigzviyzjpsqlvjzmi2mvetokdqtgrphusit2uzkhth77duar2idzq
   states/response.py: bafybeige4x7reiynwwzd3h6uxi3k7lfiobndmhrlvy6s3dgqjmyi2tal3i
   tests/__init__.py: bafybeiaxfprhthhmkvbh6ntfcu5q2lotazaokacgbbsw7taahfivmrqzoy
   tests/behaviours/__init__.py: bafybeidwk7ocq4hyppoo6vr64sadxoxa4yo23362ofizlkmf2ti7pdq3sq

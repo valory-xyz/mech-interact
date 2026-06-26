@@ -4,6 +4,9 @@ alphabet_in:
 - NONE
 - NO_MAJORITY
 - NO_MARKETPLACE
+- OFFCHAIN_ALL_FAILED
+- OFFCHAIN_DEPOSIT_NEEDED
+- OFFCHAIN_DONE
 - ROUND_TIMEOUT
 - SKIP_REQUEST
 - V1
@@ -11,6 +14,7 @@ alphabet_in:
 default_start_state: MechVersionDetectionRound
 final_states:
 - FailedMechInformationRound
+- FailedOffchainMechRequestRound
 - FinishedMarketplaceLegacyDetectedRound
 - FinishedMechInformationRound
 - FinishedMechLegacyDetectedRound
@@ -19,6 +23,8 @@ final_states:
 - FinishedMechRequestSkipRound
 - FinishedMechResponseRound
 - FinishedMechResponseTimeoutRound
+- FinishedOffchainMechDepositNeededRound
+- FinishedOffchainMechRequestRound
 label: MechInteractAbciApp
 start_states:
 - MechRequestRound
@@ -26,6 +32,7 @@ start_states:
 - MechVersionDetectionRound
 states:
 - FailedMechInformationRound
+- FailedOffchainMechRequestRound
 - FinishedMarketplaceLegacyDetectedRound
 - FinishedMechInformationRound
 - FinishedMechLegacyDetectedRound
@@ -34,6 +41,8 @@ states:
 - FinishedMechRequestSkipRound
 - FinishedMechResponseRound
 - FinishedMechResponseTimeoutRound
+- FinishedOffchainMechDepositNeededRound
+- FinishedOffchainMechRequestRound
 - MechInformationRound
 - MechPurchaseSubscriptionRound
 - MechRequestRound
@@ -51,6 +60,9 @@ transition_func:
     (MechRequestRound, BUY_SUBSCRIPTION): MechPurchaseSubscriptionRound
     (MechRequestRound, DONE): FinishedMechRequestRound
     (MechRequestRound, NO_MAJORITY): MechRequestRound
+    (MechRequestRound, OFFCHAIN_ALL_FAILED): FailedOffchainMechRequestRound
+    (MechRequestRound, OFFCHAIN_DEPOSIT_NEEDED): FinishedOffchainMechDepositNeededRound
+    (MechRequestRound, OFFCHAIN_DONE): FinishedOffchainMechRequestRound
     (MechRequestRound, ROUND_TIMEOUT): MechRequestRound
     (MechRequestRound, SKIP_REQUEST): FinishedMechRequestSkipRound
     (MechResponseRound, DONE): FinishedMechResponseRound

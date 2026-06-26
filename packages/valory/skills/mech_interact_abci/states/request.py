@@ -45,6 +45,13 @@ class MechRequestRound(MechInteractionRound):
 
     payload_class = MechRequestPayload
 
+    # Static anchors for ``autonomy analyse fsm-specs``; ``end_block``
+    # dispatches the three off-chain events through ``_OFFCHAIN_RESULT_TO_EVENT``,
+    # which the static analyser cannot resolve.
+    offchain_done_event: Event = Event.OFFCHAIN_DONE
+    offchain_deposit_needed_event: Event = Event.OFFCHAIN_DEPOSIT_NEEDED
+    offchain_all_failed_event: Event = Event.OFFCHAIN_ALL_FAILED
+
     selection_key = (
         get_name(SynchronizedData.tx_submitter),
         get_name(SynchronizedData.most_voted_tx_hash),
