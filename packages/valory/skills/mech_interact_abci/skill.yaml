@@ -283,6 +283,12 @@ models:
     args: {}
     class_name: TendermintDialogues
 dependencies:
+  eth-abi:
+    version: '>=4.0.0,<7.0.0'
+  eth-utils:
+    version: '>=2.0.0,<7.0.0'
+  hexbytes:
+    version: '>=0.3.0,<3.0.0'
   open-autonomy:
     version: ==0.21.23
 is_abstract: true
