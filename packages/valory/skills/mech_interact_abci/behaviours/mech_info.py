@@ -136,11 +136,46 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                 continue
 
             metadata_tools = {str(t).lower() for t in res}
+            # Pull the off-chain ``url`` field out of the same IPFS manifest.
+            # The field is the operator-published HTTP endpoint that
+            # ``MechRequestBehaviour`` POSTs to under ``use_offchain=true``.
+            # Operators inject it via ``make update-metadata`` in the
+            # mech-deployments repo (see its README). Manifests that predate
+            # the offchain rollout will not carry the key; the offchain
+            # behaviour falls back to ``MechMarketplaceConfig.offchain_url``
+            # for those mechs.
+            manifest_url = self._extract_manifest_url(res_raw)
             for mech in mechs:
                 mech.relevant_tools |= metadata_tools
+                if manifest_url is not None:
+                    mech.http_url = manifest_url
             self.mech_tools_api.reset_retries()
 
         return True
+
+    def _extract_manifest_url(self, res_raw: Any) -> Optional[str]:
+        """Parse the manifest body once more to extract the off-chain ``url``.
+
+        The shared ``MechToolsSpecs`` only surfaces ``tools`` via its
+        ``response_key`` config, so the full manifest is re-parsed here from
+        ``res_raw.body``. Returns ``None`` when the body is missing,
+        unparseable, has no ``url`` key, or carries a non-string value;
+        callers treat that as ``http_url`` simply not being published yet
+        for the mechs sharing this CID.
+        """
+        body = getattr(res_raw, "body", None)
+        if not body:
+            return None
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        url = payload.get("url")
+        if not isinstance(url, str) or not url:
+            return None
+        return url
 
     def get_mechs_info(
         self,

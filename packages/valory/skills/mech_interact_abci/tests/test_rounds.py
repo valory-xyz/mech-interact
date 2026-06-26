@@ -156,6 +156,112 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
         test_round = self._create_round()
         self._test_no_majority_event(test_round)
 
+    # ---- Off-chain dispatch ------------------------------------------------
+
+    def test_offchain_done_event(self) -> None:
+        """``offchain_result='offchain_done'`` routes to ``OFFCHAIN_DONE``.
+
+        The happy-path off-chain attempt finished with a 200; the round
+        emits the dedicated event so the consumer's composition can route
+        straight to ``MechResponseRound`` without going through
+        ``PreTxSettlementRound``.
+        """
+        test_round = self._create_round()
+        mech_requests = json.dumps([{"prompt": "p", "tool": "t", "nonce": "n"}])
+        self._process_payloads(
+            test_round,
+            self._make_request_payloads(
+                mech_requests=mech_requests,
+                offchain_result="offchain_done",
+            ),
+        )
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.OFFCHAIN_DONE
+
+    def test_offchain_deposit_needed_event(self) -> None:
+        """The deposit-needed result routes to ``OFFCHAIN_DEPOSIT_NEEDED``.
+
+        Lets the consumer settle the deposit before retrying the original
+        request.
+        """
+        test_round = self._create_round()
+        mech_requests = json.dumps([{"prompt": "p", "tool": "t", "nonce": "n"}])
+        self._process_payloads(
+            test_round,
+            self._make_request_payloads(
+                mech_requests=mech_requests,
+                offchain_result="offchain_deposit_needed",
+            ),
+        )
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.OFFCHAIN_DEPOSIT_NEEDED
+
+    def test_offchain_all_failed_event(self) -> None:
+        """The all-failed result routes to ``OFFCHAIN_ALL_FAILED``.
+
+        Emitted after the failover budget is spent across the ranked mech
+        list.
+        """
+        test_round = self._create_round()
+        mech_requests = json.dumps([{"prompt": "p", "tool": "t", "nonce": "n"}])
+        self._process_payloads(
+            test_round,
+            self._make_request_payloads(
+                mech_requests=mech_requests,
+                offchain_result="offchain_all_failed",
+            ),
+        )
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.OFFCHAIN_ALL_FAILED
+
+    def test_offchain_result_none_keeps_on_chain_done(self) -> None:
+        """Off-path symmetry: a ``None`` result keeps today's on-chain ``DONE``.
+
+        Without this the ``use_offchain=False`` default would silently take
+        an off-chain branch when an unrelated mock/test left
+        ``offchain_result`` unset.
+        """
+        test_round = self._create_round()
+        mech_requests = json.dumps([{"prompt": "p", "tool": "t", "nonce": "n"}])
+        self._process_payloads(
+            test_round,
+            self._make_request_payloads(
+                mech_requests=mech_requests,
+                offchain_result=None,
+            ),
+        )
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.DONE
+
+    def test_unknown_offchain_result_keeps_on_chain_done(self) -> None:
+        """An unknown ``offchain_result`` label falls back to on-chain ``DONE``.
+
+        Protects against a misbehaving consumer that writes an unrecognised
+        label: the round dispatches to the on-chain path rather than to an
+        undefined event.
+        """
+        test_round = self._create_round()
+        mech_requests = json.dumps([{"prompt": "p", "tool": "t", "nonce": "n"}])
+        self._process_payloads(
+            test_round,
+            self._make_request_payloads(
+                mech_requests=mech_requests,
+                offchain_result="something_unexpected",
+            ),
+        )
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.DONE
+
 
 class TestMechResponseRound(BaseMechInteractRoundTest):
     """Tests for MechResponseRound."""

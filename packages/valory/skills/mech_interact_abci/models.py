@@ -240,6 +240,28 @@ class MechMarketplaceConfig:
     # manifest (see OFFCHAIN follow-up).
     use_offchain: bool = False
     offchain_url: Optional[str] = None
+    # Operator-set cap on a single auto-deposit triggered by a structured 402.
+    # Units: smallest denomination of the payment asset (wei for native,
+    # token's smallest unit for ERC20). Required when ``use_offchain=True``;
+    # no default to force the operator to choose explicitly during rollout.
+    # If the 402 shortfall exceeds the cap, the behaviour refuses the
+    # deposit and surfaces ``OFFCHAIN_402_INSUFFICIENT`` to the consumer.
+    auto_deposit_cap_per_cycle: Optional[int] = None
+    # Per-POST HTTP timeout for ``/send_signed_requests``. On timeout the
+    # behaviour fails over to the next ranked mech at the same on-chain
+    # nonce. 60s default matches the prepay spec (healthy mechs comfortably
+    # beat this; the per-tool override is the configurable knob).
+    offchain_http_timeout_seconds: float = 60.0
+    # Polling cadence for ``/fetch_offchain_info``. Mirrors mech-client's
+    # ``WAIT_SLEEP``; intentionally generous to let LLM-bound responses
+    # finish without burning agent cycles.
+    offchain_poll_interval_seconds: float = 3.0
+    # Total polling budget for ``/fetch_offchain_info`` before declaring the
+    # response timeout. 300s mirrors mech-client's default.
+    offchain_poll_timeout_seconds: float = 300.0
+    # Maximum retries across the ranked mech list on HTTP timeout or 503.
+    # Default 2 (three mechs total per request) per the prepay spec.
+    offchain_failover_max_retries: int = 2
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -254,6 +276,25 @@ class MechMarketplaceConfig:
                 "use_offchain requires either offchain_url or "
                 "use_dynamic_mech_selection (to discover the mech's URL)"
             )
+        if self.use_offchain and self.auto_deposit_cap_per_cycle is None:
+            raise ValueError(
+                "use_offchain requires auto_deposit_cap_per_cycle to be set "
+                "(operator-required cap on a single 402-triggered deposit, "
+                "in the payment asset's smallest denomination)"
+            )
+        if (
+            self.auto_deposit_cap_per_cycle is not None
+            and self.auto_deposit_cap_per_cycle < 0
+        ):
+            raise ValueError("auto_deposit_cap_per_cycle must be non-negative")
+        if self.offchain_http_timeout_seconds <= 0:
+            raise ValueError("offchain_http_timeout_seconds must be positive")
+        if self.offchain_poll_interval_seconds <= 0:
+            raise ValueError("offchain_poll_interval_seconds must be positive")
+        if self.offchain_poll_timeout_seconds <= 0:
+            raise ValueError("offchain_poll_timeout_seconds must be positive")
+        if self.offchain_failover_max_retries < 0:
+            raise ValueError("offchain_failover_max_retries must be non-negative")
 
 
 class MechParams(BaseParams):

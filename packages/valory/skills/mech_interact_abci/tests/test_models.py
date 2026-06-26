@@ -116,9 +116,11 @@ class TestMechMarketplaceConfig:
             use_offchain=True,
             offchain_url="https://mech.example/",
             use_dynamic_mech_selection=False,
+            auto_deposit_cap_per_cycle=1_000_000,
         )
         assert config.use_offchain is True
         assert config.offchain_url == "https://mech.example/"
+        assert config.auto_deposit_cap_per_cycle == 1_000_000
 
     def test_use_offchain_with_dynamic_selection(self) -> None:
         """Dynamic selection is allowed without a static URL (discovered per-mech)."""
@@ -127,18 +129,78 @@ class TestMechMarketplaceConfig:
             response_timeout=30,
             use_offchain=True,
             use_dynamic_mech_selection=True,
+            auto_deposit_cap_per_cycle=1_000_000,
         )
         assert config.use_offchain is True
         assert config.offchain_url is None
+        assert config.auto_deposit_cap_per_cycle == 1_000_000
 
     def test_use_offchain_without_url_or_dynamic_raises(self) -> None:
         """Off-chain needs either a static URL or dynamic discovery."""
-        with pytest.raises(ValueError, match="use_offchain requires"):
+        with pytest.raises(ValueError, match="use_offchain requires either"):
             MechMarketplaceConfig(
                 mech_marketplace_address="0xmarket",
                 response_timeout=30,
                 use_offchain=True,
                 use_dynamic_mech_selection=False,
+                auto_deposit_cap_per_cycle=1_000_000,
+            )
+
+    def test_use_offchain_without_auto_deposit_cap_raises(self) -> None:
+        """``auto_deposit_cap_per_cycle`` is required when ``use_offchain=True``."""
+        with pytest.raises(
+            ValueError, match="use_offchain requires auto_deposit_cap_per_cycle"
+        ):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                use_offchain=True,
+                offchain_url="https://mech.example/",
+            )
+
+    def test_negative_auto_deposit_cap_raises(self) -> None:
+        """A negative cap is rejected even on the on-chain path."""
+        with pytest.raises(
+            ValueError, match="auto_deposit_cap_per_cycle must be non-negative"
+        ):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                auto_deposit_cap_per_cycle=-1,
+            )
+
+    def test_zero_auto_deposit_cap_is_allowed_with_use_offchain(self) -> None:
+        """A zero cap is the explicit ``never auto-deposit`` choice; allowed."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            use_offchain=True,
+            offchain_url="https://mech.example/",
+            auto_deposit_cap_per_cycle=0,
+        )
+        assert config.auto_deposit_cap_per_cycle == 0
+
+    @pytest.mark.parametrize(
+        "field, value, error_match",
+        [
+            ("offchain_http_timeout_seconds", 0.0, "must be positive"),
+            ("offchain_http_timeout_seconds", -1.0, "must be positive"),
+            ("offchain_poll_interval_seconds", 0.0, "must be positive"),
+            ("offchain_poll_interval_seconds", -1.0, "must be positive"),
+            ("offchain_poll_timeout_seconds", 0.0, "must be positive"),
+            ("offchain_poll_timeout_seconds", -1.0, "must be positive"),
+            ("offchain_failover_max_retries", -1, "must be non-negative"),
+        ],
+    )
+    def test_invalid_offchain_timing_params_raise(
+        self, field: str, value: float, error_match: str
+    ) -> None:
+        """Each offchain timing/retry param is validated for sensible ranges."""
+        with pytest.raises(ValueError, match=error_match):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                **{field: value},  # type: ignore[arg-type]
             )
 
 

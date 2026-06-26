@@ -42,6 +42,18 @@ class MechRequestPayload(PrepareTxPayload):
     safe_contract_address: Optional[str]
     mech_requests: Optional[str]
     mech_responses: Optional[str]
+    # Offchain dispatch fields. None for the on-chain path (today's behaviour,
+    # unchanged). One of ``offchain_done|offchain_deposit_needed|
+    # offchain_all_failed`` when ``MechRequestBehaviour`` took the offchain
+    # HTTP path. ``MechRequestRound.end_block`` reads ``offchain_result`` to
+    # dispatch to the right ``Event`` variant; the other three carry the
+    # state needed to either retry after a settled deposit, continue failover
+    # across the ranked mech list, or surface a clean failure to the
+    # consumer.
+    offchain_result: Optional[str] = None
+    offchain_attempted_mechs: Optional[str] = None
+    offchain_pending_request: Optional[str] = None
+    offchain_last_failure_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)

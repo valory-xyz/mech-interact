@@ -33,6 +33,12 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     SynchronizedData,
 )
 
+_OFFCHAIN_RESULT_TO_EVENT = {
+    "offchain_done": Event.OFFCHAIN_DONE,
+    "offchain_deposit_needed": Event.OFFCHAIN_DEPOSIT_NEEDED,
+    "offchain_all_failed": Event.OFFCHAIN_ALL_FAILED,
+}
+
 
 class MechRequestRound(MechInteractionRound):
     """A round for performing requests to a Mech."""
@@ -47,6 +53,10 @@ class MechRequestRound(MechInteractionRound):
         get_name(SynchronizedData.safe_contract_address),
         get_name(SynchronizedData.mech_requests),
         get_name(SynchronizedData.mech_responses),
+        get_name(SynchronizedData.offchain_result),
+        get_name(SynchronizedData.offchain_attempted_mechs),
+        get_name(SynchronizedData.offchain_pending_request),
+        get_name(SynchronizedData.offchain_last_failure_reason),
     )
     collection_key = get_name(SynchronizedData.participant_to_requests)
     none_event = Event.BUY_SUBSCRIPTION
@@ -62,6 +72,17 @@ class MechRequestRound(MechInteractionRound):
 
         if event != Event.DONE:
             return res
+
+        # Offchain dispatch. ``MechRequestBehaviour`` sets ``offchain_result``
+        # on the payload when ``use_offchain=True``; the value drives which
+        # ``OFFCHAIN_*`` event leaves the round so the FSM routes to the
+        # right final state. ``None`` means the on-chain path ran today's
+        # behaviour and the existing ``DONE`` / ``SKIP_REQUEST`` rules apply.
+        offchain_event = _OFFCHAIN_RESULT_TO_EVENT.get(
+            synced_data.offchain_result or ""
+        )
+        if offchain_event is not None:
+            return synced_data, offchain_event
 
         if not (synced_data.mech_requests or synced_data.mech_responses):
             return synced_data, Event.SKIP_REQUEST

@@ -48,6 +48,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
 )
+from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
+    OffchainCycleResult,
+    OffchainRequestExecutor,
+)
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
 from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
@@ -1003,8 +1007,57 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             SERIALIZED_EMPTY_LIST,
         )
 
+    def _run_offchain_request_cycle(self) -> Generator:
+        """Drive one off-chain request cycle and finish the behaviour.
+
+        Hands work off to :class:`OffchainRequestExecutor` and lifts its
+        :class:`OffchainCycleResult` onto a ``MechRequestPayload``.
+        ``MechRequestRound.end_block`` then reads ``offchain_result`` on
+        synchronized data and dispatches to the right ``OFFCHAIN_*`` event,
+        keeping the on-chain ``DONE``/``SKIP_REQUEST``/``BUY_SUBSCRIPTION``
+        branches in this method bit-for-bit unchanged.
+        """
+        with self.context.benchmark_tool.measure(self.behaviour_id).local():
+            executor = OffchainRequestExecutor(self)
+            result: OffchainCycleResult = yield from executor.run()
+            payload = self._payload_from_offchain_result(result)
+        yield from self.finish_behaviour(payload)
+
+    def _payload_from_offchain_result(
+        self, result: OffchainCycleResult
+    ) -> MechRequestPayload:
+        """Build the ``MechRequestPayload`` lifted onto the round."""
+        # Trader and the other current consumers never read the
+        # ``chain_id``/``safe_contract_address`` payload fields directly off
+        # the round when the offchain path takes over (the response polling
+        # and decision-receive paths read them from synchronized_data), so
+        # we still populate them here to keep the synced-data shape
+        # consistent across the on-chain and offchain branches.
+        return MechRequestPayload(
+            sender=self.context.agent_address,
+            tx_submitter=result.tx_submitter,
+            tx_hash=result.tx_hash,
+            price=None,
+            chain_id=self.params.mech_chain_id,
+            safe_contract_address=self.synchronized_data.safe_contract_address,
+            mech_requests=result.mech_requests_json,
+            mech_responses=result.mech_responses_json,
+            offchain_result=result.offchain_result,
+            offchain_attempted_mechs=None,
+            offchain_pending_request=result.pending_request_json,
+            offchain_last_failure_reason=result.last_failure_reason,
+        )
+
     def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
+
+        # ``is True`` not bool() so unrelated truthy mocks in unit tests
+        # never accidentally take the offchain branch; the config validator
+        # already enforces the value is a real bool when ``use_offchain``
+        # is enabled at deploy time.
+        if self.mech_marketplace_config.use_offchain is True:
+            yield from self._run_offchain_request_cycle()
+            return
 
         if not self._mech_requests:
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
