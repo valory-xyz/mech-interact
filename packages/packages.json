@@ -16,7 +16,7 @@
         "contract/valory/balance_tracker_fixed_price_token/0.1.0": "bafybeibwy7ge7nratatpugph646dmiie372zqejtl2sqesoa3nbbyr3z2e",
         "contract/valory/balance_tracker_fixed_price_native/0.1.0": "bafybeidyq2ttgq7o6nhpvrk7yitytx4tuo4kcoxkmlqzokyshusqas6wpu",
         "contract/valory/mech_marketplace/0.1.0": "bafybeid5ywwwx7dmpihvti4ptpvcdlcxm26b4pcgtvjc5esdpzw4yvd7ga",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeiea4iqukunnrjcl5msehlhlg3jfpffjv4w3o2ahtdl2yovk74j2oi"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeid4loeih6jar2t2j73zvmeixyr3l2hry7xt6i6lymkmnm756g2cqy"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i",

@@ -481,17 +481,17 @@ class PendingRequest:
 # this module importable without pulling that file in (which would create a
 # circular import via ``MechRequestBehaviour``).
 _PAYMENT_NATIVE = "native"
-_PAYMENT_TOKEN = "token"
+_PAYMENT_TOKEN = "token"  # nosec B105 - label string, not a credential
 _PAYMENT_NVM_NATIVE = "nvm_native"
-_PAYMENT_NVM_TOKEN = "nvm_token"
+_PAYMENT_NVM_TOKEN = "nvm_token"  # nosec B105 - label string, not a credential
 
 _PAYMENT_TYPE_HASH_NATIVE = (
     "0xba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
 )
-_PAYMENT_TYPE_HASH_TOKEN_OLAS = (
+_PAYMENT_TYPE_HASH_TOKEN_OLAS = (  # nosec B105 - public on-chain payment-type selector hash
     "0x3679d66ef546e66ce9057c4a052f317b135bc8e8c509638f7966edfd4fcf45e9"
 )
-_PAYMENT_TYPE_HASH_TOKEN_USDC = (
+_PAYMENT_TYPE_HASH_TOKEN_USDC = (  # nosec B105 - public on-chain payment-type selector hash
     "0x6406bb5f31a732f898e1ce9fdd988a80a808d36ab5d9a4a4805a8be8d197d5e3"
 )
 _PAYMENT_TYPE_HASHES_TOKEN = frozenset(
@@ -500,7 +500,7 @@ _PAYMENT_TYPE_HASHES_TOKEN = frozenset(
 _PAYMENT_TYPE_HASH_NVM_NATIVE = (
     "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
 )
-_PAYMENT_TYPE_HASH_NVM_TOKEN = (
+_PAYMENT_TYPE_HASH_NVM_TOKEN = (  # nosec B105 - public on-chain payment-type selector hash
     "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"
 )
 
