@@ -1043,7 +1043,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             mech_requests=result.mech_requests_json,
             mech_responses=result.mech_responses_json,
             offchain_result=result.offchain_result,
-            offchain_attempted_mechs=None,
             offchain_pending_request=result.pending_request_json,
             offchain_last_failure_reason=result.last_failure_reason,
         )

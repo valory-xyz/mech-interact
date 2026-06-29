@@ -247,11 +247,6 @@ class MechMarketplaceConfig:
     # If the 402 shortfall exceeds the cap, the behaviour refuses the
     # deposit and surfaces ``OFFCHAIN_402_INSUFFICIENT`` to the consumer.
     auto_deposit_cap_per_cycle: Optional[int] = None
-    # Per-POST HTTP timeout for ``/send_signed_requests``. On timeout the
-    # behaviour fails over to the next ranked mech at the same on-chain
-    # nonce. 60s default matches the prepay spec (healthy mechs comfortably
-    # beat this; the per-tool override is the configurable knob).
-    offchain_http_timeout_seconds: float = 60.0
     # Polling cadence for ``/fetch_offchain_info``. Mirrors mech-client's
     # ``WAIT_SLEEP``; intentionally generous to let LLM-bound responses
     # finish without burning agent cycles.
@@ -287,8 +282,6 @@ class MechMarketplaceConfig:
             and self.auto_deposit_cap_per_cycle < 0
         ):
             raise ValueError("auto_deposit_cap_per_cycle must be non-negative")
-        if self.offchain_http_timeout_seconds <= 0:
-            raise ValueError("offchain_http_timeout_seconds must be positive")
         if self.offchain_poll_interval_seconds <= 0:
             raise ValueError("offchain_poll_interval_seconds must be positive")
         if self.offchain_poll_timeout_seconds <= 0:

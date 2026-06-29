@@ -51,7 +51,6 @@ class MechRequestPayload(PrepareTxPayload):
     # across the ranked mech list, or surface a clean failure to the
     # consumer.
     offchain_result: Optional[str] = None
-    offchain_attempted_mechs: Optional[str] = None
     offchain_pending_request: Optional[str] = None
     offchain_last_failure_reason: Optional[str] = None
 

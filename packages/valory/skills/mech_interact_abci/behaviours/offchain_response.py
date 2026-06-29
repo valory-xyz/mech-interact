@@ -47,7 +47,8 @@ State carried across rounds:
 import dataclasses
 import json
 import time
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Generator, List, Optional
+from urllib.parse import urlencode
 
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
     PendingRequest,
@@ -68,6 +69,12 @@ class _PollSnapshot:
 
 
 _PROCESSING_STATUSES = frozenset({"processing", ""})
+
+# Number of consecutive 5xx responses tolerated before the poll loop
+# fast-fails. Bounds an outage where the mech server stays unhealthy for
+# the entire ``offchain_poll_timeout_seconds`` budget — previously each
+# 5xx was treated as "still processing" and the loop ran the full 300s.
+_MAX_CONSECUTIVE_5XX = 5
 
 
 class OffchainResponsePoller:
@@ -147,9 +154,17 @@ class OffchainResponsePoller:
         """Drive the GET loop until a terminal status arrives or time runs out.
 
         Polls at ``offchain_poll_interval_seconds`` and bails out after
-        ``offchain_poll_timeout_seconds``. The boundary is checked with the
-        wall clock rather than a counter so any drift inside ``sleep`` is
-        bounded by the total budget.
+        ``offchain_poll_timeout_seconds``. The boundary is checked with
+        the wall clock rather than a counter so any drift inside ``sleep``
+        is bounded by the total budget.
+
+        Fast-fail policy (review C6):
+
+        * **404** is treated as a permanent "request unknown" (e.g. after a
+          mech restart). Polling won't recover; surface immediately.
+        * **5xx** is treated as transient up to ``_MAX_CONSECUTIVE_5XX``
+          consecutive failures, then fast-fails. Any non-5xx response
+          (including a 200 reporting "processing") resets the counter.
         """
         interval = float(self._config.offchain_poll_interval_seconds)
         budget = float(self._config.offchain_poll_timeout_seconds)
@@ -157,7 +172,7 @@ class OffchainResponsePoller:
         url = mech_url.rstrip("/") + "/fetch_offchain_info"
         body = self._build_body(request_id_int_str)
 
-        last_seen: _PollSnapshot = _PollSnapshot(status="processing")
+        consecutive_5xx = 0
         while True:
             try:
                 response = yield from self._b.get_http_response(
@@ -172,15 +187,41 @@ class OffchainResponsePoller:
                 )
                 response = None
 
+            status_code = (
+                getattr(response, "status_code", None) if response is not None else None
+            )
+
+            if status_code == 404:
+                self._logger.error(
+                    f"Offchain poll {url} returned 404 for request_id "
+                    f"{request_id_int_str}; the mech does not know about "
+                    "this request (likely restarted). Fast-failing."
+                )
+                return _PollSnapshot(status="rejected", error="not_found")
+
+            if status_code is not None and 500 <= status_code < 600:
+                consecutive_5xx += 1
+                self._logger.warning(
+                    f"Offchain poll {url} returned {status_code} "
+                    f"(consecutive 5xx={consecutive_5xx}/{_MAX_CONSECUTIVE_5XX})"
+                )
+                if consecutive_5xx >= _MAX_CONSECUTIVE_5XX:
+                    self._logger.error(
+                        f"Offchain poll {url} returned {_MAX_CONSECUTIVE_5XX} "
+                        "consecutive 5xx responses; fast-failing."
+                    )
+                    return _PollSnapshot(status="rejected", error="server_unavailable")
+            else:
+                consecutive_5xx = 0
+
             snapshot = self._parse(response)
             if snapshot.status not in _PROCESSING_STATUSES:
                 return snapshot
-            last_seen = snapshot
 
             if time.monotonic() >= deadline:
                 self._logger.warning(
                     f"Offchain poll budget {budget:.0f}s exhausted; "
-                    f"surfacing the last status={last_seen.status!r}."
+                    f"surfacing poll_timeout for {url}."
                 )
                 return _PollSnapshot(
                     status="rejected",
@@ -192,21 +233,23 @@ class OffchainResponsePoller:
     @staticmethod
     def _build_body(request_id_int_str: str) -> bytes:
         """Form-urlencode the GET body the mech server's ``parse_qs`` expects."""
-        from urllib.parse import urlencode
-
         return urlencode({"request_id": request_id_int_str}).encode("utf-8")
 
     def _parse(self, response: Any) -> _PollSnapshot:
-        """Translate the HTTP response into a :class:`_PollSnapshot`."""
+        """Translate the HTTP response into a :class:`_PollSnapshot`.
+
+        Only 200 responses are interpreted; non-200 status codes are
+        classified by the caller (404 / 5xx fast-fail). A non-200 still
+        returns ``processing`` here so the caller can apply its own retry
+        policy for the transient bucket (e.g. 502 mid-rollout).
+        """
         if response is None:
             return _PollSnapshot(status="processing")
         status_code = getattr(response, "status_code", None)
         body_bytes = getattr(response, "body", b"") or b""
         if status_code != 200:
-            self._logger.warning(
-                f"Offchain poll returned status={status_code}; "
-                f"treating as still-processing for retry."
-            )
+            # Non-200 logging is owned by the caller (it knows the
+            # consecutive-failure counter and the fast-fail threshold).
             return _PollSnapshot(status="processing")
         try:
             payload = json.loads(body_bytes) if body_bytes else {}
@@ -270,19 +313,17 @@ class OffchainResponsePoller:
             target.error = snapshot.error if snapshot.error is not None else "rejected"
 
     def _load_pending(self) -> Optional[PendingRequest]:
+        """Load the pending request from synced data.
+
+        :py:meth:`SynchronizedData.offchain_pending_request` already
+        normalises both the JSON-string and dict shapes the round writes,
+        so this branch only has to handle the dict the accessor returns
+        (or ``None`` when nothing is in flight).
+        """
         raw = self._synced.offchain_pending_request
-        if not raw:
+        if not isinstance(raw, dict):
             return None
-        if isinstance(raw, dict):
-            return PendingRequest.from_dict(raw)
-        if isinstance(raw, str):
-            try:
-                parsed = json.loads(raw)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                return None
-            if isinstance(parsed, dict):
-                return PendingRequest.from_dict(parsed)
-        return None
+        return PendingRequest.from_dict(raw)
 
 
 def serialise_responses(responses: List[MechInteractionResponse]) -> str:
@@ -294,7 +335,3 @@ __all__ = [
     "OffchainResponsePoller",
     "serialise_responses",
 ]
-
-
-# Silence unused-import warnings for symbols only used in type annotations.
-_ = Dict

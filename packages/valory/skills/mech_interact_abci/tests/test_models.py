@@ -183,8 +183,6 @@ class TestMechMarketplaceConfig:
     @pytest.mark.parametrize(
         "field, value, error_match",
         [
-            ("offchain_http_timeout_seconds", 0.0, "must be positive"),
-            ("offchain_http_timeout_seconds", -1.0, "must be positive"),
             ("offchain_poll_interval_seconds", 0.0, "must be positive"),
             ("offchain_poll_interval_seconds", -1.0, "must be positive"),
             ("offchain_poll_timeout_seconds", 0.0, "must be positive"),

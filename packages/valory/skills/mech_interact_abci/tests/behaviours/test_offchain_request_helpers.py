@@ -27,17 +27,33 @@ executor's failover decision tree.
 """
 
 import json
-from typing import Any, Dict
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional
 
 import pytest
 
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
+    OffchainAttemptOutcome,
+    OffchainAttemptResult,
+    OffchainCycleResult,
+    OffchainRequestExecutor,
     PaymentChallenge,
     PendingRequest,
+    _PAYMENT_TYPE_HASH_NATIVE,
+    _PAYMENT_TYPE_HASH_NVM_NATIVE,
+    _PAYMENT_TYPE_HASH_NVM_TOKEN,
+    _PAYMENT_TYPE_HASH_TOKEN_OLAS,
+    _PAYMENT_TYPE_HASH_TOKEN_USDC,
     build_request_metadata,
     compute_cidv1_bytes,
     derive_request_id_bytes,
     parse_payment_challenge,
+)
+from packages.valory.skills.mech_interact_abci.behaviours.request import PaymentType
+from packages.valory.skills.mech_interact_abci.states.base import (
+    Event,
+    OFFCHAIN_402_INSUFFICIENT,
+    OFFCHAIN_TIMEOUT_ALL_MECHS,
 )
 
 
@@ -283,16 +299,45 @@ class TestParsePaymentChallenge:
         """A misbehaving mech returning non-JSON does not crash the FSM."""
         assert parse_payment_challenge(b"plain text") is None
 
-    def test_non_numeric_required_falls_back_to_zero(self) -> None:
-        """Non-numeric ``required`` is tolerated.
+    def test_non_numeric_required_rejected(self) -> None:
+        """Non-numeric ``required`` is treated as a malformed 402 (review C5).
 
-        Downstream cap check still sees a finite value rather than an
-        exception.
+        Silently coercing to ``0`` previously mis-routed the deposit
+        decision (``shortfall=0`` → request abandoned with no log). The
+        parser now returns ``None`` so the caller maps to
+        ``OFFCHAIN_BAD_RESPONSE`` and failover moves on.
         """
-        challenge = parse_payment_challenge(self._body(required="not-a-number"))
+        assert parse_payment_challenge(self._body(required="not-a-number")) is None
+
+    def test_non_numeric_current_balance_rejected(self) -> None:
+        """Non-numeric ``currentBalance`` similarly trips ``BAD_RESPONSE``.
+
+        Previously coerced to 0 and produced a spurious ``OVER_CAP`` that
+        short-circuited failover.
+        """
+        assert parse_payment_challenge(self._body(currentBalance="oops")) is None
+
+    def test_boolean_required_rejected(self) -> None:
+        """A boolean ``required`` is not a number; the parser refuses it.
+
+        ``json.loads`` can emit ``True`` / ``False`` for a misbehaving
+        mech; ``int(True) == 1`` would otherwise sneak through.
+        """
+        assert parse_payment_challenge(self._body(required=True)) is None
+
+    def test_missing_chain_id_is_tolerated(self) -> None:
+        """``chainId`` is reported but not used by the deposit builder.
+
+        A missing or non-numeric value defaults to 0 here so the parser
+        still surfaces a usable challenge for the cap check and the
+        deposit tx (which executes on the configured ``mech_chain_id``).
+        """
+        body = self._body()
+        parsed = json.loads(body)
+        del parsed["chainId"]
+        challenge = parse_payment_challenge(json.dumps(parsed).encode())
         assert challenge is not None
-        assert challenge.required == 0
-        assert challenge.shortfall == 0
+        assert challenge.chain_id == 0
 
     def test_balance_above_required_yields_zero_shortfall(self) -> None:
         """A top-up race yields zero shortfall, not a negative number.
@@ -317,11 +362,20 @@ class TestParsePaymentChallenge:
 
 
 class TestPendingRequest:
-    """Round-trip of the in-flight state across the deposit retry."""
+    """Round-trip of the in-flight state across the deposit retry.
+
+    The signature is intentionally not part of this struct (review C1):
+    a per-agent ECDSA sig would diverge across agents and break the
+    ``CollectSameUntilThresholdRound`` consensus over the full payload
+    tuple. Every field below must be deterministic given the on-chain
+    reads so all agents converge on the same ``PendingRequest`` shape.
+    """
+
+    _VALID_REQUEST_ID = "a" * 64  # 64-char lower-hex, no 0x prefix
 
     def _raw(self, **overrides: Any) -> Dict[str, Any]:
         raw: Dict[str, Any] = {
-            "request_id": "abc123" * 5 + "ab",
+            "request_id": self._VALID_REQUEST_ID,
             "nonce": 42,
             "mech_address": "0x" + "aa" * 20,
             "mech_url": "https://mech.example/",
@@ -329,8 +383,6 @@ class TestPendingRequest:
             "delivery_rate": 1000,
             "ipfs_hash": "0x" + "cc" * 31,
             "ipfs_data": '{"prompt":"x"}',
-            "signature": "0x" + "dd" * 65,
-            "attempted_mechs": ["0x" + "AA" * 20],
         }
         raw.update(overrides)
         return raw
@@ -342,15 +394,74 @@ class TestPendingRequest:
         re_parsed = PendingRequest.from_dict(json.loads(pending.to_json()))
         assert re_parsed == pending
 
-    def test_addresses_are_lowercased(self) -> None:
-        """Accessor lower-cases ``mech_address`` and the attempted list.
+    def test_mech_address_is_lowercased(self) -> None:
+        """``from_dict`` normalises ``mech_address`` to lowercase.
 
-        Lets failover compare apples to apples regardless of input casing.
+        Lets failover comparisons match regardless of input casing.
         """
-        pending = PendingRequest.from_dict(self._raw())
+        pending = PendingRequest.from_dict(self._raw(mech_address="0x" + "AA" * 20))
         assert pending is not None
         assert pending.mech_address == "0x" + "aa" * 20
-        assert pending.attempted_mechs == ["0x" + "aa" * 20]
+
+    def test_request_id_0x_prefix_stripped(self) -> None:
+        """``request_id`` is normalised to 64-char lower-hex without ``0x``.
+
+        Earlier revisions persisted the value with ``0x``; ``from_dict``
+        accepts both shapes so a re-entry against an older payload still
+        validates.
+        """
+        pending = PendingRequest.from_dict(
+            self._raw(request_id="0x" + self._VALID_REQUEST_ID)
+        )
+        assert pending is not None
+        assert pending.request_id == self._VALID_REQUEST_ID
+
+    def test_malformed_request_id_rejected_at_construction(self) -> None:
+        """Bad ``request_id`` shape raises (review C9): fail fast at construct.
+
+        Previously the bad value flowed all the way to ``_retry_pending``,
+        which then crashed inside ``bytes.fromhex``. Asserting here means
+        the round won't dispatch on a malformed pending request.
+        """
+        with pytest.raises(ValueError, match="request_id"):
+            PendingRequest(
+                request_id="not-hex",
+                nonce=1,
+                mech_address="0x" + "aa" * 20,
+                mech_url="https://m",
+                sender="0x" + "bb" * 20,
+                delivery_rate=1,
+                ipfs_hash="0x",
+                ipfs_data="{}",
+            )
+
+    def test_uppercase_mech_address_rejected_at_construction(self) -> None:
+        """``mech_address`` must be lowercase (review C9)."""
+        with pytest.raises(ValueError, match="lower-cased"):
+            PendingRequest(
+                request_id=self._VALID_REQUEST_ID,
+                nonce=1,
+                mech_address="0x" + "AA" * 20,
+                mech_url="https://m",
+                sender="0x" + "bb" * 20,
+                delivery_rate=1,
+                ipfs_hash="0x",
+                ipfs_data="{}",
+            )
+
+    def test_negative_nonce_rejected(self) -> None:
+        """A negative ``nonce`` cannot be a real ``mapNonces`` reading."""
+        with pytest.raises(ValueError, match="nonce"):
+            PendingRequest(
+                request_id=self._VALID_REQUEST_ID,
+                nonce=-1,
+                mech_address="0x" + "aa" * 20,
+                mech_url="https://m",
+                sender="0x" + "bb" * 20,
+                delivery_rate=1,
+                ipfs_hash="0x",
+                ipfs_data="{}",
+            )
 
     def test_missing_field_yields_none(self) -> None:
         """A partial blob returns ``None`` instead of raising.
@@ -361,3 +472,529 @@ class TestPendingRequest:
         raw = self._raw()
         del raw["request_id"]
         assert PendingRequest.from_dict(raw) is None
+
+    def test_no_signature_field(self) -> None:
+        """Sanity (review C1): the struct must not expose a signature field.
+
+        If a future refactor reintroduces it, the multi-agent consensus
+        guarantee is silently broken.
+        """
+        pending = PendingRequest.from_dict(self._raw())
+        assert pending is not None
+        assert not hasattr(pending, "signature")
+        assert "signature" not in json.loads(pending.to_json())
+
+
+class TestPaymentTypeHashesMatchEnum:
+    """Drift guard (review C7).
+
+    The five hash constants in ``offchain_request`` mirror ``PaymentType``
+    in ``behaviours/request`` (the comment in the executor admits the
+    duplication to avoid a circular import). If the enum changes and one
+    of these hashes is not updated, the deposit dispatch silently skips
+    the affected payment type. This test fails fast in that case.
+    """
+
+    @pytest.mark.parametrize(
+        "constant, enum_value",
+        [
+            (_PAYMENT_TYPE_HASH_NATIVE, PaymentType.NATIVE.value),
+            (_PAYMENT_TYPE_HASH_TOKEN_OLAS, PaymentType.TOKEN_OLAS.value),
+            (_PAYMENT_TYPE_HASH_TOKEN_USDC, PaymentType.TOKEN_USDC.value),
+            (_PAYMENT_TYPE_HASH_NVM_NATIVE, PaymentType.NATIVE_NVM.value),
+            (_PAYMENT_TYPE_HASH_NVM_TOKEN, PaymentType.TOKEN_NVM_USDC.value),
+        ],
+    )
+    def test_payment_type_hash_matches_enum(
+        self, constant: str, enum_value: str
+    ) -> None:
+        """Each module-level hash equals the matching ``PaymentType.value``."""
+        assert constant == enum_value
+
+
+# ----------------------------------------------------------------------------
+# Behavioural tests (review C8) — exercise the executor's failover decision
+# tree and the resume-after-deposit path with mocked contract reads and HTTP.
+# ----------------------------------------------------------------------------
+
+
+_NATIVE_PAYMENT_TYPE = bytes.fromhex(_PAYMENT_TYPE_HASH_NATIVE[2:])
+_TOKEN_PAYMENT_TYPE = bytes.fromhex(_PAYMENT_TYPE_HASH_TOKEN_USDC[2:])
+_VALID_REQUEST_ID_HEX = "ab" * 32
+
+
+def _make_http_response(status_code: int, body: bytes = b"") -> SimpleNamespace:
+    """Build the minimal shape ``_post_signed_request`` / ``_parse`` read."""
+    return SimpleNamespace(status_code=status_code, body=body)
+
+
+def _make_402_body(
+    pay_to: str = "0x" + "11" * 20,
+    asset: str = "0x" + "22" * 20,
+    required: int = 1000,
+    current: int = 100,
+) -> bytes:
+    """Build a structured 402 body matching ``parse_payment_challenge``."""
+    return json.dumps(
+        {
+            "payTo": pay_to,
+            "asset": asset,
+            "chainId": 100,
+            "currentBalance": str(current),
+            "required": str(required),
+            "error": "insufficient balance",
+        }
+    ).encode("utf-8")
+
+
+class _FakeMechInfo:
+    """Stand-in for a ``MechInfo`` entry in ``synchronized_data.ranked_mechs``."""
+
+    def __init__(self, address: str, http_url: Optional[str]) -> None:
+        self.address = address
+        self.http_url = http_url
+
+
+class _StateResponse(SimpleNamespace):
+    """Matches the ``performative != STATE → return None`` guard."""
+
+
+def _state_resp(body: Dict[str, Any]) -> Any:
+    """Build a contract-api response that passes the STATE check."""
+    from packages.valory.protocols.contract_api import ContractApiMessage
+
+    return SimpleNamespace(
+        performative=ContractApiMessage.Performative.STATE,
+        state=SimpleNamespace(body=body),
+    )
+
+
+class _StubBehaviour:
+    """Minimal stub of the parent behaviour the executor talks back to.
+
+    Only the methods the executor calls are implemented. ``contract_api_responses``
+    is consulted in FIFO order so each test wires the exact sequence its
+    code path is expected to hit.
+    """
+
+    def __init__(
+        self,
+        *,
+        ranked_mechs: List[_FakeMechInfo],
+        contract_api_responses: List[Any],
+        http_responses: List[Any],
+        signature: Optional[str] = "0x" + "dd" * 65,
+        offchain_pending_request: Optional[Dict[str, Any]] = None,
+        priority_mech_address: Optional[str] = None,
+        offchain_url: Optional[str] = None,
+        auto_deposit_cap: int = 10**18,
+        failover_retries: int = 2,
+        mech_requests: Optional[List[Any]] = None,
+    ) -> None:
+        self.context = SimpleNamespace(
+            logger=SimpleNamespace(
+                info=lambda *a, **k: None,
+                warning=lambda *a, **k: None,
+                error=lambda *a, **k: None,
+                debug=lambda *a, **k: None,
+            ),
+        )
+        self.params = SimpleNamespace(
+            mech_marketplace_config=SimpleNamespace(
+                mech_marketplace_address="0x" + "ff" * 20,
+                offchain_failover_max_retries=failover_retries,
+                offchain_url=offchain_url,
+                priority_mech_address=priority_mech_address,
+                auto_deposit_cap_per_cycle=auto_deposit_cap,
+            ),
+            multisend_address="0x" + "ee" * 20,
+        )
+        from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
+
+        self.synchronized_data = SimpleNamespace(
+            ranked_mechs=ranked_mechs,
+            mech_requests=(
+                mech_requests
+                if mech_requests is not None
+                else [MechMetadata(prompt="hi", tool="t", nonce="n")]
+            ),
+            safe_contract_address="0x" + "cc" * 20,
+            offchain_pending_request=offchain_pending_request,
+        )
+        self._contract_api_responses = list(contract_api_responses)
+        self._http_responses = list(http_responses)
+        self._signature = signature
+        # Record of calls (lets tests assert what the executor did).
+        self.posted_urls: List[str] = []
+        self.signed_request_ids: List[bytes] = []
+
+    def get_contract_api_response(self, **_kwargs: Any) -> Any:
+        if False:
+            yield  # make this a generator
+        return self._contract_api_responses.pop(0)
+
+    def get_http_response(self, **kwargs: Any) -> Any:
+        if False:
+            yield
+        self.posted_urls.append(kwargs.get("url", ""))
+        return self._http_responses.pop(0)
+
+    def get_signature(self, digest: bytes, is_deprecated_mode: bool = True) -> Any:
+        if False:
+            yield
+        self.signed_request_ids.append(digest)
+        return self._signature
+
+    def _get_safe_tx_hash(self, **_kwargs: Any) -> Any:
+        if False:
+            yield
+        return "0x" + "fe" * 32
+
+
+def _drive(gen: Any) -> Any:
+    """Run an executor generator to completion (no framework yields)."""
+    try:
+        while True:
+            next(gen)
+    except StopIteration as exc:
+        return exc.value
+
+
+class TestPickNextMechFallback:
+    """Static-URL fallback gating (review C2)."""
+
+    def test_blank_priority_address_does_not_yield_blank(self) -> None:
+        """No ranked mech + no configured priority → ``(None, None)``.
+
+        Previously returned ``("", offchain_url)`` and the caller appended
+        an empty address to ``attempted`` before crashing in the contract
+        reads.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            priority_mech_address=None,
+            offchain_url="https://static.example",
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        assert executor._pick_next_mech([]) == (None, None)
+
+    def test_static_fallback_used_with_real_priority(self) -> None:
+        """A configured priority + static URL is returned when ranked is empty."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            priority_mech_address="0x" + "ab" * 20,
+            offchain_url="https://static.example",
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        addr, url = executor._pick_next_mech([])
+        assert addr == "0x" + "ab" * 20
+        assert url == "https://static.example"
+
+    def test_static_fallback_skipped_if_priority_already_attempted(self) -> None:
+        """Once the static priority is attempted, the fallback is exhausted."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            priority_mech_address="0x" + "ab" * 20,
+            offchain_url="https://static.example",
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        assert executor._pick_next_mech(["0x" + "AB" * 20]) == (None, None)
+
+
+class TestFreshCycle:
+    """End-to-end executor cycles with mocked reads + HTTP (review C8)."""
+
+    def _native_reads(self) -> List[Any]:
+        """Sequence of contract reads a single happy-path attempt consumes."""
+        return [
+            _state_resp({"chain_id": 100}),  # _resolve_chain_id_int
+            _state_resp({"nonce": 7}),  # _read_on_chain_nonce
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def test_done_first_try(self) -> None:
+        """200 on the first mech yields ``OFFCHAIN_DONE`` and a pending blob."""
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=self._native_reads(),
+            http_responses=[_make_http_response(200)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert isinstance(result, OffchainCycleResult)
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert result.pending_request_json is not None
+        pending = PendingRequest.from_dict(json.loads(result.pending_request_json))
+        assert pending is not None
+        assert pending.mech_address == mech_addr
+        # The signed digest is exactly the locally-derived request_id.
+        assert len(stub.signed_request_ids) == 1
+        assert stub.signed_request_ids[0].hex() == pending.request_id
+        # Only one HTTP attempt was made on the happy path.
+        assert len(stub.posted_urls) == 1
+
+    def test_402_under_cap_returns_deposit_needed(self) -> None:
+        """A structured 402 within the cap builds a Safe tx + pending blob."""
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                *self._native_reads(),
+                # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
+                _state_resp({"data": b"\x01\x02\x03"}),
+            ],
+            http_responses=[
+                _make_http_response(402, _make_402_body(required=500, current=0)),
+            ],
+            auto_deposit_cap=10**18,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        assert result.tx_hash is not None
+        assert result.pending_request_json is not None
+
+    def test_402_over_cap_short_circuits(self) -> None:
+        """When the shortfall exceeds the cap, failover is short-circuited.
+
+        Other ranked mechs would charge the same Safe balance, so spending
+        the failover budget can't change the outcome.
+        """
+        mech_addr = "0x" + "aa" * 20
+        other_addr = "0x" + "bb" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(mech_addr, "https://mech-aa.example"),
+                _FakeMechInfo(other_addr, "https://mech-bb.example"),
+            ],
+            contract_api_responses=self._native_reads(),
+            http_responses=[
+                _make_http_response(402, _make_402_body(required=10**20)),
+            ],
+            auto_deposit_cap=1,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_402_INSUFFICIENT
+        # The second mech is never tried — the OVER_CAP shortcut fires first.
+        assert len(stub.posted_urls) == 1
+
+    def test_timeout_then_done_uses_failover(self) -> None:
+        """First mech 5xx → executor falls over to the second and succeeds."""
+        mech_a = "0x" + "aa" * 20
+        mech_b = "0x" + "bb" * 20
+        # Each attempt consumes one payment_type + one delivery_rate read.
+        per_attempt_reads = [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(mech_a, "https://mech-aa.example"),
+                _FakeMechInfo(mech_b, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"chain_id": 100}),
+                _state_resp({"nonce": 7}),
+                *per_attempt_reads,  # attempt against mech_a
+                *per_attempt_reads,  # attempt against mech_b
+            ],
+            http_responses=[
+                _make_http_response(503),
+                _make_http_response(200),
+            ],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert len(stub.posted_urls) == 2
+
+    def test_all_timeouts_all_failed(self) -> None:
+        """All ranked mechs fail → ``OFFCHAIN_ALL_FAILED`` with the right label."""
+        per_attempt_reads = [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"chain_id": 100}),
+                _state_resp({"nonce": 7}),
+                *per_attempt_reads,
+            ],
+            http_responses=[_make_http_response(503)],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+
+    def test_chain_id_read_failure_fails_cycle(self) -> None:
+        """``chainId`` read failure surfaces as ``OFFCHAIN_TIMEOUT_ALL_MECHS``.
+
+        Verifies the new logging path (review C4) is reached on a
+        non-STATE performative.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        bad = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://m")],
+            contract_api_responses=[bad],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+
+
+class TestRetryPending:
+    """Resumed cycle after a deposit settles (review C8)."""
+
+    def _pending_raw(self) -> Dict[str, Any]:
+        return {
+            "request_id": _VALID_REQUEST_ID_HEX,
+            "nonce": 7,
+            "mech_address": "0x" + "aa" * 20,
+            "mech_url": "https://mech-aa.example",
+            "sender": "0x" + "bb" * 20,
+            "delivery_rate": 1000,
+            "ipfs_hash": "0x" + "cc" * 31,
+            "ipfs_data": '{"prompt":"x"}',
+        }
+
+    def test_retry_done_returns_offchain_done(self) -> None:
+        """The retry POST returns 200 → ``OFFCHAIN_DONE`` with the same pending blob."""
+        pending = PendingRequest.from_dict(self._pending_raw())
+        assert pending is not None
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[_make_http_response(200)],
+            offchain_pending_request=self._pending_raw(),
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._retry_pending(pending))
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        # The signed digest is the cached request_id, not freshly derived.
+        assert stub.signed_request_ids == [bytes.fromhex(pending.request_id)]
+        assert result.pending_request_json is not None
+
+    def test_retry_second_402_surfaces_insufficient(self) -> None:
+        """A 402 on retry surfaces ``OFFCHAIN_402_INSUFFICIENT`` without looping."""
+        pending = PendingRequest.from_dict(self._pending_raw())
+        assert pending is not None
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[_make_http_response(402, _make_402_body())],
+            offchain_pending_request=self._pending_raw(),
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._retry_pending(pending))
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_402_INSUFFICIENT
+
+
+class TestClassifyPaymentType:
+    """``_classify_payment_type`` knows every deployed selector."""
+
+    @pytest.mark.parametrize(
+        "hex_const, expected_label",
+        [
+            (_PAYMENT_TYPE_HASH_NATIVE, "native"),
+            (_PAYMENT_TYPE_HASH_TOKEN_OLAS, "token"),
+            (_PAYMENT_TYPE_HASH_TOKEN_USDC, "token"),
+            (_PAYMENT_TYPE_HASH_NVM_NATIVE, "nvm_native"),
+            (_PAYMENT_TYPE_HASH_NVM_TOKEN, "nvm_token"),
+        ],
+    )
+    def test_known_hashes_classified(self, hex_const: str, expected_label: str) -> None:
+        """Each deployed selector maps to the right dispatch label."""
+        label = OffchainRequestExecutor._classify_payment_type(
+            bytes.fromhex(hex_const[2:])
+        )
+        assert label == expected_label
+
+    def test_unknown_hash_returns_empty(self) -> None:
+        """An unrecognised selector dispatches to "no auto-resolve"."""
+        label = OffchainRequestExecutor._classify_payment_type(bytes.fromhex("ee" * 32))
+        assert label == ""
+
+
+class TestAttemptResultPlumbing:
+    """Sanity over how ``_post_signed_request`` maps statuses to outcomes."""
+
+    def _stub_with_response(self, response: Any) -> _StubBehaviour:
+        return _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[response],
+        )
+
+    @pytest.mark.parametrize(
+        "status_code, expected",
+        [
+            (200, OffchainAttemptOutcome.DONE),
+            (503, OffchainAttemptOutcome.SERVER_BUSY),
+            (418, OffchainAttemptOutcome.BAD_RESPONSE),
+        ],
+    )
+    def test_status_to_outcome(
+        self, status_code: int, expected: OffchainAttemptOutcome
+    ) -> None:
+        """Non-402 statuses map to their dedicated outcomes."""
+        stub = self._stub_with_response(_make_http_response(status_code))
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        attempt: OffchainAttemptResult = _drive(
+            executor._post_signed_request(
+                mech_url="https://m",
+                mech_address="0x" + "aa" * 20,
+                ipfs_hash="0x" + "cc" * 31,
+                ipfs_data="{}",
+                request_id_bytes=bytes(32),
+                signature_hex="0x" + "dd" * 65,
+                nonce=0,
+                delivery_rate=1,
+                sender="0x" + "bb" * 20,
+            )
+        )
+        assert attempt.outcome == expected
+
+    def test_402_with_malformed_body_classified_bad_response(self) -> None:
+        """A 402 whose body is not a structured challenge → ``BAD_RESPONSE``.
+
+        Pre-fix this fell through to ``OFFCHAIN_TIMEOUT_ALL_MECHS`` (review
+        C5) — a chargeable 402 reported as a network timeout.
+        """
+        stub = self._stub_with_response(_make_http_response(402, b"not-json"))
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        attempt = _drive(
+            executor._post_signed_request(
+                mech_url="https://m",
+                mech_address="0x" + "aa" * 20,
+                ipfs_hash="0x" + "cc" * 31,
+                ipfs_data="{}",
+                request_id_bytes=bytes(32),
+                signature_hex="0x" + "dd" * 65,
+                nonce=0,
+                delivery_rate=1,
+                sender="0x" + "bb" * 20,
+            )
+        )
+        assert attempt.outcome == OffchainAttemptOutcome.BAD_RESPONSE

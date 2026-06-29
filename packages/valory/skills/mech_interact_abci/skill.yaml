@@ -14,10 +14,10 @@ fingerprint:
   behaviours/base.py: bafybeiggfcw7zt6glthh47kszk7ymadzgkr27qixswfmsqiezxr5hmekb4
   behaviours/mech_info.py: bafybeidajqcqn6mo2rparhopcunubvymrnyuuwxzx4xyviydcrwbjfrfou
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
-  behaviours/offchain_request.py: bafybeiafy5ntdbfwaa2ucwxwf5gnw2dijxcbgndqvwapnqpslnsjyro5ae
-  behaviours/offchain_response.py: bafybeibun3bntevwwd4ieu3ffvmrkcgge745rcim25bqsh3vohr5qay3ym
+  behaviours/offchain_request.py: bafybeibdwm4xzcivrlm3io7o2bavl6rmes25okcivjrsgiw25a7pmd6wvi
+  behaviours/offchain_response.py: bafybeihrg3fpjxgmzfvfpz4zbyz5eloglmnpj77bi3o5ghdnnq2ay632hy
   behaviours/purchase_subcription.py: bafybeieet7du56scd2cltnuy7xlvvrapvk7ugmnv426k2xfnmim4wj5bfy
-  behaviours/request.py: bafybeiefwwyp6txcu4tecc6qybueaiyaimhvjmdcneezyowgapu7kst5ye
+  behaviours/request.py: bafybeig3tyl6pcdmlm7odp7oqrgijygwyflcmkqrbalnukz6zzmxtb2j4y
   behaviours/response.py: bafybeift7qcgnehlphp4muqdo5harabo3jpw5ufb7egsf6bqnj4slhv2gq
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeiachjgarkgv4hxprddn7dtb5h3q4qge72rc2kysmureooq5xggxxi
@@ -27,23 +27,24 @@ fingerprint:
   graph_tooling/queries/mechs_info.py: bafybeifklh73m2zkd447f6e3nk6xsv53l5eg4xip3rk6gyi6s6ptuivux4
   graph_tooling/requests.py: bafybeiblfdl22brohgmholbcir3f344as5nk6fwnwuljfc7rovd6dnifea
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
-  models.py: bafybeidsmjdfih3ypmbvytrwgw6ehkcgep4zh3eea5dqjrv5bucexba3he
-  payloads.py: bafybeiakbwdjd7tz7lmoih5x6g43zpxponzeoq6tgdtcmzy7ntmjtttsdu
+  models.py: bafybeigfjn67dt7ckgof7lffupoe3etz3u7at5jaeolzvdshjrwoqr5dli
+  payloads.py: bafybeigjeqmk4dddk5zfhddisy2dftxax6b4ybbsamedrd6rqw7cois2dq
   rounds.py: bafybeiawo4chuaulsxou3f3n7e7or64sge3iwmrj66vvbi6lmlygovplee
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
-  states/base.py: bafybeicihokza5lostwmebnkrmyoif7cxams4wwqmztr6rmv2l7d62qi4e
+  states/base.py: bafybeideqfdmzfwyd2ilfd45yz2hv3emcpgme53dveykabihmmjhvevbhm
   states/final_states.py: bafybeiefyh2bj2cm6dhs3akt5iolissgvm5b5jvayhdxqek2tg3flms7q4
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
   states/mech_version.py: bafybeig62u4mklkod7gz7h2sh5ytm42nnryltyqaze2w52ovjaa6q7ogma
   states/purchase_subscription.py: bafybeiaz2zpnpsww6p2z5aqxuonowiril4vxbj3twvqwe36gwmihn6uvwm
-  states/request.py: bafybeigzviyzjpsqlvjzmi2mvetokdqtgrphusit2uzkhth77duar2idzq
+  states/request.py: bafybeihrlzc6hcqlblu3xcralku4oxtvrur3szsfxq4mstufzw523dckky
   states/response.py: bafybeige4x7reiynwwzd3h6uxi3k7lfiobndmhrlvy6s3dgqjmyi2tal3i
   tests/__init__.py: bafybeiaxfprhthhmkvbh6ntfcu5q2lotazaokacgbbsw7taahfivmrqzoy
   tests/behaviours/__init__.py: bafybeidwk7ocq4hyppoo6vr64sadxoxa4yo23362ofizlkmf2ti7pdq3sq
   tests/behaviours/conftest.py: bafybeiemvv76bfkkzg5v7co6ayz4kfmhnbzgptxhjwrvb74hgum2oixtxm
   tests/behaviours/test_base.py: bafybeih5gzn23htrkovh4mrlycygbpjdc4smq27hgfptrlg7ekndybavjy
   tests/behaviours/test_mech_version.py: bafybeidmjgq2cwqafq36j7irm4nf53ca6imkyvtbtetscltqwiu6ebb444
-  tests/behaviours/test_offchain_request_helpers.py: bafybeihfgeer6ungwqimcyebe6am5s5rlao67k4uqnsfishye3zix65le4
+  tests/behaviours/test_offchain_request_helpers.py: bafybeiftffm56d6qwpf7sktlatng6bmhjzfncljplnxu3biigtuq73y2z4
+  tests/behaviours/test_offchain_response_poller.py: bafybeibtsj2ol7pe2blt2oshqpv6oiq7wbumyfvji7nun5jwwedbbtlnxu
   tests/behaviours/test_purchase_subscription.py: bafybeih2nd26wx6dpvycl2xlewmgqirjtwwtu6ge3gu4dhpby2aoogml5u
   tests/behaviours/test_request.py: bafybeifng4uhlb3j6fg3wriwt2rvhqh3smwvfo5ugzqjdyt36uua6t3k7y
   tests/behaviours/test_response.py: bafybeibni7zx4m7n3wktmlxyab4olt4rnduqzhaltfl7n3exru3om5fymy
@@ -55,11 +56,11 @@ fingerprint:
   tests/test_graph_tooling.py: bafybeiaxihwxdhsjodefdbu42qibeqyhexdob3sqfs5hyo5ylgg7xzpzg4
   tests/test_handlers.py: bafybeihvo4mw3f3oizodlnysaw5nyup7rd3pm4zt2xkaa7nj6rr62vbjhq
   tests/test_mech_info_behaviour.py: bafybeiggjsiainmkn3ohjt5bnstcqmjxl32k6tlfq4xxiqxkgqosqrvey4
-  tests/test_models.py: bafybeic4g3jxg7pceq5tsssvsnuk7f676ud77njqgjt7qie6lz5ooczsiy
+  tests/test_models.py: bafybeid2dkf5ibieyxdtj676rtsrixbpfvgqfv7ptmfotqscgkhxgorn5i
   tests/test_payloads.py: bafybeibjkrdwkxqw73d7eaxwtqepigi4gutkvqaxqhj3os5nsmjffqkc4y
   tests/test_request_behaviour.py: bafybeiflipc3xfuaaas36bnkbg632d3kzd2qkp4e5vvdyui3y77u7fo7ue
   tests/test_response_behaviour.py: bafybeih2idnguntytqccjcavb5yvr4nlacw4nsyuc6pv5p2mo4nckpm5au
-  tests/test_rounds.py: bafybeifjiolw5ntth3zvprehcj5wqmpqhf5c3fdfslxp65nqxny2zx5q5m
+  tests/test_rounds.py: bafybeic7m4al5mddqvdfrcl4wbu45dzsc5knjpjti3mk3igq7ssxpkoili
   tests/test_utils.py: bafybeigdo33b4okp3ecpjt4woansyrvog2xwn2ywre4p2rysglgzx733pe
   utils.py: bafybeie7ud4n5bfmn3cqx7keearppdqyxtfn35vvve5zwfe4u5vxktssua
 fingerprint_ignore_patterns: []
@@ -222,7 +223,6 @@ models:
         use_offchain: false
         offchain_url: null
         auto_deposit_cap_per_cycle: null
-        offchain_http_timeout_seconds: 60.0
         offchain_poll_interval_seconds: 3.0
         offchain_poll_timeout_seconds: 300.0
         offchain_failover_max_retries: 2

@@ -33,10 +33,13 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     SynchronizedData,
 )
 
+# Key the dispatch off the enum's own ``value`` rather than free strings:
+# a future rename of the event symbol fails type-checking instead of silently
+# falling through to the on-chain ``DONE`` / ``SKIP_REQUEST`` branch.
 _OFFCHAIN_RESULT_TO_EVENT = {
-    "offchain_done": Event.OFFCHAIN_DONE,
-    "offchain_deposit_needed": Event.OFFCHAIN_DEPOSIT_NEEDED,
-    "offchain_all_failed": Event.OFFCHAIN_ALL_FAILED,
+    Event.OFFCHAIN_DONE.value: Event.OFFCHAIN_DONE,
+    Event.OFFCHAIN_DEPOSIT_NEEDED.value: Event.OFFCHAIN_DEPOSIT_NEEDED,
+    Event.OFFCHAIN_ALL_FAILED.value: Event.OFFCHAIN_ALL_FAILED,
 }
 
 
@@ -61,7 +64,6 @@ class MechRequestRound(MechInteractionRound):
         get_name(SynchronizedData.mech_requests),
         get_name(SynchronizedData.mech_responses),
         get_name(SynchronizedData.offchain_result),
-        get_name(SynchronizedData.offchain_attempted_mechs),
         get_name(SynchronizedData.offchain_pending_request),
         get_name(SynchronizedData.offchain_last_failure_reason),
     )

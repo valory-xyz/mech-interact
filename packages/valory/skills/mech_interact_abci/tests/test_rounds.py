@@ -262,6 +262,46 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.DONE
 
+    def test_consensus_with_deterministic_pending_request(self) -> None:
+        """Multi-agent consensus closes on the off-chain happy path (review C1).
+
+        Previously the payload's ``offchain_pending_request`` carried a
+        per-agent ECDSA signature; every agent produced a different blob and
+        the round looped ``NO_MAJORITY`` forever on any n>1 service. With
+        the signature out of the consensus tuple, identical deterministic
+        ``PendingRequest`` JSON across agents lets the round close on
+        ``OFFCHAIN_DONE``.
+        """
+        test_round = self._create_round()
+        mech_requests = json.dumps([{"prompt": "p", "tool": "t", "nonce": "n"}])
+        # The pending request shape now must be deterministic across agents
+        # (no per-agent signature field). Build one blob and send it from
+        # every participant.
+        pending_blob = json.dumps(
+            {
+                "request_id": "ab" * 32,
+                "nonce": 7,
+                "mech_address": "0x" + "aa" * 20,
+                "mech_url": "https://m",
+                "sender": "0x" + "bb" * 20,
+                "delivery_rate": 1000,
+                "ipfs_hash": "0x" + "cc" * 31,
+                "ipfs_data": '{"prompt":"x"}',
+            }
+        )
+        self._process_payloads(
+            test_round,
+            self._make_request_payloads(
+                mech_requests=mech_requests,
+                offchain_result="offchain_done",
+                offchain_pending_request=pending_blob,
+            ),
+        )
+        result = test_round.end_block()
+        assert result is not None
+        _, event = result
+        assert event == Event.OFFCHAIN_DONE
+
 
 class TestMechResponseRound(BaseMechInteractRoundTest):
     """Tests for MechResponseRound."""

@@ -62,6 +62,7 @@ OFFCHAIN_ALL_FAILED = "offchain_all_failed"
 OFFCHAIN_402_INSUFFICIENT = "offchain_402_insufficient"
 OFFCHAIN_503_ALL_MECHS = "offchain_503_all_mechs"
 OFFCHAIN_TIMEOUT_ALL_MECHS = "offchain_timeout_all_mechs"
+OFFCHAIN_BAD_RESPONSE = "offchain_bad_response"
 
 NestedSubgraphItemType = List[Dict[str, Any]]
 
@@ -520,24 +521,6 @@ class SynchronizedData(TxSynchronizedData):
         the standard payload/selection-key path.
         """
         return cast(Optional[str], self.db.get("offchain_result", None))
-
-    @property
-    def offchain_attempted_mechs(self) -> List[str]:
-        """Mech addresses already tried on the current offchain request cycle.
-
-        Tracked so failover skips them when re-deriving the request for the
-        next priority mech at the same on-chain nonce. Cleared once a
-        request cycle completes (DONE or ALL_FAILED).
-        """
-        raw = self.db.get("offchain_attempted_mechs", SERIALIZED_EMPTY_LIST)
-        try:
-            if isinstance(raw, str):
-                raw = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return []
-        if not isinstance(raw, list):
-            return []
-        return [str(addr).lower() for addr in raw]
 
     @property
     def offchain_pending_request(self) -> Optional[Dict[str, Any]]:

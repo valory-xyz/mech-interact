@@ -51,11 +51,13 @@ exact mech-client / contract references each one is mirroring.
 
 import dataclasses
 import enum
+import hashlib
 import json
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, Generator, List, Optional, Tuple
+from urllib.parse import urlencode
 
 from eth_abi import encode as abi_encode  # type: ignore[import-not-found]
 from eth_utils import keccak as eth_keccak  # type: ignore[import-not-found]
@@ -76,10 +78,12 @@ from packages.valory.contracts.multisend.contract import (
 )
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.skills.mech_interact_abci.states.base import (
+    Event,
     MechInteractionResponse,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_503_ALL_MECHS,
+    OFFCHAIN_BAD_RESPONSE,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
 )
 
@@ -150,8 +154,6 @@ def compute_cidv1_bytes(content: bytes) -> bytes:
     ``ValueError`` above 256 KiB so a future oversized prompt fails loudly
     instead of producing a CID the mech could not reproduce.
     """
-    import hashlib
-
     if len(content) > _MAX_BLOCK_BYTES:
         raise ValueError(
             f"content size {len(content)} exceeds single-block bound "
@@ -295,18 +297,27 @@ def derive_request_id_bytes(  # noqa: D417
 # ----------------------------------------------------------------------------
 
 
-def _safe_int(value: Any, default: int = 0) -> int:
-    """Coerce a 402-body field to ``int``; never raise on a malformed mech."""
+def _try_int(value: Any) -> Optional[int]:
+    """Coerce a 402-body field to ``int`` or return ``None`` if malformed.
+
+    Returning ``None`` (instead of silently defaulting) lets the caller
+    distinguish "field absent / non-numeric" from "field present with a
+    valid 0", so a malformed ``required`` doesn't get treated as
+    ``shortfall=0`` and a malformed ``currentBalance`` doesn't get treated
+    as a real zero balance. ``bool`` is excluded because ``json.loads``
+    can emit ``True`` / ``False`` for these fields if a mech misbehaves
+    and we'd rather route them through ``BAD_RESPONSE`` than coerce.
+    """
     if isinstance(value, bool):
-        return int(value)
+        return None
     if isinstance(value, int):
         return value
     if isinstance(value, str):
         try:
             return int(value, 10)
         except ValueError:
-            return default
-    return default
+            return None
+    return None
 
 
 @dataclass(frozen=True)
@@ -338,9 +349,13 @@ def parse_payment_challenge(body: bytes) -> Optional[PaymentChallenge]:
 
     Returns ``None`` when the body is missing, unparseable, or shaped
     differently from what the mech ``handlers.py::_build_402_challenge``
-    emits. Non-numeric ``currentBalance`` / ``required`` are tolerated via
-    :func:`_safe_int` rather than treated as fatal so a misbehaving mech
-    still routes through the failover loop instead of crashing the FSM.
+    emits, **including** non-numeric ``required`` / ``currentBalance``
+    (which previously silently coerced to ``0`` and mis-routed the
+    deposit decision — see review C5). A ``None`` from a structured 402
+    is mapped by the caller to :data:`OffchainAttemptOutcome.BAD_RESPONSE`
+    so the failover loop can move on to the next ranked mech rather
+    than spend the deposit on a misreported shortfall or short-circuit
+    to ``OVER_CAP``.
     """
     if not body:
         return None
@@ -356,12 +371,20 @@ def parse_payment_challenge(body: bytes) -> Optional[PaymentChallenge]:
     asset = payload.get("asset") or "0x" + "0" * 40
     if not isinstance(asset, str):
         return None
+    current_balance = _try_int(payload.get("currentBalance"))
+    required = _try_int(payload.get("required"))
+    if current_balance is None or required is None:
+        return None
+    # ``chainId`` is reported but not consulted by the deposit builder
+    # (the Safe tx executes on the configured ``mech_chain_id``); a
+    # missing/non-numeric value is harmless, so default to 0 here.
+    chain_id = _try_int(payload.get("chainId"))
     return PaymentChallenge(
         pay_to=pay_to,
         asset=asset,
-        chain_id=_safe_int(payload.get("chainId")),
-        current_balance=_safe_int(payload.get("currentBalance")),
-        required=_safe_int(payload.get("required")),
+        chain_id=chain_id if chain_id is not None else 0,
+        current_balance=current_balance,
+        required=required,
         error=str(payload.get("error", "")),
     )
 
@@ -389,17 +412,26 @@ class OffchainAttemptOutcome(enum.Enum):
     OVER_CAP = "over_cap"
     """The 402 shortfall exceeded ``auto_deposit_cap_per_cycle``; surface to consumer."""
 
-    NVM_UNSUPPORTED = "nvm_unsupported"
-    """The mech is a Nevermined subscription mech; deposit is not on-chain repayable."""
-
     TIMEOUT = "timeout"
-    """The HTTP send / read timeout fired (counts toward failover budget)."""
+    """The HTTP call raised (framework error) or returned ``None``.
+
+    Counts toward the failover budget. The framework helper used here
+    (``get_http_response``) does not expose a per-call timeout argument,
+    so this is the framework's own raise/None signal rather than a
+    deadline policed locally — see the ``offchain_http_timeout_seconds``
+    history in the module-level review notes.
+    """
 
     SERVER_BUSY = "server_busy"
     """The mech returned 503 (counts toward failover budget)."""
 
     BAD_RESPONSE = "bad_response"
-    """The mech returned a non-handled status (4xx / 5xx other than 402/503)."""
+    """The mech returned a non-handled status, or a 402 with a malformed body.
+
+    Counts toward the failover budget but surfaces as
+    :data:`OFFCHAIN_BAD_RESPONSE` rather than ``OFFCHAIN_TIMEOUT_ALL_MECHS``
+    so an operator can distinguish a misbehaving mech from a network stall.
+    """
 
 
 @dataclass(frozen=True)
@@ -416,26 +448,69 @@ class OffchainAttemptResult:
 # ----------------------------------------------------------------------------
 # In-flight request state — persisted on ``synced_data.offchain_pending_request``
 # so the deposit-then-retry round-trip preserves the original
-# ``(mech, request_id, nonce, signature, ipfs_data)`` tuple. Without this the
-# retry POST would derive a different ``request_id`` (mech-address changes
-# the hash) and waste the deposit.
+# ``(mech, request_id, nonce, ipfs_data)`` tuple. Without this the retry
+# POST would derive a different ``request_id`` (mech-address changes the
+# hash) and waste the deposit.
+#
+# *Why no signature*: ``MechRequestRound`` is a
+# ``CollectSameUntilThresholdRound`` whose consensus is over the full payload
+# tuple, including ``offchain_pending_request``. A per-agent ECDSA signature
+# would diverge across agents (each has its own key) and the round would
+# loop ``NO_MAJORITY`` forever on any n>1 service. Instead, every field
+# kept here is deterministic given the on-chain reads; each agent re-signs
+# locally on the POST and (after deposit settles) on retry, so the contract
+# still verifies the same recovered signer at settlement time.
 # ----------------------------------------------------------------------------
+
+
+_REQUEST_ID_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
 class PendingRequest:
-    """Serialized state of an in-flight offchain request awaiting deposit retry."""
+    """Serialized state of an in-flight offchain request awaiting deposit retry.
 
-    request_id: str  # hex without 0x
+    All fields must be deterministic across agents — the signature is
+    intentionally **not** carried here (see module-level note). ``__post_init__``
+    enforces the format invariants the retry path (`_retry_pending`) relies on
+    so a malformed value fails fast at construction instead of crashing
+    inside ``bytes.fromhex``.
+    """
+
+    request_id: str  # 64-char lower-hex, no 0x prefix
     nonce: int
-    mech_address: str
+    mech_address: str  # lowercase 0x-prefixed
     mech_url: str
     sender: str
     delivery_rate: int
     ipfs_hash: str
     ipfs_data: str
-    signature: str  # hex with 0x prefix
-    attempted_mechs: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Reject malformed values up front; raise rather than silently drift."""
+        if not isinstance(self.request_id, str) or not _REQUEST_ID_HEX_RE.match(
+            self.request_id
+        ):
+            raise ValueError(
+                "PendingRequest.request_id must be 64-char lower-hex without "
+                f"0x prefix; got {self.request_id!r}"
+            )
+        if not isinstance(self.mech_address, str) or self.mech_address != (
+            self.mech_address.lower()
+        ):
+            raise ValueError(
+                "PendingRequest.mech_address must be lower-cased; "
+                f"got {self.mech_address!r}"
+            )
+        if self.nonce < 0:
+            raise ValueError(
+                f"PendingRequest.nonce must be non-negative; got {self.nonce}"
+            )
+        if self.delivery_rate < 0:
+            raise ValueError(
+                "PendingRequest.delivery_rate must be non-negative; "
+                f"got {self.delivery_rate}"
+            )
 
     def to_json(self) -> str:
         """Serialize to the form persisted on synchronized_data."""
@@ -443,10 +518,19 @@ class PendingRequest:
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> Optional["PendingRequest"]:
-        """Round-trip from the dict the SynchronizedData accessor returns."""
+        """Round-trip from the dict the SynchronizedData accessor returns.
+
+        Normalizes ``request_id`` (strip ``0x`` prefix, lowercase) and
+        ``mech_address`` (lowercase) so a re-entry from a payload written
+        by an older revision still validates cleanly under the
+        ``__post_init__`` invariants.
+        """
         try:
+            request_id = str(raw["request_id"]).lower()
+            if request_id.startswith("0x"):
+                request_id = request_id[2:]
             return cls(
-                request_id=str(raw["request_id"]),
+                request_id=request_id,
                 nonce=int(raw["nonce"]),
                 mech_address=str(raw["mech_address"]).lower(),
                 mech_url=str(raw["mech_url"]),
@@ -454,10 +538,6 @@ class PendingRequest:
                 delivery_rate=int(raw["delivery_rate"]),
                 ipfs_hash=str(raw["ipfs_hash"]),
                 ipfs_data=str(raw["ipfs_data"]),
-                signature=str(raw["signature"]),
-                attempted_mechs=[
-                    str(addr).lower() for addr in raw.get("attempted_mechs", [])
-                ],
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -503,11 +583,16 @@ _PAYMENT_TYPE_HASH_NVM_TOKEN = (  # nosec B105 - public on-chain payment-type se
 
 @dataclass(frozen=True)
 class OffchainCycleResult:
-    """Final outcome of one offchain request cycle, lifted onto the payload."""
+    """Final outcome of one offchain request cycle, lifted onto the payload.
 
-    offchain_result: (
-        str  # 'offchain_done' / 'offchain_deposit_needed' / 'offchain_all_failed'
-    )
+    ``offchain_result`` is always one of
+    ``Event.OFFCHAIN_DONE.value`` / ``Event.OFFCHAIN_DEPOSIT_NEEDED.value`` /
+    ``Event.OFFCHAIN_ALL_FAILED.value`` — keyed off the enum (not free
+    strings) so a rename of the event values fails type-checking and the
+    round dispatch stays in lockstep.
+    """
+
+    offchain_result: str
     mech_requests_json: Optional[str] = None
     mech_responses_json: Optional[str] = None
     pending_request_json: Optional[str] = None
@@ -584,7 +669,7 @@ class OffchainRequestExecutor:
         requests = self._synced.mech_requests
         if not requests:
             self._logger.info("Offchain branch reached with no mech_requests; skipping")
-            return OffchainCycleResult(offchain_result="offchain_done")
+            return OffchainCycleResult(offchain_result=Event.OFFCHAIN_DONE.value)
 
         request_meta: MechMetadata = requests[0]
         ipfs_hash, _, ipfs_data = build_request_metadata(
@@ -597,18 +682,18 @@ class OffchainRequestExecutor:
         chain_id_int = yield from self._resolve_chain_id_int()
         if chain_id_int is None:
             return OffchainCycleResult(
-                offchain_result="offchain_all_failed",
+                offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
                 last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
             )
 
         on_chain_nonce = yield from self._read_on_chain_nonce()
         if on_chain_nonce is None:
             return OffchainCycleResult(
-                offchain_result="offchain_all_failed",
+                offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
                 last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
             )
 
-        attempted: List[str] = list(self._synced.offchain_attempted_mechs)
+        attempted: List[str] = []
         last_failure: Optional[str] = None
         last_outcome: Optional[OffchainAttemptOutcome] = None
 
@@ -645,37 +730,37 @@ class OffchainRequestExecutor:
                 last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                 continue
 
-            attempt = yield from self._attempt_single_mech(
-                mech_address=mech_address,
+            attempt = yield from self._post_signed_request(
                 mech_url=mech_url,
+                mech_address=mech_address,
                 ipfs_hash=ipfs_hash,
                 ipfs_data=ipfs_data,
                 request_id_bytes=request_id_bytes,
                 signature_hex=signature_hex,
                 nonce=on_chain_nonce,
                 delivery_rate=delivery_rate,
+                sender=self._safe_address(),
             )
             last_outcome = attempt.outcome
 
+            pending = self._build_pending(
+                request_id_bytes=request_id_bytes,
+                nonce=on_chain_nonce,
+                mech_address=mech_address,
+                mech_url=mech_url,
+                delivery_rate=delivery_rate,
+                ipfs_hash=ipfs_hash,
+                ipfs_data=ipfs_data,
+            )
+
             if attempt.outcome is OffchainAttemptOutcome.DONE:
                 return OffchainCycleResult(
-                    offchain_result="offchain_done",
+                    offchain_result=Event.OFFCHAIN_DONE.value,
                     mech_requests_json=self._serialise_mech_requests([request_meta]),
                     mech_responses_json=self._serialise_pending_response(
                         request_id_bytes, on_chain_nonce
                     ),
-                    pending_request_json=PendingRequest(
-                        request_id=request_id_bytes.hex(),
-                        nonce=on_chain_nonce,
-                        mech_address=mech_address,
-                        mech_url=mech_url,
-                        sender=self._safe_address(),
-                        delivery_rate=delivery_rate,
-                        ipfs_hash=ipfs_hash,
-                        ipfs_data=ipfs_data,
-                        signature=signature_hex,
-                        attempted_mechs=attempted,
-                    ).to_json(),
+                    pending_request_json=pending.to_json(),
                 )
 
             if attempt.outcome is OffchainAttemptOutcome.DEPOSIT_NEEDED:
@@ -684,36 +769,30 @@ class OffchainRequestExecutor:
                     payment_type=payment_type_bytes,
                 )
                 if tx_hex is None:
-                    last_failure = OFFCHAIN_402_INSUFFICIENT
-                    continue
+                    # Either NVM (not on-chain auto-resolvable) or the
+                    # deposit builder hit a contract-read failure; both
+                    # are non-recoverable on this cycle, so surface to
+                    # the consumer instead of burning failover budget.
+                    return OffchainCycleResult(
+                        offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
+                        last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
+                    )
                 return OffchainCycleResult(
-                    offchain_result="offchain_deposit_needed",
+                    offchain_result=Event.OFFCHAIN_DEPOSIT_NEEDED.value,
                     tx_submitter="MechRequestRound",
                     tx_hash=tx_hex,
-                    pending_request_json=PendingRequest(
-                        request_id=request_id_bytes.hex(),
-                        nonce=on_chain_nonce,
-                        mech_address=mech_address,
-                        mech_url=mech_url,
-                        sender=self._safe_address(),
-                        delivery_rate=delivery_rate,
-                        ipfs_hash=ipfs_hash,
-                        ipfs_data=ipfs_data,
-                        signature=signature_hex,
-                        attempted_mechs=attempted,
-                    ).to_json(),
+                    pending_request_json=pending.to_json(),
                 )
 
-            if attempt.outcome in (
-                OffchainAttemptOutcome.OVER_CAP,
-                OffchainAttemptOutcome.NVM_UNSUPPORTED,
-            ):
-                # The 402 cannot be auto-resolved by an on-chain deposit;
-                # exhausting failover on a different mech would not change
-                # the outcome on the same Safe balance, so fail to the
-                # consumer immediately rather than burn the budget.
+            if attempt.outcome is OffchainAttemptOutcome.OVER_CAP:
+                # The 402 shortfall exceeds the operator-set cap, so the
+                # on-chain deposit is refused on this cycle. The other
+                # ranked mechs would charge against the same Safe balance,
+                # so failover can't change the outcome — surface
+                # ``OFFCHAIN_402_INSUFFICIENT`` to the consumer instead of
+                # burning the rest of the failover budget on certain failures.
                 return OffchainCycleResult(
-                    offchain_result="offchain_all_failed",
+                    offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
                     last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
                 )
 
@@ -722,7 +801,7 @@ class OffchainRequestExecutor:
             continue
 
         return OffchainCycleResult(
-            offchain_result="offchain_all_failed",
+            offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
             last_failure_reason=last_failure or OFFCHAIN_TIMEOUT_ALL_MECHS,
         )
 
@@ -733,20 +812,31 @@ class OffchainRequestExecutor:
     ) -> Generator[None, None, OffchainCycleResult]:
         """Re-POST a pending request once the deposit has settled.
 
-        Uses the cached signature and request_id verbatim — the on-chain
-        nonce has not advanced (the deposit does not consume one) and the
-        target mech has not changed, so the contract still verifies the
-        same hash. Only a single retry is attempted; a second 402 indicates
-        a misconfigured cap or a stuck balance and is surfaced rather than
-        looping into another deposit.
+        Reuses the cached ``request_id``, nonce, mech, and ipfs payload
+        verbatim — the on-chain nonce has not advanced (the deposit does
+        not consume one) and the target mech has not changed, so the
+        contract still verifies the same ``request_id`` hash. The
+        signature is re-derived locally per agent (it is not carried
+        through synchronized data so the round's consensus tuple stays
+        deterministic). Only a single retry is attempted; a second 402
+        indicates a misconfigured cap or a stuck balance and is surfaced
+        rather than looping into another deposit.
         """
+        request_id_bytes = bytes.fromhex(pending.request_id)
+        signature_hex = yield from self._sign_request_id(request_id_bytes)
+        if signature_hex is None:
+            return OffchainCycleResult(
+                offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
+                last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
+            )
+
         attempt = yield from self._post_signed_request(
             mech_url=pending.mech_url,
             mech_address=pending.mech_address,
             ipfs_hash=pending.ipfs_hash,
             ipfs_data=pending.ipfs_data,
-            request_id_bytes=bytes.fromhex(pending.request_id),
-            signature_hex=pending.signature,
+            request_id_bytes=request_id_bytes,
+            signature_hex=signature_hex,
             nonce=pending.nonce,
             delivery_rate=pending.delivery_rate,
             sender=pending.sender,
@@ -754,46 +844,49 @@ class OffchainRequestExecutor:
 
         if attempt.outcome is OffchainAttemptOutcome.DONE:
             return OffchainCycleResult(
-                offchain_result="offchain_done",
+                offchain_result=Event.OFFCHAIN_DONE.value,
                 mech_requests_json=self._serialise_mech_requests(
                     self._synced.mech_requests
                 ),
                 mech_responses_json=self._serialise_pending_response(
-                    bytes.fromhex(pending.request_id), pending.nonce
+                    request_id_bytes, pending.nonce
                 ),
                 pending_request_json=pending.to_json(),
             )
         return OffchainCycleResult(
-            offchain_result="offchain_all_failed",
+            offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
             last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
         )
 
     # ---------- attempts (HTTP wire) ----------------------------------------
 
-    def _attempt_single_mech(
+    def _build_pending(
         self,
+        request_id_bytes: bytes,
+        nonce: int,
         mech_address: str,
         mech_url: str,
+        delivery_rate: int,
         ipfs_hash: str,
         ipfs_data: str,
-        request_id_bytes: bytes,
-        signature_hex: str,
-        nonce: int,
-        delivery_rate: int,
-    ) -> Generator[None, None, OffchainAttemptResult]:
-        """One ``/send_signed_requests`` POST + response parse."""
-        return (
-            yield from self._post_signed_request(
-                mech_url=mech_url,
-                mech_address=mech_address,
-                ipfs_hash=ipfs_hash,
-                ipfs_data=ipfs_data,
-                request_id_bytes=request_id_bytes,
-                signature_hex=signature_hex,
-                nonce=nonce,
-                delivery_rate=delivery_rate,
-                sender=self._safe_address(),
-            )
+    ) -> PendingRequest:
+        """Assemble the ``PendingRequest`` recorded on consensus payloads.
+
+        Centralized so the ``DONE`` and ``DEPOSIT_NEEDED`` branches can't
+        drift in field shape (the original revision had two near-identical
+        constructor calls). All fields are deterministic given the
+        on-chain reads; see :class:`PendingRequest` for why the per-agent
+        signature is excluded.
+        """
+        return PendingRequest(
+            request_id=request_id_bytes.hex(),
+            nonce=nonce,
+            mech_address=mech_address.lower(),
+            mech_url=mech_url,
+            sender=self._safe_address(),
+            delivery_rate=delivery_rate,
+            ipfs_hash=ipfs_hash,
+            ipfs_data=ipfs_data,
         )
 
     def _post_signed_request(
@@ -911,8 +1004,6 @@ class OffchainRequestExecutor:
         in the JSON payload. Matches mech-client's
         ``requests.post(data=dict(...))`` behaviour byte-for-byte.
         """
-        from urllib.parse import urlencode
-
         return urlencode(
             {
                 "sender": sender,
@@ -998,10 +1089,17 @@ class OffchainRequestExecutor:
             contract_callable="get_chain_id",
         )
         if response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"MechMarketplace.chainId read failed: "
+                f"performative={response.performative}"
+            )
             return None
         try:
             return int(response.state.body.get("chain_id"))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            self._logger.warning(
+                f"MechMarketplace.chainId returned a non-numeric value: {exc}"
+            )
             return None
 
     def _resolve_payment_type(
@@ -1015,6 +1113,10 @@ class OffchainRequestExecutor:
             contract_callable="get_payment_type",
         )
         if response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"Mech {mech_address} paymentType read failed: "
+                f"performative={response.performative}"
+            )
             return None
         raw = response.state.body.get("payment_type")
         if isinstance(raw, (bytes, bytearray)):
@@ -1022,8 +1124,16 @@ class OffchainRequestExecutor:
         elif isinstance(raw, str):
             payment_type = HexBytes(raw)
         else:
+            self._logger.warning(
+                f"Mech {mech_address} paymentType returned an unexpected "
+                f"type {type(raw).__name__}"
+            )
             return None
         if len(payment_type) != 32:
+            self._logger.warning(
+                f"Mech {mech_address} paymentType has wrong length "
+                f"{len(payment_type)} (expected 32)"
+            )
             return None
         return payment_type
 
@@ -1038,11 +1148,19 @@ class OffchainRequestExecutor:
             contract_callable="get_max_delivery_rate",
         )
         if response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"Mech {mech_address} maxDeliveryRate read failed: "
+                f"performative={response.performative}"
+            )
             return None
         raw = response.state.body.get("max_delivery_rate")
         try:
             return int(raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            self._logger.warning(
+                f"Mech {mech_address} maxDeliveryRate returned a non-numeric "
+                f"value: {exc}"
+            )
             return None
 
     # ---------- mech selection ---------------------------------------------
@@ -1058,6 +1176,12 @@ class OffchainRequestExecutor:
         by :func:`mech_info.populate_tools` from the manifest) and falls
         back to the static ``offchain_url`` config when the per-mech field
         is empty.
+
+        Static-URL fallback is gated on a truthy ``priority_mech_address``.
+        A blank address would be silently appended to ``attempted`` and the
+        downstream contract reads at ``""`` would fail before the static URL
+        was ever POSTed to (review C2), so we only return the fallback when
+        an explicit address is configured.
         """
         attempted_lc = {a.lower() for a in attempted}
         for mech in self._synced.ranked_mechs:
@@ -1067,12 +1191,13 @@ class OffchainRequestExecutor:
             if not url:
                 continue
             return mech.address, url
-        # No ranked mech left. Fall back to the static URL if it has not
-        # already been tried — only meaningful when ``ranked_mechs`` is
-        # empty or every entry lacks a URL.
+        # No ranked mech left. Fall back to the static URL only if the
+        # operator configured both an ``offchain_url`` and a
+        # ``priority_mech_address`` that has not already been tried.
         fallback = self._config.offchain_url
-        if fallback and not attempted:
-            return self._config.priority_mech_address or "", fallback
+        static_address = self._config.priority_mech_address
+        if fallback and static_address and static_address.lower() not in attempted_lc:
+            return static_address, fallback
         return None, None
 
     # ---------- deposit multisend ------------------------------------------
@@ -1087,9 +1212,13 @@ class OffchainRequestExecutor:
         ERC20: bundles ``approve(BalanceTracker, shortfall) +
         depositFor(safe, shortfall)`` atomically through MultiSend. Native:
         a single Safe tx calling ``depositFor(safe)`` with ``value=shortfall``.
-        Nevermined: surfaces ``None`` (the BalanceTracker reverts on chain
-        by design, so an on-chain retry path is impossible) — callers should
-        emit ``OFFCHAIN_402_INSUFFICIENT`` and short-circuit failover.
+        Nevermined: returns ``None`` (``BalanceTrackerNvmSubscription{Native,Token}.depositFor``
+        reverts by design, so an on-chain retry path is impossible). An
+        unknown ``paymentType`` also returns ``None``. The caller treats
+        any ``None`` here as ``OFFCHAIN_402_INSUFFICIENT`` — failover to
+        another ranked mech would charge the same Safe balance and reach
+        the same result, so the caller surfaces to the consumer rather
+        than burning the failover budget.
         """
         if challenge.shortfall <= 0:
             return None
@@ -1107,6 +1236,10 @@ class OffchainRequestExecutor:
         if payment_label == _PAYMENT_TOKEN:
             tx_hash = yield from self._build_token_deposit_multisend(challenge)
             return tx_hash
+        self._logger.warning(
+            f"Unknown paymentType selector 0x{payment_type.hex()}; "
+            "cannot build a deposit tx. Surfacing to the consumer."
+        )
         return None
 
     def _build_native_deposit_tx(
@@ -1124,9 +1257,18 @@ class OffchainRequestExecutor:
             account=self._safe_address(),
         )
         if call_data_response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"BalanceTrackerFixedPriceNative.build_deposit_for_data "
+                f"read failed at {challenge.pay_to}: "
+                f"performative={call_data_response.performative}"
+            )
             return None
         data = call_data_response.state.body.get("data")
         if not isinstance(data, (bytes, bytearray)):
+            self._logger.warning(
+                "BalanceTrackerFixedPriceNative.build_deposit_for_data "
+                f"returned a non-bytes payload {type(data).__name__}"
+            )
             return None
         return (
             yield from self._build_safe_tx_for_single_call(
@@ -1149,6 +1291,10 @@ class OffchainRequestExecutor:
             amount=challenge.shortfall,
         )
         if approve_data_response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"ERC20.build_approval_tx read failed at {challenge.asset}: "
+                f"performative={approve_data_response.performative}"
+            )
             return None
         approve_data = approve_data_response.state.body.get("data")
 
@@ -1161,12 +1307,25 @@ class OffchainRequestExecutor:
             amount=challenge.shortfall,
         )
         if deposit_data_response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"BalanceTrackerFixedPriceToken.build_deposit_for_data "
+                f"read failed at {challenge.pay_to}: "
+                f"performative={deposit_data_response.performative}"
+            )
             return None
         deposit_data = deposit_data_response.state.body.get("data")
 
         if not isinstance(approve_data, (bytes, bytearray)):
+            self._logger.warning(
+                "ERC20.build_approval_tx returned a non-bytes payload "
+                f"{type(approve_data).__name__}"
+            )
             return None
         if not isinstance(deposit_data, (bytes, bytearray)):
+            self._logger.warning(
+                "BalanceTrackerFixedPriceToken.build_deposit_for_data returned "
+                f"a non-bytes payload {type(deposit_data).__name__}"
+            )
             return None
 
         multisend_response = yield from self._b.get_contract_api_response(
@@ -1190,9 +1349,17 @@ class OffchainRequestExecutor:
             ],
         )
         if multisend_response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"MultiSend.get_tx_data read failed: "
+                f"performative={multisend_response.performative}"
+            )
             return None
         data = multisend_response.state.body.get("data")
         if not isinstance(data, str):
+            self._logger.warning(
+                f"MultiSend.get_tx_data returned a non-string payload "
+                f"{type(data).__name__}"
+            )
             return None
 
         return (
@@ -1291,6 +1458,8 @@ class OffchainRequestExecutor:
             return OFFCHAIN_TIMEOUT_ALL_MECHS
         if outcome is OffchainAttemptOutcome.SERVER_BUSY:
             return OFFCHAIN_503_ALL_MECHS
+        if outcome is OffchainAttemptOutcome.BAD_RESPONSE:
+            return OFFCHAIN_BAD_RESPONSE
         return OFFCHAIN_TIMEOUT_ALL_MECHS
 
 
