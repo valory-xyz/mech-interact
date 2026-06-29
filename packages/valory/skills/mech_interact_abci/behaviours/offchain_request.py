@@ -818,6 +818,16 @@ class OffchainRequestExecutor:
                 # so failover can't change the outcome — surface
                 # ``OFFCHAIN_402_INSUFFICIENT`` to the consumer instead of
                 # burning the rest of the failover budget on certain failures.
+                # Log here (where the outcome is actually emitted) so an
+                # operator can distinguish OVER_CAP from the NVM / unknown
+                # paymentType paths that surface the same failure label.
+                self._logger.warning(
+                    "Offchain 402 shortfall "
+                    f"{attempt.challenge.shortfall} exceeds "  # type: ignore[union-attr]
+                    f"auto_deposit_cap_per_cycle "
+                    f"{self._config.auto_deposit_cap_per_cycle}; cap is too "
+                    "low for this mech. Surfacing OFFCHAIN_402_INSUFFICIENT."
+                )
                 return OffchainCycleResult(
                     offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
                     last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
@@ -1182,13 +1192,23 @@ class OffchainRequestExecutor:
             return None
         raw = response.state.body.get("max_delivery_rate")
         try:
-            return int(raw)
+            rate = int(raw)
         except (TypeError, ValueError) as exc:
             self._logger.warning(
                 f"Mech {mech_address} maxDeliveryRate returned a non-numeric "
                 f"value: {exc}"
             )
             return None
+        if rate <= 0:
+            # ``0`` would slip past the ``is None`` guard in ``_fresh_cycle``
+            # and silently collapse ``_compute_deposit_amount`` to the
+            # shortfall (one-call sizing). Treat any non-positive value as an
+            # invalid read so failover skips this mech.
+            self._logger.warning(
+                f"Mech {mech_address} maxDeliveryRate is {rate}; skipping."
+            )
+            return None
+        return rate
 
     # ---------- 402 destination validation ---------------------------------
 
@@ -1400,17 +1420,6 @@ class OffchainRequestExecutor:
             current_balance=challenge.current_balance,
             delivery_rate=delivery_rate,
         )
-        if deposit_amount is None:
-            # Cap is below the 402 shortfall: even the minimum legal deposit
-            # would breach the safety bound. Surface to the consumer rather
-            # than land a deposit the operator explicitly capped against.
-            self._logger.warning(
-                "Offchain 402 shortfall "
-                f"{challenge.shortfall} exceeds auto_deposit_cap_per_cycle "
-                f"{self._config.auto_deposit_cap_per_cycle}; cap is too low "
-                "for this mech. Surfacing OFFCHAIN_402_INSUFFICIENT."
-            )
-            return None
 
         if payment_label == _PAYMENT_NATIVE:
             tx_hash = yield from self._build_native_deposit_tx(
@@ -1433,32 +1442,28 @@ class OffchainRequestExecutor:
         shortfall: int,
         current_balance: int,
         delivery_rate: int,
-    ) -> Optional[int]:
+    ) -> int:
         """Size the auto-deposit so it covers ``target_calls`` forward requests.
 
         Computes ``desired = offchain_deposit_target_calls × delivery_rate``,
         then ``needed = max(shortfall, desired − current_balance)`` so the
         deposit always at least covers the current request. Clamps to the
-        operator's ``auto_deposit_cap_per_cycle`` safety bound. Returns
-        ``None`` when the cap is below the shortfall (mechanic-side
-        misconfig: even the legal minimum deposit would breach the cap),
-        which the caller surfaces as ``OFFCHAIN_402_INSUFFICIENT``.
+        operator's ``auto_deposit_cap_per_cycle`` safety bound.
 
         The shape (live ``delivery_rate`` × forward ``target_calls``) keeps
         the deposit dynamic: a mech-price change scales the next deposit
         automatically without operator action.
+
+        Reachability invariant: ``_post_signed_request`` filters
+        ``shortfall > cap`` upstream and emits ``OVER_CAP`` there, so by
+        the time this runs ``shortfall <= cap`` is guaranteed and the
+        clamp is always at least the shortfall (the deposit succeeds for
+        the current request).
         """
         target_calls = self._config.offchain_deposit_target_calls
         cap = self._config.auto_deposit_cap_per_cycle or 0
-        if cap and shortfall > cap:
-            return None
         desired = target_calls * delivery_rate
-        # ``max(shortfall, …)`` guarantees we cover the current request even
-        # if a top-up race or partial balance leaves desired below shortfall.
         needed = max(shortfall, desired - current_balance)
-        # ``min(needed, cap)`` clamps to the safety bound. Because we already
-        # verified ``shortfall <= cap`` above, the result is always at least
-        # the shortfall (the deposit succeeds for the current request).
         return min(needed, cap) if cap else needed
 
     def _build_native_deposit_tx(

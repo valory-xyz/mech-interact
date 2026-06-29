@@ -188,18 +188,33 @@ class TestMechMarketplaceConfig:
             ("offchain_poll_timeout_seconds", 0.0, "must be positive"),
             ("offchain_poll_timeout_seconds", -1.0, "must be positive"),
             ("offchain_failover_max_retries", -1, "must be non-negative"),
+            ("offchain_deposit_target_calls", 0, "must be >= 1"),
+            ("offchain_deposit_target_calls", -1, "must be >= 1"),
         ],
     )
     def test_invalid_offchain_timing_params_raise(
         self, field: str, value: float, error_match: str
     ) -> None:
-        """Each offchain timing/retry param is validated for sensible ranges."""
+        """Each offchain timing/retry/sizing param is validated for sensible ranges."""
         with pytest.raises(ValueError, match=error_match):
             MechMarketplaceConfig(
                 mech_marketplace_address="0xmarket",
                 response_timeout=30,
                 **{field: value},  # type: ignore[arg-type]
             )
+
+    def test_offchain_deposit_target_calls_default(self) -> None:
+        """Default sizes 10 forward calls per deposit.
+
+        Pinned because the value is the entry guard for the dynamic-sizing
+        formula: a silent change to the default would shift every off-chain
+        deployment's BalanceTracker top-up cadence in lockstep.
+        """
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+        )
+        assert config.offchain_deposit_target_calls == 10
 
 
 class TestSharedStateLastFailureReason:

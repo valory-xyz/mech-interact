@@ -894,8 +894,12 @@ class TestFreshCycle:
         assert result.tx_hash is not None
         assert result.pending_request_json is not None
         # tx_submitter MUST be the sentinel so consumer multiplexers
-        # can route the settled deposit back into MechRequestRound.
+        # can route the settled deposit back into MechRequestRound. Pin
+        # the literal value too: an identity-only check against the
+        # imported symbol would let a silent rename move both sides
+        # together while consumers (which hardcode the string) break.
         assert result.tx_submitter == OFFCHAIN_DEPOSIT_TX_SUBMITTER
+        assert result.tx_submitter == "mech_request_round_offchain_deposit"
         # Structured request metadata survives the deposit settlement.
         assert result.mech_requests_json is not None
         parsed = json.loads(result.mech_requests_json)
@@ -1070,6 +1074,51 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
 
+    def test_zero_delivery_rate_treated_as_invalid_read(self) -> None:
+        """``maxDeliveryRate == 0`` is rejected like a non-STATE read (review C20).
+
+        Without the guard a zero rate slips past ``is None`` and silently
+        collapses ``_compute_deposit_amount`` to one-call sizing on every
+        cycle. The executor must reject the read and fail over, surfacing
+        ``OFFCHAIN_TIMEOUT_ALL_MECHS`` once the failover budget is spent.
+        """
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://m")],
+            contract_api_responses=[
+                _state_resp({"chain_id": 100}),
+                _state_resp({"nonce": 7}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                # ``0`` would silently neutralize the dynamic sizing.
+                _state_resp({"max_delivery_rate": 0}),
+            ],
+            http_responses=[],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+
+    def test_negative_delivery_rate_treated_as_invalid_read(self) -> None:
+        """Negative ``maxDeliveryRate`` is also rejected as an invalid read."""
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://m")],
+            contract_api_responses=[
+                _state_resp({"chain_id": 100}),
+                _state_resp({"nonce": 7}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": -1}),
+            ],
+            http_responses=[],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+
 
 class TestRetryPending:
     """Resumed cycle after a deposit settles (review C8)."""
@@ -1186,20 +1235,6 @@ class TestComputeDepositAmount:
             shortfall=100, current_balance=0, delivery_rate=100
         )
         assert result == 500
-
-    def test_cap_below_shortfall_returns_none(self) -> None:
-        """``cap < shortfall``: caller treats as ``OFFCHAIN_402_INSUFFICIENT``.
-
-        The cap is the operator's safety bound; if even the legal minimum
-        deposit (shortfall) would breach it, surface to the consumer
-        rather than silently land a deposit that violates the policy.
-        """
-        executor = self._make_executor(target_calls=10, cap=50)
-        # shortfall=100 > cap=50 → None.
-        result = executor._compute_deposit_amount(
-            shortfall=100, current_balance=0, delivery_rate=10
-        )
-        assert result is None
 
     def test_zero_cap_disables_clamp(self) -> None:
         """``cap == 0`` disables the safety bound (legacy/optional shape).
