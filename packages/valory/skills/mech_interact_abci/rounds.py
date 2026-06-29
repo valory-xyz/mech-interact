@@ -34,6 +34,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 )
 from packages.valory.skills.mech_interact_abci.states.final_states import (
     FailedMechInformationRound,
+    FailedOffchainMechRequestRound,
     FinishedMarketplaceLegacyDetectedRound,
     FinishedMechInformationRound,
     FinishedMechLegacyDetectedRound,
@@ -42,6 +43,8 @@ from packages.valory.skills.mech_interact_abci.states.final_states import (
     FinishedMechRequestSkipRound,
     FinishedMechResponseRound,
     FinishedMechResponseTimeoutRound,
+    FinishedOffchainMechDepositNeededRound,
+    FinishedOffchainMechRequestRound,
 )
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
     MechInformationRound,
@@ -79,6 +82,9 @@ class MechInteractAbciApp(AbciApp[Event]):
             - done: 9.
             - skip request: 12.
             - buy subscription: 3.
+            - offchain done: 14.
+            - offchain deposit needed: 15.
+            - offchain all failed: 16.
             - no majority: 2.
             - round timeout: 2.
         3. MechPurchaseSubscriptionRound
@@ -89,7 +95,7 @@ class MechInteractAbciApp(AbciApp[Event]):
         4. MechResponseRound
             - done: 10.
             - no majority: 4.
-            - round timeout: 11.
+            - response round timeout: 11.
         5. FinishedMarketplaceLegacyDetectedRound
         6. FinishedMechLegacyDetectedRound
         7. FinishedMechInformationRound
@@ -99,11 +105,15 @@ class MechInteractAbciApp(AbciApp[Event]):
         11. FinishedMechResponseTimeoutRound
         12. FinishedMechRequestSkipRound
         13. FinishedMechPurchaseSubscriptionRound
+        14. FinishedOffchainMechRequestRound
+        15. FinishedOffchainMechDepositNeededRound
+        16. FailedOffchainMechRequestRound
 
-    Final states: {FailedMechInformationRound, FinishedMarketplaceLegacyDetectedRound, FinishedMechInformationRound, FinishedMechLegacyDetectedRound, FinishedMechPurchaseSubscriptionRound, FinishedMechRequestRound, FinishedMechRequestSkipRound, FinishedMechResponseRound, FinishedMechResponseTimeoutRound}
+    Final states: {FailedMechInformationRound, FailedOffchainMechRequestRound, FinishedMarketplaceLegacyDetectedRound, FinishedMechInformationRound, FinishedMechLegacyDetectedRound, FinishedMechPurchaseSubscriptionRound, FinishedMechRequestRound, FinishedMechRequestSkipRound, FinishedMechResponseRound, FinishedMechResponseTimeoutRound, FinishedOffchainMechDepositNeededRound, FinishedOffchainMechRequestRound}
 
     Timeouts:
         round timeout: 30.0
+        response round timeout: 330.0
     """
 
     initial_round_cls: AppState = MechVersionDetectionRound
@@ -130,6 +140,9 @@ class MechInteractAbciApp(AbciApp[Event]):
             Event.DONE: FinishedMechRequestRound,
             Event.SKIP_REQUEST: FinishedMechRequestSkipRound,
             Event.BUY_SUBSCRIPTION: MechPurchaseSubscriptionRound,
+            Event.OFFCHAIN_DONE: FinishedOffchainMechRequestRound,
+            Event.OFFCHAIN_DEPOSIT_NEEDED: FinishedOffchainMechDepositNeededRound,
+            Event.OFFCHAIN_ALL_FAILED: FailedOffchainMechRequestRound,
             Event.NO_MAJORITY: MechRequestRound,
             Event.ROUND_TIMEOUT: MechRequestRound,
         },
@@ -142,7 +155,12 @@ class MechInteractAbciApp(AbciApp[Event]):
         MechResponseRound: {
             Event.DONE: FinishedMechResponseRound,
             Event.NO_MAJORITY: MechResponseRound,
-            Event.ROUND_TIMEOUT: FinishedMechResponseTimeoutRound,
+            # ``RESPONSE_ROUND_TIMEOUT`` instead of ``ROUND_TIMEOUT``: the
+            # off-chain poll loop can run up to
+            # ``mech_marketplace_config.offchain_poll_timeout_seconds``
+            # (default 300s), well past the 30s shared by every other round
+            # in this app.
+            Event.RESPONSE_ROUND_TIMEOUT: FinishedMechResponseTimeoutRound,
         },
         FinishedMarketplaceLegacyDetectedRound: {},
         FinishedMechLegacyDetectedRound: {},
@@ -153,6 +171,9 @@ class MechInteractAbciApp(AbciApp[Event]):
         FinishedMechResponseTimeoutRound: {},
         FinishedMechRequestSkipRound: {},
         FinishedMechPurchaseSubscriptionRound: {},
+        FinishedOffchainMechRequestRound: {},
+        FinishedOffchainMechDepositNeededRound: {},
+        FailedOffchainMechRequestRound: {},
     }
     final_states: Set[AppState] = {
         FinishedMarketplaceLegacyDetectedRound,
@@ -164,9 +185,16 @@ class MechInteractAbciApp(AbciApp[Event]):
         FinishedMechResponseTimeoutRound,
         FinishedMechRequestSkipRound,
         FinishedMechPurchaseSubscriptionRound,
+        FinishedOffchainMechRequestRound,
+        FinishedOffchainMechDepositNeededRound,
+        FailedOffchainMechRequestRound,
     }
     event_to_timeout: EventToTimeout = {
         Event.ROUND_TIMEOUT: 30.0,
+        # Default fallback that accommodates the 300s off-chain poll budget
+        # plus a 30s overhead. ``SharedState.setup`` rebinds this at runtime
+        # from ``mech_marketplace_config.offchain_poll_timeout_seconds``.
+        Event.RESPONSE_ROUND_TIMEOUT: 330.0,
     }
     cross_period_persisted_keys: FrozenSet[str] = frozenset(
         {get_name(SynchronizedData.mech_responses)}
@@ -208,4 +236,29 @@ class MechInteractAbciApp(AbciApp[Event]):
         },
         FinishedMechResponseRound: set(get_name(SynchronizedData.mech_responses)),
         FinishedMechResponseTimeoutRound: set(),
+        # Offchain happy path: the request POST got 200. ``mech_requests`` and
+        # ``mech_responses`` carry the request_id and the pending response
+        # placeholder so the response round can poll the offchain mech.
+        FinishedOffchainMechRequestRound: {
+            get_name(SynchronizedData.mech_requests),
+            get_name(SynchronizedData.mech_responses),
+            get_name(SynchronizedData.offchain_result),
+            get_name(SynchronizedData.offchain_pending_request),
+        },
+        # Offchain deposit path: 402 triggered a multisend that needs
+        # settlement. Carries the standard tx_submitter+tx_hash for the
+        # consumer's transaction-settlement skill plus the offchain state
+        # so retry after PostTxSettlement picks up the same request_id.
+        FinishedOffchainMechDepositNeededRound: {
+            get_name(SynchronizedData.tx_submitter),
+            get_name(SynchronizedData.most_voted_tx_hash),
+            get_name(SynchronizedData.offchain_result),
+            get_name(SynchronizedData.offchain_pending_request),
+        },
+        # Offchain failure path: retry budget exhausted. ``last_failure_reason``
+        # surfaces ``OFFCHAIN_*`` to the consumer.
+        FailedOffchainMechRequestRound: {
+            get_name(SynchronizedData.offchain_result),
+            get_name(SynchronizedData.offchain_last_failure_reason),
+        },
     }

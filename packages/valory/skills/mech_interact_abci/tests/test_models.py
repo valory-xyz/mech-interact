@@ -116,9 +116,11 @@ class TestMechMarketplaceConfig:
             use_offchain=True,
             offchain_url="https://mech.example/",
             use_dynamic_mech_selection=False,
+            auto_deposit_cap_per_cycle=1_000_000,
         )
         assert config.use_offchain is True
         assert config.offchain_url == "https://mech.example/"
+        assert config.auto_deposit_cap_per_cycle == 1_000_000
 
     def test_use_offchain_with_dynamic_selection(self) -> None:
         """Dynamic selection is allowed without a static URL (discovered per-mech)."""
@@ -127,19 +129,92 @@ class TestMechMarketplaceConfig:
             response_timeout=30,
             use_offchain=True,
             use_dynamic_mech_selection=True,
+            auto_deposit_cap_per_cycle=1_000_000,
         )
         assert config.use_offchain is True
         assert config.offchain_url is None
+        assert config.auto_deposit_cap_per_cycle == 1_000_000
 
     def test_use_offchain_without_url_or_dynamic_raises(self) -> None:
         """Off-chain needs either a static URL or dynamic discovery."""
-        with pytest.raises(ValueError, match="use_offchain requires"):
+        with pytest.raises(ValueError, match="use_offchain requires either"):
             MechMarketplaceConfig(
                 mech_marketplace_address="0xmarket",
                 response_timeout=30,
                 use_offchain=True,
                 use_dynamic_mech_selection=False,
+                auto_deposit_cap_per_cycle=1_000_000,
             )
+
+    def test_use_offchain_without_auto_deposit_cap_raises(self) -> None:
+        """``auto_deposit_cap_per_cycle`` is required when ``use_offchain=True``."""
+        with pytest.raises(
+            ValueError, match="use_offchain requires auto_deposit_cap_per_cycle"
+        ):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                use_offchain=True,
+                offchain_url="https://mech.example/",
+            )
+
+    def test_negative_auto_deposit_cap_raises(self) -> None:
+        """A negative cap is rejected even on the on-chain path."""
+        with pytest.raises(
+            ValueError, match="auto_deposit_cap_per_cycle must be non-negative"
+        ):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                auto_deposit_cap_per_cycle=-1,
+            )
+
+    def test_zero_auto_deposit_cap_is_allowed_with_use_offchain(self) -> None:
+        """A zero cap is the explicit ``never auto-deposit`` choice; allowed."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            use_offchain=True,
+            offchain_url="https://mech.example/",
+            auto_deposit_cap_per_cycle=0,
+        )
+        assert config.auto_deposit_cap_per_cycle == 0
+
+    @pytest.mark.parametrize(
+        "field, value, error_match",
+        [
+            ("offchain_poll_interval_seconds", 0.0, "must be positive"),
+            ("offchain_poll_interval_seconds", -1.0, "must be positive"),
+            ("offchain_poll_timeout_seconds", 0.0, "must be positive"),
+            ("offchain_poll_timeout_seconds", -1.0, "must be positive"),
+            ("offchain_failover_max_retries", -1, "must be non-negative"),
+            ("offchain_deposit_target_calls", 0, "must be >= 1"),
+            ("offchain_deposit_target_calls", -1, "must be >= 1"),
+        ],
+    )
+    def test_invalid_offchain_timing_params_raise(
+        self, field: str, value: float, error_match: str
+    ) -> None:
+        """Each offchain timing/retry/sizing param is validated for sensible ranges."""
+        with pytest.raises(ValueError, match=error_match):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                **{field: value},  # type: ignore[arg-type]
+            )
+
+    def test_offchain_deposit_target_calls_default(self) -> None:
+        """Default sizes 10 forward calls per deposit.
+
+        Pinned because the value is the entry guard for the dynamic-sizing
+        formula: a silent change to the default would shift every off-chain
+        deployment's BalanceTracker top-up cadence in lockstep.
+        """
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+        )
+        assert config.offchain_deposit_target_calls == 10
 
 
 class TestSharedStateLastFailureReason:
@@ -149,6 +224,76 @@ class TestSharedStateLastFailureReason:
         """A freshly constructed SharedState has no failure reason."""
         state = SharedState(name="", skill_context=DummyContext())
         assert state.last_failure_reason is None
+
+
+class TestSharedStateSetupResponseTimeout:
+    """Tests for SharedState.setup rebinding RESPONSE_ROUND_TIMEOUT."""
+
+    def test_setup_rebinds_response_round_timeout(self) -> None:
+        """``setup`` overrides the class-level timeout from runtime config.
+
+        Without this, the off-chain poll budget would be silently capped
+        at the class default regardless of ``offchain_poll_timeout_seconds``.
+        """
+        from packages.valory.skills.mech_interact_abci.models import (
+            _RESPONSE_ROUND_TIMEOUT_OVERHEAD_SECONDS,
+        )
+        from packages.valory.skills.mech_interact_abci.rounds import (
+            MechInteractAbciApp,
+        )
+        from packages.valory.skills.mech_interact_abci.states.base import Event
+
+        configured_poll_budget = 120.0
+        original = MechInteractAbciApp.event_to_timeout.get(
+            Event.RESPONSE_ROUND_TIMEOUT
+        )
+        try:
+            state = SharedState(name="", skill_context=DummyContext())
+            fake_params = MagicMock(
+                mech_marketplace_config=MagicMock(
+                    offchain_poll_timeout_seconds=configured_poll_budget
+                )
+            )
+            with (
+                patch.object(
+                    type(state),
+                    "params",
+                    new_callable=PropertyMock,
+                    return_value=fake_params,
+                ),
+                patch.object(
+                    SharedState.__mro__[1],
+                    "setup",
+                    lambda _self: None,
+                ),
+            ):
+                state.setup()
+            assert MechInteractAbciApp.event_to_timeout[
+                Event.RESPONSE_ROUND_TIMEOUT
+            ] == (configured_poll_budget + _RESPONSE_ROUND_TIMEOUT_OVERHEAD_SECONDS)
+        finally:
+            # Restore so subsequent tests in the suite see the original.
+            if original is not None:
+                MechInteractAbciApp.event_to_timeout[Event.RESPONSE_ROUND_TIMEOUT] = (
+                    original
+                )
+
+    def test_class_level_default_covers_300s_poll_budget(self) -> None:
+        """The class-level fallback is at least 300s + overhead.
+
+        Locks in the invariant: even without ``setup`` running, the
+        default in ``MechInteractAbciApp.event_to_timeout`` must already
+        be wide enough for the default poll budget so an operator can't
+        silently ship a service that times out at 30s.
+        """
+        from packages.valory.skills.mech_interact_abci.rounds import (
+            MechInteractAbciApp,
+        )
+        from packages.valory.skills.mech_interact_abci.states.base import Event
+
+        default = MechInteractAbciApp.event_to_timeout[Event.RESPONSE_ROUND_TIMEOUT]
+        # Default poll budget is 300s; the fallback must cover it.
+        assert default >= 300.0
 
 
 class TestMultisendBatch:

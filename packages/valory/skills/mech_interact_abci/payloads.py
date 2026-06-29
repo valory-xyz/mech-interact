@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -42,6 +42,17 @@ class MechRequestPayload(PrepareTxPayload):
     safe_contract_address: Optional[str]
     mech_requests: Optional[str]
     mech_responses: Optional[str]
+    # Offchain dispatch fields. None for the on-chain path (today's behaviour,
+    # unchanged). One of ``offchain_done|offchain_deposit_needed|
+    # offchain_all_failed`` when ``MechRequestBehaviour`` took the offchain
+    # HTTP path. ``MechRequestRound.end_block`` reads ``offchain_result`` to
+    # dispatch to the right ``Event`` variant; the other three carry the
+    # state needed to either retry after a settled deposit, continue failover
+    # across the ranked mech list, or surface a clean failure to the
+    # consumer.
+    offchain_result: Optional[str] = None
+    offchain_pending_request: Optional[str] = None
+    offchain_last_failure_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)

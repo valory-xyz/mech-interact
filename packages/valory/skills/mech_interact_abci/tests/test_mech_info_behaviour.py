@@ -218,6 +218,65 @@ class TestPopulateTools:
         api.reset_retries.assert_called_once()
         behaviour.context.logger.error.assert_called()
 
+    def test_http_url_is_hydrated_from_manifest(self) -> None:
+        """Mechs sharing a CID get ``http_url`` set from ``manifest['url']``."""
+        import json as _json
+        from types import SimpleNamespace
+
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour)
+        api.process_response.return_value = ["tool_a"]
+
+        http_message = SimpleNamespace(
+            body=_json.dumps(
+                {"tools": ["tool_a"], "url": "https://mech.example/agent/abc"}
+            ).encode("utf-8")
+        )
+        _wire_get_http_response(behaviour, [http_message])
+
+        mech = _make_mech_info(relevant_tools=set())
+        result = _drive(behaviour.populate_tools([mech]))
+
+        assert result is True
+        assert mech.http_url == "https://mech.example/agent/abc"
+
+    def test_http_url_stays_none_when_manifest_lacks_key(self) -> None:
+        """Older manifests without ``url`` leave ``http_url`` set to ``None``."""
+        import json as _json
+        from types import SimpleNamespace
+
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour)
+        api.process_response.return_value = ["tool_a"]
+
+        http_message = SimpleNamespace(
+            body=_json.dumps({"tools": ["tool_a"]}).encode("utf-8")
+        )
+        _wire_get_http_response(behaviour, [http_message])
+
+        mech = _make_mech_info(relevant_tools=set())
+        result = _drive(behaviour.populate_tools([mech]))
+
+        assert result is True
+        assert mech.http_url is None
+
+    def test_http_url_stays_none_on_non_json_manifest(self) -> None:
+        """Malformed manifest body must not crash and leaves ``http_url=None``."""
+        from types import SimpleNamespace
+
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour)
+        api.process_response.return_value = ["tool_a"]
+
+        http_message = SimpleNamespace(body=b"not json at all")
+        _wire_get_http_response(behaviour, [http_message])
+
+        mech = _make_mech_info(relevant_tools=set())
+        result = _drive(behaviour.populate_tools([mech]))
+
+        assert result is True
+        assert mech.http_url is None
+
     def test_quarantines_on_empty_tools(self) -> None:
         """Empty tools list is deterministic per-CID; mech is quarantined."""
         behaviour = _make_mech_info_behaviour()

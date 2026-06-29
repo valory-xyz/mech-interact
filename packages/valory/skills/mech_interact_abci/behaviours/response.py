@@ -30,6 +30,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
     WaitableConditionType,
 )
+from packages.valory.skills.mech_interact_abci.behaviours.offchain_response import (
+    OffchainResponsePoller,
+    serialise_responses,
+)
 from packages.valory.skills.mech_interact_abci.behaviours.request import V1_HEX_PREFIX
 from packages.valory.skills.mech_interact_abci.models import MechResponseSpecs, Ox
 from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
@@ -607,8 +611,35 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                     f"There was an error in the mech's response: {self.current_mech_response.error}"
                 )
 
+    def _run_offchain_response_cycle(self) -> Generator:
+        """Drive one off-chain response poll cycle and finish the behaviour.
+
+        Mirrors ``MechRequestBehaviour._run_offchain_request_cycle``: hands
+        work off to :class:`OffchainResponsePoller`, lifts the resulting
+        ``mech_responses`` list onto the standard ``JSONPayload`` that
+        ``MechResponseRound`` already accepts. Downstream behaviour
+        (``DecisionReceive`` on trader, mirror consumers) reads the same
+        list shape the on-chain branch produces, so the consumer-side
+        integration only needs the FSM edge change, not a payload schema
+        update.
+        """
+        with self.context.benchmark_tool.measure(self.behaviour_id).local():
+            poller = OffchainResponsePoller(self)
+            responses = yield from poller.run()
+            serialised = serialise_responses(responses)
+            self.context.logger.info(f"Received offchain mech responses: {serialised}")
+            payload = JSONPayload(
+                self.context.agent_address,
+                serialised,
+            )
+        yield from self.finish_behaviour(payload)
+
     def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
+
+        if self.mech_marketplace_config.use_offchain is True:
+            yield from self._run_offchain_response_cycle()
+            return
 
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             if self.synchronized_data.final_tx_hash:

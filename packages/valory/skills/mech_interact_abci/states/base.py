@@ -62,6 +62,7 @@ OFFCHAIN_ALL_FAILED = "offchain_all_failed"
 OFFCHAIN_402_INSUFFICIENT = "offchain_402_insufficient"
 OFFCHAIN_503_ALL_MECHS = "offchain_503_all_mechs"
 OFFCHAIN_TIMEOUT_ALL_MECHS = "offchain_timeout_all_mechs"
+OFFCHAIN_BAD_RESPONSE = "offchain_bad_response"
 
 NestedSubgraphItemType = List[Dict[str, Any]]
 
@@ -76,8 +77,22 @@ class Event(Enum):
     NO_MARKETPLACE = "no_marketplace"
     NO_MAJORITY = "no_majority"
     ROUND_TIMEOUT = "round_timeout"
+    # Dedicated timeout for ``MechResponseRound`` because off-chain polling
+    # can legitimately take up to ``offchain_poll_timeout_seconds`` (300s by
+    # default). The 30s ``ROUND_TIMEOUT`` would otherwise kill the poll loop
+    # mid-cycle and force ``FinishedMechResponseTimeoutRound`` for every
+    # request slower than ~30s. ``SharedState.setup`` sets this from
+    # ``offchain_poll_timeout_seconds + overhead`` at runtime; the class-level
+    # value below is the fallback.
+    RESPONSE_ROUND_TIMEOUT = "response_round_timeout"
     SKIP_REQUEST = "skip_request"
     BUY_SUBSCRIPTION = "buy_subscription"
+    # Offchain dispatch events. Emitted by ``MechRequestRound.end_block`` when
+    # the request behaviour took the offchain HTTP path (use_offchain=true) and
+    # produced one of the three offchain outcomes.
+    OFFCHAIN_DONE = "offchain_done"
+    OFFCHAIN_DEPOSIT_NEEDED = "offchain_deposit_needed"
+    OFFCHAIN_ALL_FAILED = "offchain_all_failed"
 
 
 @dataclass
@@ -197,6 +212,12 @@ class MechInfo:
     self_delivered: int = 0
     max_delivery_rate: int = 0
     relevant_tools: Set[str] = field(default_factory=set)
+    # Offchain HTTP URL published by the mech operator in the IPFS metadata
+    # manifest under the ``url`` key (see mech-deployments ``make
+    # update-metadata`` flow). None for mechs whose manifest predates the
+    # offchain rollout; consumers fall back to the static ``offchain_url``
+    # config when None.
+    http_url: Optional[str] = None
 
     def __post_init__(
         self,
@@ -496,6 +517,55 @@ class SynchronizedData(TxSynchronizedData):
     def is_marketplace_v2(self) -> Optional[bool]:
         """Whether a marketplace V2 is used. True if v2, False if v1, None if no marketplace is used."""
         return self.db.get_strict("is_marketplace_v2")
+
+    @property
+    def offchain_result(self) -> Optional[str]:
+        """Outcome label emitted by the offchain path of the request behaviour.
+
+        One of ``offchain_done``, ``offchain_deposit_needed``,
+        ``offchain_all_failed``, or ``None`` when the on-chain path ran.
+        ``MechRequestRound.end_block`` reads this to dispatch to the right
+        ``Event`` variant. Persisted as a string so the value flows through
+        the standard payload/selection-key path.
+        """
+        return cast(Optional[str], self.db.get("offchain_result", None))
+
+    @property
+    def offchain_pending_request(self) -> Optional[Dict[str, Any]]:
+        """Serialized state of the in-flight offchain request awaiting deposit.
+
+        Populated when the previous attempt returned a structured 402 and the
+        FSM is now settling the deposit multisend. On re-entry the behaviour
+        reads this to reuse the same ``request_id``, signature, nonce, and
+        target mech for the retry POST, so the original signed binding stays
+        valid against the contract's monotonic ``mapNonces``.
+        """
+        raw = self.db.get("offchain_pending_request", None)
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return None
+            if isinstance(parsed, dict):
+                return parsed
+            return None
+        if isinstance(raw, dict):
+            return raw
+        return None
+
+    @property
+    def offchain_last_failure_reason(self) -> Optional[str]:
+        """Label set when an offchain cycle exhausted its retries.
+
+        Matches one of the module-level ``OFFCHAIN_*`` constants
+        (``OFFCHAIN_ALL_FAILED``, ``OFFCHAIN_402_INSUFFICIENT``,
+        ``OFFCHAIN_503_ALL_MECHS``, ``OFFCHAIN_TIMEOUT_ALL_MECHS``). Used by
+        downstream rounds and consumer agents to surface why the FSM is
+        leaving the offchain branch.
+        """
+        return cast(Optional[str], self.db.get("offchain_last_failure_reason", None))
 
 
 class MechInteractionRound(CollectSameUntilThresholdRound):
