@@ -251,6 +251,15 @@ class MechMarketplaceConfig:
     # If the 402 shortfall exceeds the cap, the behaviour refuses the
     # deposit and surfaces ``OFFCHAIN_402_INSUFFICIENT`` to the consumer.
     auto_deposit_cap_per_cycle: Optional[int] = None
+    # Number of forward requests the off-chain auto-deposit should cover at the
+    # live on-chain ``delivery_rate``. The actual deposit amount is computed
+    # dynamically as ``offchain_deposit_target_calls × delivery_rate`` (clamped
+    # by the cap and the 402 shortfall), so the deposit tracks any mech-price
+    # changes without operator action. Operators raise this for high-volume
+    # services (fewer on-chain trips, more Safe USDC at rest in the
+    # BalanceTracker) and lower for bursty ones (less USDC at rest, more 402
+    # round-trips).
+    offchain_deposit_target_calls: int = 10
     # Polling cadence for ``/fetch_offchain_info``. Mirrors mech-client's
     # ``WAIT_SLEEP``; intentionally generous to let LLM-bound responses
     # finish without burning agent cycles.
@@ -286,6 +295,10 @@ class MechMarketplaceConfig:
             and self.auto_deposit_cap_per_cycle < 0
         ):
             raise ValueError("auto_deposit_cap_per_cycle must be non-negative")
+        if self.offchain_deposit_target_calls < 1:
+            # ``< 1`` is meaningless: the deposit must at least cover the
+            # current request's shortfall, which is one call's worth.
+            raise ValueError("offchain_deposit_target_calls must be >= 1")
         if self.offchain_poll_interval_seconds <= 0:
             raise ValueError("offchain_poll_interval_seconds must be positive")
         if self.offchain_poll_timeout_seconds <= 0:

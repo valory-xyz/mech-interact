@@ -33,6 +33,16 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     SynchronizedData,
 )
 
+# Sentinel ``tx_submitter`` the off-chain deposit retry path stamps onto
+# ``OffchainCycleResult.tx_submitter``. Consumer multiplexers (e.g.
+# ``liquidity_trader_abci.PostTxSettlementRound``) key off this value to
+# route the settled deposit tx back into ``MechRequestRound`` — where
+# ``_retry_pending`` runs the cached POST — instead of treating it like a
+# normal mech request tx (which dispatches forward to ``MechResponseRound``).
+# The value is intentionally distinct from ``MechRequestRound.auto_round_id()``
+# (``"mech_request_round"``) so the multiplexer can tell the two cases apart.
+OFFCHAIN_DEPOSIT_TX_SUBMITTER = "mech_request_round_offchain_deposit"
+
 # Key the dispatch off the enum's own ``value`` rather than free strings:
 # a future rename of the event symbol fails type-checking instead of silently
 # falling through to the on-chain ``DONE`` / ``SKIP_REQUEST`` branch.

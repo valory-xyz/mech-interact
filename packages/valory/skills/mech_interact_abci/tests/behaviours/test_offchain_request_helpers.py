@@ -691,6 +691,7 @@ class _StubBehaviour:
         priority_mech_address: Optional[str] = None,
         offchain_url: Optional[str] = None,
         auto_deposit_cap: int = 10**18,
+        deposit_target_calls: int = 10,
         failover_retries: int = 2,
         mech_requests: Optional[List[Any]] = None,
     ) -> None:
@@ -709,6 +710,7 @@ class _StubBehaviour:
                 offchain_url=offchain_url,
                 priority_mech_address=priority_mech_address,
                 auto_deposit_cap_per_cycle=auto_deposit_cap,
+                offchain_deposit_target_calls=deposit_target_calls,
             ),
             multisend_address="0x" + "ee" * 20,
         )
@@ -730,10 +732,17 @@ class _StubBehaviour:
         # Record of calls (lets tests assert what the executor did).
         self.posted_urls: List[str] = []
         self.signed_request_ids: List[bytes] = []
+        # Record of every contract-api kwargs and every safe-tx kwargs so
+        # tests can assert the deposit value (token path: kwargs["amount"]
+        # on ERC20.build_approval_tx; native path: kwargs["value"] on
+        # _get_safe_tx_hash).
+        self.contract_api_calls: List[Dict[str, Any]] = []
+        self.safe_tx_calls: List[Dict[str, Any]] = []
 
-    def get_contract_api_response(self, **_kwargs: Any) -> Any:
+    def get_contract_api_response(self, **kwargs: Any) -> Any:
         if False:
             yield  # make this a generator
+        self.contract_api_calls.append(kwargs)
         return self._contract_api_responses.pop(0)
 
     def get_http_response(self, **kwargs: Any) -> Any:
@@ -748,9 +757,10 @@ class _StubBehaviour:
         self.signed_request_ids.append(digest)
         return self._signature
 
-    def _get_safe_tx_hash(self, **_kwargs: Any) -> Any:
+    def _get_safe_tx_hash(self, **kwargs: Any) -> Any:
         if False:
             yield
+        self.safe_tx_calls.append(kwargs)
         return "0x" + "fe" * 32
 
 
@@ -847,17 +857,18 @@ class TestFreshCycle:
     def test_402_under_cap_returns_deposit_needed(self) -> None:
         """A structured 402 within the cap builds a Safe tx + pending blob.
 
-        The mech advertises the canonical tracker as ``payTo``, so the
-        destination validation passes and the executor proceeds to build
-        the deposit tx.
-
-        Also asserts that ``mech_requests_json`` is carried on this
-        branch: ``mech_requests`` is in ``MechRequestRound.selection_key``,
-        so an omitted value would commit ``null`` on the round and the
-        retry path (which reads ``self._synced.mech_requests`` to compose
-        the final response payload) would lose the original
-        prompt/tool/nonce.
+        Also asserts:
+        - ``mech_requests_json`` is carried on this branch (consensus
+          selection_key includes it; null would discard the original
+          prompt/tool/nonce on the retry leg).
+        - ``tx_submitter`` is the off-chain sentinel so the consumer
+          multiplexer routes the settled deposit back into
+          ``MechRequestRound`` (not forward to ``MechResponseRound``).
         """
+        from packages.valory.skills.mech_interact_abci.states.request import (
+            OFFCHAIN_DEPOSIT_TX_SUBMITTER,
+        )
+
         mech_addr = "0x" + "aa" * 20
         canonical_tracker = "0x" + "11" * 20
         stub = _StubBehaviour(
@@ -882,6 +893,9 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
         assert result.tx_hash is not None
         assert result.pending_request_json is not None
+        # tx_submitter MUST be the sentinel so consumer multiplexers
+        # can route the settled deposit back into MechRequestRound.
+        assert result.tx_submitter == OFFCHAIN_DEPOSIT_TX_SUBMITTER
         # Structured request metadata survives the deposit settlement.
         assert result.mech_requests_json is not None
         parsed = json.loads(result.mech_requests_json)
@@ -1103,6 +1117,177 @@ class TestRetryPending:
         result = _drive(executor._retry_pending(pending))
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_402_INSUFFICIENT
+
+
+class TestComputeDepositAmount:
+    """Direct unit tests for the deposit-sizing math.
+
+    The shape ``target_calls × delivery_rate`` (clamped by the cap, floored
+    at the shortfall) is the agent's contract with the operator. Tests pin
+    each branch so a regression surfaces at this layer rather than only
+    when a token deposit lands the wrong amount on-chain.
+    """
+
+    @staticmethod
+    def _make_executor(
+        target_calls: int = 10,
+        cap: int = 10**18,
+    ) -> "OffchainRequestExecutor":
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            auto_deposit_cap=cap,
+            deposit_target_calls=target_calls,
+        )
+        return OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+    def test_uses_target_calls_times_delivery_rate(self) -> None:
+        """Happy path: empty balance, plenty of cap, deposit covers N calls."""
+        executor = self._make_executor(target_calls=10, cap=10**18)
+        # delivery_rate = 100, shortfall = 100 (one call), current_balance = 0
+        result = executor._compute_deposit_amount(
+            shortfall=100, current_balance=0, delivery_rate=100
+        )
+        # desired = 10 × 100 = 1000; needed = max(100, 1000 − 0) = 1000.
+        assert result == 1000
+
+    def test_partial_balance_top_up_to_target(self) -> None:
+        """Partial existing balance: top up to the target, not over."""
+        executor = self._make_executor(target_calls=10, cap=10**18)
+        # Existing 700 at the tracker; topping up to 1000 needs only 300.
+        result = executor._compute_deposit_amount(
+            shortfall=100, current_balance=700, delivery_rate=100
+        )
+        # needed = max(100, 1000 − 700) = 300.
+        assert result == 300
+
+    def test_uses_shortfall_when_desired_below_shortfall(self) -> None:
+        """If desired − balance < shortfall, deposit at least the shortfall.
+
+        Triggers when the current_balance already covers most of the target
+        but the next request still needs more than the balance can supply.
+        Without the ``max(shortfall, …)`` floor the deposit would be too
+        small to settle the current 402.
+        """
+        executor = self._make_executor(target_calls=10, cap=10**18)
+        # desired = 1000; current_balance = 900 → desired − balance = 100;
+        # but shortfall = 500 (e.g. the mech raised delivery_rate mid-cycle).
+        result = executor._compute_deposit_amount(
+            shortfall=500, current_balance=900, delivery_rate=100
+        )
+        assert result == 500
+
+    def test_clamped_to_cap(self) -> None:
+        """``desired > cap``: deposit equals cap (still ≥ shortfall)."""
+        executor = self._make_executor(target_calls=100, cap=500)
+        # desired = 100 × 100 = 10_000; clamped to cap 500.
+        result = executor._compute_deposit_amount(
+            shortfall=100, current_balance=0, delivery_rate=100
+        )
+        assert result == 500
+
+    def test_cap_below_shortfall_returns_none(self) -> None:
+        """``cap < shortfall``: caller treats as ``OFFCHAIN_402_INSUFFICIENT``.
+
+        The cap is the operator's safety bound; if even the legal minimum
+        deposit (shortfall) would breach it, surface to the consumer
+        rather than silently land a deposit that violates the policy.
+        """
+        executor = self._make_executor(target_calls=10, cap=50)
+        # shortfall=100 > cap=50 → None.
+        result = executor._compute_deposit_amount(
+            shortfall=100, current_balance=0, delivery_rate=10
+        )
+        assert result is None
+
+    def test_zero_cap_disables_clamp(self) -> None:
+        """``cap == 0`` disables the safety bound (legacy/optional shape).
+
+        Matches the existing ``auto_deposit_cap_per_cycle or 0`` semantics:
+        operators who explicitly set the cap to 0 disable auto-deposit (cap
+        below any positive shortfall), so this branch is unreachable in
+        practice when 402 contains a real shortfall. Pinned because the
+        accessor uses ``or 0`` and a future refactor might reintroduce 0
+        as ``unlimited`` accidentally.
+        """
+        executor = self._make_executor(target_calls=10, cap=0)
+        result = executor._compute_deposit_amount(
+            shortfall=100, current_balance=0, delivery_rate=100
+        )
+        # cap=0 disables clamp → returns full desired = 1000.
+        assert result == 1000
+
+
+class TestDepositScalesWithDeliveryRate:
+    """Integration: a delivery_rate change → the next deposit scales linearly.
+
+    Regression for the dynamic-pricing concern: the deposit is computed off
+    the live on-chain ``delivery_rate`` (read per attempt via
+    ``_resolve_delivery_rate``), not a static config or the 402's
+    ``required`` field. Doubling the mech price doubles the next deposit
+    without operator action.
+    """
+
+    _CANONICAL_TRACKER = "0x" + "11" * 20
+    _CANONICAL_TOKEN = "0x" + "22" * 20
+
+    def _token_reads_with_rate(self, delivery_rate: int) -> List[Any]:
+        return [
+            _state_resp({"chain_id": 100}),
+            _state_resp({"nonce": 7}),
+            _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": delivery_rate}),
+        ]
+
+    def _drive_cycle(self, delivery_rate: int) -> _StubBehaviour:
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                *self._token_reads_with_rate(delivery_rate),
+                # _validate_402_destination → tracker + token
+                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
+                _state_resp({"token": self._CANONICAL_TOKEN}),
+                # token deposit multisend: approve + depositFor + multisend
+                _state_resp({"data": b"\xaa"}),
+                _state_resp({"data": b"\xbb"}),
+                _state_resp({"data": "0xcc"}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402,
+                    _make_402_body(
+                        pay_to=self._CANONICAL_TRACKER,
+                        asset=self._CANONICAL_TOKEN,
+                        required=delivery_rate,  # 402 says "you need 1 call"
+                        current=0,
+                    ),
+                ),
+            ],
+            auto_deposit_cap=10**18,
+            deposit_target_calls=10,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        return stub
+
+    @staticmethod
+    def _approve_amount(stub: _StubBehaviour) -> int:
+        """Pull the ``amount`` kwarg from the ERC20.build_approval_tx call."""
+        for call in stub.contract_api_calls:
+            if call.get("contract_callable") == "build_approval_tx":
+                return int(call["amount"])
+        raise AssertionError("no build_approval_tx call recorded")
+
+    def test_doubling_delivery_rate_doubles_deposit(self) -> None:
+        """delivery_rate × 2 → deposit × 2, no operator action."""
+        low = self._drive_cycle(delivery_rate=100)
+        high = self._drive_cycle(delivery_rate=200)
+        # target_calls=10 in both cycles; deposit = 10 × delivery_rate.
+        assert self._approve_amount(low) == 1000
+        assert self._approve_amount(high) == 2000
 
 
 class TestClassifyPaymentType:

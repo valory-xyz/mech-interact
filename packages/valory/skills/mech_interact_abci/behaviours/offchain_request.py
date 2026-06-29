@@ -86,6 +86,9 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_BAD_RESPONSE,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
 )
+from packages.valory.skills.mech_interact_abci.states.request import (
+    OFFCHAIN_DEPOSIT_TX_SUBMITTER,
+)
 
 # ----------------------------------------------------------------------------
 # Local CIDv1 (bare-file UnixFS+DAG-PB single block) — ported from
@@ -782,6 +785,7 @@ class OffchainRequestExecutor:
                 tx_hex = yield from self._build_deposit_tx(
                     challenge=attempt.challenge,  # type: ignore[arg-type]
                     payment_type=payment_type_bytes,
+                    delivery_rate=delivery_rate,
                 )
                 if tx_hex is None:
                     # Either NVM (not on-chain auto-resolvable) or the
@@ -801,7 +805,7 @@ class OffchainRequestExecutor:
                 # ``prompt``/``tool``/``nonce`` as empty.
                 return OffchainCycleResult(
                     offchain_result=Event.OFFCHAIN_DEPOSIT_NEEDED.value,
-                    tx_submitter="MechRequestRound",
+                    tx_submitter=OFFCHAIN_DEPOSIT_TX_SUBMITTER,
                     tx_hash=tx_hex,
                     mech_requests_json=self._serialise_mech_requests([request_meta]),
                     pending_request_json=pending.to_json(),
@@ -1361,19 +1365,25 @@ class OffchainRequestExecutor:
         self,
         challenge: PaymentChallenge,
         payment_type: bytes,
+        delivery_rate: int,
     ) -> Generator[None, None, Optional[str]]:
         """Build the Safe-multisend hash for the 402 retry path.
 
-        ERC20: bundles ``approve(BalanceTracker, shortfall) +
-        depositFor(safe, shortfall)`` atomically through MultiSend. Native:
-        a single Safe tx calling ``depositFor(safe)`` with ``value=shortfall``.
-        Nevermined: returns ``None`` (``BalanceTrackerNvmSubscription{Native,Token}.depositFor``
-        reverts by design, so an on-chain retry path is impossible). An
-        unknown ``paymentType`` also returns ``None``. The caller treats
-        any ``None`` here as ``OFFCHAIN_402_INSUFFICIENT`` — failover to
-        another ranked mech would charge the same Safe balance and reach
-        the same result, so the caller surfaces to the consumer rather
-        than burning the failover budget.
+        Sizes the deposit dynamically through :meth:`_compute_deposit_amount`
+        so an empty-balance first request lands enough USDC (or native) to
+        cover ``offchain_deposit_target_calls`` forward calls at the current
+        mech ``delivery_rate``, clamped by ``auto_deposit_cap_per_cycle``.
+
+        ERC20: bundles ``approve(BalanceTracker, deposit_amount) +
+        depositFor(safe, deposit_amount)`` atomically through MultiSend.
+        Native: a single Safe tx calling ``depositFor(safe)`` with
+        ``value=deposit_amount``. Nevermined: returns ``None``
+        (``BalanceTrackerNvmSubscription{Native,Token}.depositFor`` reverts by
+        design). An unknown ``paymentType`` also returns ``None``. The caller
+        treats any ``None`` here as ``OFFCHAIN_402_INSUFFICIENT`` — failover
+        to another ranked mech would charge the same Safe balance and reach
+        the same result, so the caller surfaces to the consumer rather than
+        burning the failover budget.
         """
         if challenge.shortfall <= 0:
             return None
@@ -1385,11 +1395,32 @@ class OffchainRequestExecutor:
             )
             return None
 
+        deposit_amount = self._compute_deposit_amount(
+            shortfall=challenge.shortfall,
+            current_balance=challenge.current_balance,
+            delivery_rate=delivery_rate,
+        )
+        if deposit_amount is None:
+            # Cap is below the 402 shortfall: even the minimum legal deposit
+            # would breach the safety bound. Surface to the consumer rather
+            # than land a deposit the operator explicitly capped against.
+            self._logger.warning(
+                "Offchain 402 shortfall "
+                f"{challenge.shortfall} exceeds auto_deposit_cap_per_cycle "
+                f"{self._config.auto_deposit_cap_per_cycle}; cap is too low "
+                "for this mech. Surfacing OFFCHAIN_402_INSUFFICIENT."
+            )
+            return None
+
         if payment_label == _PAYMENT_NATIVE:
-            tx_hash = yield from self._build_native_deposit_tx(challenge)
+            tx_hash = yield from self._build_native_deposit_tx(
+                challenge, deposit_amount
+            )
             return tx_hash
         if payment_label == _PAYMENT_TOKEN:
-            tx_hash = yield from self._build_token_deposit_multisend(challenge)
+            tx_hash = yield from self._build_token_deposit_multisend(
+                challenge, deposit_amount
+            )
             return tx_hash
         self._logger.warning(
             f"Unknown paymentType selector 0x{payment_type.hex()}; "
@@ -1397,10 +1428,45 @@ class OffchainRequestExecutor:
         )
         return None
 
+    def _compute_deposit_amount(
+        self,
+        shortfall: int,
+        current_balance: int,
+        delivery_rate: int,
+    ) -> Optional[int]:
+        """Size the auto-deposit so it covers ``target_calls`` forward requests.
+
+        Computes ``desired = offchain_deposit_target_calls × delivery_rate``,
+        then ``needed = max(shortfall, desired − current_balance)`` so the
+        deposit always at least covers the current request. Clamps to the
+        operator's ``auto_deposit_cap_per_cycle`` safety bound. Returns
+        ``None`` when the cap is below the shortfall (mechanic-side
+        misconfig: even the legal minimum deposit would breach the cap),
+        which the caller surfaces as ``OFFCHAIN_402_INSUFFICIENT``.
+
+        The shape (live ``delivery_rate`` × forward ``target_calls``) keeps
+        the deposit dynamic: a mech-price change scales the next deposit
+        automatically without operator action.
+        """
+        target_calls = self._config.offchain_deposit_target_calls
+        cap = self._config.auto_deposit_cap_per_cycle or 0
+        if cap and shortfall > cap:
+            return None
+        desired = target_calls * delivery_rate
+        # ``max(shortfall, …)`` guarantees we cover the current request even
+        # if a top-up race or partial balance leaves desired below shortfall.
+        needed = max(shortfall, desired - current_balance)
+        # ``min(needed, cap)`` clamps to the safety bound. Because we already
+        # verified ``shortfall <= cap`` above, the result is always at least
+        # the shortfall (the deposit succeeds for the current request).
+        return min(needed, cap) if cap else needed
+
     def _build_native_deposit_tx(
-        self, challenge: PaymentChallenge
+        self,
+        challenge: PaymentChallenge,
+        deposit_amount: int,
     ) -> Generator[None, None, Optional[str]]:
-        """Single Safe tx: ``BalanceTracker.depositFor(safe)`` with ``value=shortfall``."""
+        """Single Safe tx: ``BalanceTracker.depositFor(safe)`` with ``value=deposit_amount``."""
         # Encode the depositFor selector — value is supplied by the Safe
         # tx envelope, not by the calldata, mirroring mech-client's native
         # ``deposit_native`` path.
@@ -1429,21 +1495,23 @@ class OffchainRequestExecutor:
             yield from self._build_safe_tx_for_single_call(
                 to_address=challenge.pay_to,
                 data=bytes(data),
-                value=challenge.shortfall,
+                value=deposit_amount,
             )
         )
 
     def _build_token_deposit_multisend(
-        self, challenge: PaymentChallenge
+        self,
+        challenge: PaymentChallenge,
+        deposit_amount: int,
     ) -> Generator[None, None, Optional[str]]:
-        """Two-call multisend: ``ERC20.approve`` + ``BalanceTracker.depositFor``."""
+        """Two-call multisend: ``ERC20.approve(deposit_amount)`` + ``BalanceTracker.depositFor(deposit_amount)``."""
         approve_data_response = yield from self._b.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_STATE,
             contract_address=challenge.asset,
             contract_id=str(ERC20TokenContract.contract_id),
             contract_callable="build_approval_tx",
             spender=challenge.pay_to,
-            amount=challenge.shortfall,
+            amount=deposit_amount,
         )
         if approve_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1459,7 +1527,7 @@ class OffchainRequestExecutor:
             contract_id=str(BalanceTrackerFixedPriceToken.contract_id),
             contract_callable="build_deposit_for_data",
             account=self._safe_address(),
-            amount=challenge.shortfall,
+            amount=deposit_amount,
         )
         if deposit_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
