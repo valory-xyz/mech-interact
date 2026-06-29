@@ -7,6 +7,7 @@ alphabet_in:
 - OFFCHAIN_ALL_FAILED
 - OFFCHAIN_DEPOSIT_NEEDED
 - OFFCHAIN_DONE
+- RESPONSE_ROUND_TIMEOUT
 - ROUND_TIMEOUT
 - SKIP_REQUEST
 - V1
@@ -67,7 +68,7 @@ transition_func:
     (MechRequestRound, SKIP_REQUEST): FinishedMechRequestSkipRound
     (MechResponseRound, DONE): FinishedMechResponseRound
     (MechResponseRound, NO_MAJORITY): MechResponseRound
-    (MechResponseRound, ROUND_TIMEOUT): FinishedMechResponseTimeoutRound
+    (MechResponseRound, RESPONSE_ROUND_TIMEOUT): FinishedMechResponseTimeoutRound
     (MechVersionDetectionRound, NO_MAJORITY): MechVersionDetectionRound
     (MechVersionDetectionRound, NO_MARKETPLACE): FinishedMechLegacyDetectedRound
     (MechVersionDetectionRound, ROUND_TIMEOUT): MechVersionDetectionRound

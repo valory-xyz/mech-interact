@@ -95,7 +95,7 @@ class MechInteractAbciApp(AbciApp[Event]):
         4. MechResponseRound
             - done: 10.
             - no majority: 4.
-            - round timeout: 11.
+            - response round timeout: 11.
         5. FinishedMarketplaceLegacyDetectedRound
         6. FinishedMechLegacyDetectedRound
         7. FinishedMechInformationRound
@@ -113,6 +113,7 @@ class MechInteractAbciApp(AbciApp[Event]):
 
     Timeouts:
         round timeout: 30.0
+        response round timeout: 330.0
     """
 
     initial_round_cls: AppState = MechVersionDetectionRound
@@ -154,7 +155,12 @@ class MechInteractAbciApp(AbciApp[Event]):
         MechResponseRound: {
             Event.DONE: FinishedMechResponseRound,
             Event.NO_MAJORITY: MechResponseRound,
-            Event.ROUND_TIMEOUT: FinishedMechResponseTimeoutRound,
+            # ``RESPONSE_ROUND_TIMEOUT`` instead of ``ROUND_TIMEOUT``: the
+            # off-chain poll loop can run up to
+            # ``mech_marketplace_config.offchain_poll_timeout_seconds``
+            # (default 300s), well past the 30s shared by every other round
+            # in this app.
+            Event.RESPONSE_ROUND_TIMEOUT: FinishedMechResponseTimeoutRound,
         },
         FinishedMarketplaceLegacyDetectedRound: {},
         FinishedMechLegacyDetectedRound: {},
@@ -185,6 +191,10 @@ class MechInteractAbciApp(AbciApp[Event]):
     }
     event_to_timeout: EventToTimeout = {
         Event.ROUND_TIMEOUT: 30.0,
+        # Default fallback that accommodates the 300s off-chain poll budget
+        # plus a 30s overhead. ``SharedState.setup`` rebinds this at runtime
+        # from ``mech_marketplace_config.offchain_poll_timeout_seconds``.
+        Event.RESPONSE_ROUND_TIMEOUT: 330.0,
     }
     cross_period_persisted_keys: FrozenSet[str] = frozenset(
         {get_name(SynchronizedData.mech_responses)}

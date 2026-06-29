@@ -65,7 +65,6 @@ class _PollSnapshot:
     status: str  # "ok" / "rejected" / "processing"
     result: Optional[str] = None
     error: Optional[str] = None
-    content_cid: Optional[str] = None
 
 
 _PROCESSING_STATUSES = frozenset({"processing", ""})
@@ -265,7 +264,6 @@ class OffchainResponsePoller:
             return _PollSnapshot(
                 status="ok",
                 result=self._serialise_result(payload.get("response")),
-                content_cid=payload.get("content_cid"),
             )
         if status == "rejected":
             return _PollSnapshot(

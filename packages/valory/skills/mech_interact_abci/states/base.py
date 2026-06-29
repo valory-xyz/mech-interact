@@ -77,6 +77,14 @@ class Event(Enum):
     NO_MARKETPLACE = "no_marketplace"
     NO_MAJORITY = "no_majority"
     ROUND_TIMEOUT = "round_timeout"
+    # Dedicated timeout for ``MechResponseRound`` because off-chain polling
+    # can legitimately take up to ``offchain_poll_timeout_seconds`` (300s by
+    # default). The 30s ``ROUND_TIMEOUT`` would otherwise kill the poll loop
+    # mid-cycle and force ``FinishedMechResponseTimeoutRound`` for every
+    # request slower than ~30s. ``SharedState.setup`` sets this from
+    # ``offchain_poll_timeout_seconds + overhead`` at runtime; the class-level
+    # value below is the fallback.
+    RESPONSE_ROUND_TIMEOUT = "response_round_timeout"
     SKIP_REQUEST = "skip_request"
     BUY_SUBSCRIPTION = "buy_subscription"
     # Offchain dispatch events. Emitted by ``MechRequestRound.end_block`` when

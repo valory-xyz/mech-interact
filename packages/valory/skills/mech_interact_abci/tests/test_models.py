@@ -211,6 +211,76 @@ class TestSharedStateLastFailureReason:
         assert state.last_failure_reason is None
 
 
+class TestSharedStateSetupResponseTimeout:
+    """Tests for SharedState.setup rebinding RESPONSE_ROUND_TIMEOUT."""
+
+    def test_setup_rebinds_response_round_timeout(self) -> None:
+        """``setup`` overrides the class-level timeout from runtime config.
+
+        Without this, the off-chain poll budget would be silently capped
+        at the class default regardless of ``offchain_poll_timeout_seconds``.
+        """
+        from packages.valory.skills.mech_interact_abci.models import (
+            _RESPONSE_ROUND_TIMEOUT_OVERHEAD_SECONDS,
+        )
+        from packages.valory.skills.mech_interact_abci.rounds import (
+            MechInteractAbciApp,
+        )
+        from packages.valory.skills.mech_interact_abci.states.base import Event
+
+        configured_poll_budget = 120.0
+        original = MechInteractAbciApp.event_to_timeout.get(
+            Event.RESPONSE_ROUND_TIMEOUT
+        )
+        try:
+            state = SharedState(name="", skill_context=DummyContext())
+            fake_params = MagicMock(
+                mech_marketplace_config=MagicMock(
+                    offchain_poll_timeout_seconds=configured_poll_budget
+                )
+            )
+            with (
+                patch.object(
+                    type(state),
+                    "params",
+                    new_callable=PropertyMock,
+                    return_value=fake_params,
+                ),
+                patch.object(
+                    SharedState.__mro__[1],
+                    "setup",
+                    lambda _self: None,
+                ),
+            ):
+                state.setup()
+            assert MechInteractAbciApp.event_to_timeout[
+                Event.RESPONSE_ROUND_TIMEOUT
+            ] == (configured_poll_budget + _RESPONSE_ROUND_TIMEOUT_OVERHEAD_SECONDS)
+        finally:
+            # Restore so subsequent tests in the suite see the original.
+            if original is not None:
+                MechInteractAbciApp.event_to_timeout[Event.RESPONSE_ROUND_TIMEOUT] = (
+                    original
+                )
+
+    def test_class_level_default_covers_300s_poll_budget(self) -> None:
+        """The class-level fallback is at least 300s + overhead.
+
+        Locks in the invariant: even without ``setup`` running, the
+        default in ``MechInteractAbciApp.event_to_timeout`` must already
+        be wide enough for the default poll budget so an operator can't
+        silently ship a service that times out at 30s.
+        """
+        from packages.valory.skills.mech_interact_abci.rounds import (
+            MechInteractAbciApp,
+        )
+        from packages.valory.skills.mech_interact_abci.states.base import Event
+
+        default = MechInteractAbciApp.event_to_timeout[Event.RESPONSE_ROUND_TIMEOUT]
+        # Default poll budget is 300s; the fallback must cover it.
+        assert default >= 300.0
+
+
 class TestMultisendBatch:
     """Tests for MultisendBatch dataclass."""
 

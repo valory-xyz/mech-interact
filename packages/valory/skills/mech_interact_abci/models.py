@@ -42,7 +42,11 @@ from packages.valory.skills.abstract_round_abci.models import (
     SharedState as BaseSharedState,
 )
 from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
-from packages.valory.skills.mech_interact_abci.states.base import MechInfo, MechsInfo
+from packages.valory.skills.mech_interact_abci.states.base import (
+    Event,
+    MechInfo,
+    MechsInfo,
+)
 
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
@@ -446,6 +450,9 @@ class MechParams(BaseParams):
 Params = MechParams
 
 
+_RESPONSE_ROUND_TIMEOUT_OVERHEAD_SECONDS = 30.0
+
+
 class SharedState(BaseSharedState):
     """Keep the current shared state of the skill."""
 
@@ -458,6 +465,23 @@ class SharedState(BaseSharedState):
         self._penalized_mechs: Dict[str, int] = {}
         self.last_called_mech: Optional[str] = None
         self.last_failure_reason: Optional[str] = None
+
+    def setup(self) -> None:  # pragma: no cover - framework wiring
+        """Rebind the response-round timeout from runtime config.
+
+        The class-level ``event_to_timeout`` is the conservative default
+        (300s poll budget + 30s overhead). At runtime, take the actual
+        configured ``offchain_poll_timeout_seconds`` so an operator-tuned
+        poll budget remains coherent with the round timeout that bounds
+        it. Without this rebind the round timeout would silently cap the
+        poll loop at the class default regardless of configuration.
+        """
+        super().setup()
+        config = self.params.mech_marketplace_config
+        MechInteractAbciApp.event_to_timeout[Event.RESPONSE_ROUND_TIMEOUT] = (
+            float(config.offchain_poll_timeout_seconds)
+            + _RESPONSE_ROUND_TIMEOUT_OVERHEAD_SECONDS
+        )
 
     @property
     def params(self) -> MechParams:  # pragma: no cover
