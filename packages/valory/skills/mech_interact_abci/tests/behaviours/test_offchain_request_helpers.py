@@ -235,8 +235,8 @@ class TestDeriveRequestIdBytes:
 
         and assert ``derive_request_id_bytes`` produces the same output.
         """
-        from eth_abi import encode as _abi_encode
-        from eth_utils import keccak as _keccak
+        from eth_abi import encode as _abi_encode  # type: ignore[import-not-found]
+        from eth_utils import keccak as _keccak  # type: ignore[import-not-found]
 
         marketplace = "0x" + "11" * 20
         mech = "0x" + "22" * 20
