@@ -792,10 +792,18 @@ class OffchainRequestExecutor:
                         offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
                         last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
                     )
+                # Persist the structured request metadata on this branch
+                # too: ``mech_requests`` is in ``MechRequestRound.selection_key``,
+                # so omitting it causes the round to commit ``null``. The
+                # accessor collapses ``null`` to ``[]``, and the retry path
+                # (which reads ``self._synced.mech_requests`` to compose the
+                # final response payload) would then ship the original
+                # ``prompt``/``tool``/``nonce`` as empty.
                 return OffchainCycleResult(
                     offchain_result=Event.OFFCHAIN_DEPOSIT_NEEDED.value,
                     tx_submitter="MechRequestRound",
                     tx_hash=tx_hex,
+                    mech_requests_json=self._serialise_mech_requests([request_meta]),
                     pending_request_json=pending.to_json(),
                 )
 

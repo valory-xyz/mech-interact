@@ -213,6 +213,109 @@ class TestDeriveRequestIdBytes:
                 chain_id=100,
             )
 
+    def test_golden_vector_matches_eip712_primitives(self) -> None:
+        """Pin ``derive_request_id_bytes`` against an EIP-712 reference.
+
+        Length-only and divergence-only checks accept any function that
+        produces 32 bytes and varies with its inputs, including ones that
+        diverge from ``MechMarketplace.getRequestId`` in subtle ways. The
+        domain separator in particular uses asymmetric hashing — ``name``
+        is raw ``keccak256(bytes(s))`` while ``version`` is hashed through
+        ``abi.encode`` (see ``MechMarketplace.sol:155-165``). A silent
+        drift here (e.g. switching ``version`` to raw bytes to "match
+        standard EIP-712") would still pass the older tests but recover
+        the wrong signer at on-chain settlement.
+
+        Reconstruct the expected ``request_id`` step-by-step using
+        ``eth_abi.encode`` and ``eth_utils.keccak`` directly, mirroring
+        the Solidity sources line-for-line:
+
+        * Domain separator: ``MechMarketplace.sol:155-165``
+        * Inner hash: ``MechMarketplace.sol:891-907``
+
+        and assert ``derive_request_id_bytes`` produces the same output.
+        """
+        from eth_abi import encode as _abi_encode
+        from eth_utils import keccak as _keccak
+
+        marketplace = "0x" + "11" * 20
+        mech = "0x" + "22" * 20
+        requester = "0x" + "33" * 20
+        data = b'{"prompt":"hi","tool":"t","nonce":"n"}'
+        delivery_rate = 10**16
+        payment_type = bytes.fromhex(
+            "ba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
+        )
+        nonce = 42
+        chain_id = 100
+
+        # Mirror ``_computeDomainSeparator`` exactly. The name is hashed
+        # raw, the version is hashed via ``abi.encode`` — the asymmetry
+        # the function under test must preserve.
+        domain_typehash = _keccak(
+            text=(
+                "EIP712Domain(string name,string version,uint256 chainId,"
+                "address verifyingContract)"
+            )
+        )
+        name_hash = _keccak(text="MechMarketplace")
+        version_hash = _keccak(_abi_encode(["string"], ["1.1.0"]))
+        domain_separator = _keccak(
+            _abi_encode(
+                ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+                [domain_typehash, name_hash, version_hash, chain_id, marketplace],
+            )
+        )
+
+        # Mirror ``getRequestId``: keccak256("\\x19\\x01" || domain_sep || inner_hash).
+        inner = _keccak(
+            _abi_encode(
+                [
+                    "address",
+                    "address",
+                    "address",
+                    "bytes32",
+                    "uint256",
+                    "bytes32",
+                    "uint256",
+                ],
+                [
+                    marketplace,
+                    mech,
+                    requester,
+                    _keccak(data),
+                    delivery_rate,
+                    payment_type,
+                    nonce,
+                ],
+            )
+        )
+        expected_request_id = _keccak(b"\x19\x01" + domain_separator + inner)
+
+        # Pin both the intermediate domain separator and the final
+        # ``request_id`` so a drift in either layer is caught.
+        assert (
+            domain_separator.hex()
+            == "df50cdbe42bf9d9976fcb9374107c6cf0450b566360eaa04dacb3bb0c1cc8845"
+        )
+        assert (
+            expected_request_id.hex()
+            == "76a226b6cf8c7da71bd6340d00e54002d9b01d1e8db5670d4bd3282863633fb0"
+        )
+
+        # The function under test must produce the same value.
+        actual = derive_request_id_bytes(
+            marketplace_address=marketplace,
+            mech_address=mech,
+            requester=requester,
+            data=data,
+            delivery_rate=delivery_rate,
+            payment_type=payment_type,
+            nonce=nonce,
+            chain_id=chain_id,
+        )
+        assert actual == expected_request_id
+
     def test_different_nonces_produce_different_request_ids(self) -> None:
         """Two adjacent nonces must hash to different request_ids.
 
@@ -747,6 +850,13 @@ class TestFreshCycle:
         The mech advertises the canonical tracker as ``payTo``, so the
         destination validation passes and the executor proceeds to build
         the deposit tx.
+
+        Also asserts that ``mech_requests_json`` is carried on this
+        branch: ``mech_requests`` is in ``MechRequestRound.selection_key``,
+        so an omitted value would commit ``null`` on the round and the
+        retry path (which reads ``self._synced.mech_requests`` to compose
+        the final response payload) would lose the original
+        prompt/tool/nonce.
         """
         mech_addr = "0x" + "aa" * 20
         canonical_tracker = "0x" + "11" * 20
@@ -772,6 +882,79 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
         assert result.tx_hash is not None
         assert result.pending_request_json is not None
+        # Structured request metadata survives the deposit settlement.
+        assert result.mech_requests_json is not None
+        parsed = json.loads(result.mech_requests_json)
+        assert len(parsed) == 1
+        assert parsed[0]["prompt"] == "hi"
+        assert parsed[0]["tool"] == "t"
+        assert parsed[0]["nonce"] == "n"
+
+    def test_deposit_needed_then_retry_preserves_mech_requests(self) -> None:
+        """End-to-end deposit-retry: the original prompt/tool/nonce survives.
+
+        Drives the full DEPOSIT_NEEDED → settlement → retry-DONE round
+        trip. Pre-fix, the DEPOSIT_NEEDED branch dropped
+        ``mech_requests_json`` so the round committed ``null``, the
+        retry's read of ``self._synced.mech_requests`` returned ``[]``,
+        and the consumer at ``FinishedOffchainMechRequestRound`` lost
+        the structured metadata. The fix keeps the metadata on the
+        first leg so the second leg's serialised result still names the
+        original request.
+        """
+        from packages.valory.skills.mech_interact_abci.states.base import (
+            MechMetadata,
+        )
+
+        # First leg: fresh cycle returns DEPOSIT_NEEDED.
+        mech_addr = "0x" + "aa" * 20
+        canonical_tracker = "0x" + "11" * 20
+        request_meta = MechMetadata(prompt="solve 2+2", tool="math", nonce="n1")
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                *self._native_reads(),
+                _state_resp({"balance_tracker": canonical_tracker}),
+                _state_resp({"data": b"\x01\x02\x03"}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402,
+                    _make_402_body(pay_to=canonical_tracker, required=500, current=0),
+                ),
+            ],
+            auto_deposit_cap=10**18,
+            mech_requests=[request_meta],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        first_leg = _drive(executor._fresh_cycle())
+        assert first_leg.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+
+        # Simulate the round committing the payload, including the
+        # ``mech_requests_json`` carried on this branch. The retry then
+        # reads ``synced_data.mech_requests`` for the response payload.
+        retry_mech_requests = [
+            MechMetadata(**item) for item in json.loads(first_leg.mech_requests_json)
+        ]
+        pending = PendingRequest.from_dict(json.loads(first_leg.pending_request_json))
+        assert pending is not None
+
+        retry_stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[_make_http_response(200)],
+            mech_requests=retry_mech_requests,
+        )
+        retry_executor = OffchainRequestExecutor(retry_stub)  # type: ignore[arg-type]
+        retry_result = _drive(retry_executor._retry_pending(pending))
+        assert retry_result.offchain_result == Event.OFFCHAIN_DONE.value
+        # The original prompt + tool + nonce survive into the second leg.
+        assert retry_result.mech_requests_json is not None
+        parsed = json.loads(retry_result.mech_requests_json)
+        assert len(parsed) == 1
+        assert parsed[0]["prompt"] == "solve 2+2"
+        assert parsed[0]["tool"] == "math"
+        assert parsed[0]["nonce"] == "n1"
 
     def test_402_over_cap_short_circuits(self) -> None:
         """When the shortfall exceeds the cap, failover is short-circuited.
