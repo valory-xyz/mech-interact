@@ -94,3 +94,38 @@ class MechMarketplace(Contract):
         contract_instance = cls.get_instance(ledger_api, contract_address)
         chain_id = contract_instance.functions.chainId().call()
         return dict(chain_id=int(chain_id))
+
+    @classmethod
+    def get_balance_tracker(
+        cls,
+        ledger_api: LedgerApi,
+        contract_address: str,
+        payment_type: bytes,
+    ) -> JSONLike:
+        """Read ``mapPaymentTypeBalanceTrackers(paymentType)`` on the marketplace.
+
+        The off-chain request behaviour uses this to validate that the
+        ``payTo`` address advertised in a structured 402 body actually
+        matches the canonical BalanceTracker the marketplace registered
+        for the mech's ``paymentType``. Without this check a malicious or
+        compromised mech could redirect the auto-deposit (capped per cycle
+        but recurring) to an attacker-controlled address. The result is
+        the on-chain truth; settlement still goes through the existing
+        on-chain submission paths.
+
+        :param ledger_api: the ledger API object.
+        :param contract_address: the marketplace contract address.
+        :param payment_type: the 32-byte ``paymentType`` selector read off
+            the mech (matches the ``paymentType`` constant the marketplace
+            uses to key its tracker registry).
+        :return: a ``{"balance_tracker": "0x…"}`` dict matching the
+            framework's ``GET_STATE`` response shape. ``0x0…0`` means the
+            marketplace has no tracker registered for this paymentType.
+        """
+        ledger_api = cast(EthereumApi, ledger_api)
+        contract_address = ledger_api.api.to_checksum_address(contract_address)
+        contract_instance = cls.get_instance(ledger_api, contract_address)
+        tracker = contract_instance.functions.mapPaymentTypeBalanceTrackers(
+            payment_type
+        ).call()
+        return dict(balance_tracker=str(tracker))

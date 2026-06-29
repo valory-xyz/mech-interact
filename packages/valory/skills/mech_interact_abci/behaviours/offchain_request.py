@@ -764,6 +764,21 @@ class OffchainRequestExecutor:
                 )
 
             if attempt.outcome is OffchainAttemptOutcome.DEPOSIT_NEEDED:
+                # Defence against a malicious or compromised mech directing
+                # the auto-deposit to an attacker-chosen address: cross-check
+                # ``challenge.pay_to`` (and ``asset`` on the token path)
+                # against the canonical BalanceTracker the marketplace has
+                # registered for the mech's ``paymentType``. A mismatch is
+                # treated as a misbehaving mech (BAD_RESPONSE) and failover
+                # moves on rather than landing a redirected deposit.
+                destination_ok = yield from self._validate_402_destination(
+                    challenge=attempt.challenge,  # type: ignore[arg-type]
+                    payment_type=payment_type_bytes,
+                )
+                if not destination_ok:
+                    last_outcome = OffchainAttemptOutcome.BAD_RESPONSE
+                    last_failure = OFFCHAIN_BAD_RESPONSE
+                    continue
                 tx_hex = yield from self._build_deposit_tx(
                     challenge=attempt.challenge,  # type: ignore[arg-type]
                     payment_type=payment_type_bytes,
@@ -1162,6 +1177,138 @@ class OffchainRequestExecutor:
                 f"value: {exc}"
             )
             return None
+
+    # ---------- 402 destination validation ---------------------------------
+
+    def _resolve_canonical_tracker(
+        self, payment_type: bytes
+    ) -> Generator[None, None, Optional[str]]:
+        """Read ``MechMarketplace.mapPaymentTypeBalanceTrackers(paymentType)``.
+
+        Returns the lowercase address (no checksum) so the caller can
+        compare against the lowercased ``challenge.pay_to`` without
+        worrying about EIP-55 differences. ``None`` on a read failure or
+        a zero-address registration (meaning the marketplace has no
+        tracker for this paymentType).
+        """
+        response = yield from self._b.get_contract_api_response(
+            performative=ContractApiMessage.Performative.GET_STATE,
+            contract_address=self._config.mech_marketplace_address,
+            contract_id=str(MechMarketplace.contract_id),
+            contract_callable="get_balance_tracker",
+            payment_type=payment_type,
+        )
+        if response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                "MechMarketplace.mapPaymentTypeBalanceTrackers read failed: "
+                f"performative={response.performative}"
+            )
+            return None
+        raw = response.state.body.get("balance_tracker")
+        if not isinstance(raw, str) or not raw:
+            self._logger.warning(
+                "MechMarketplace.mapPaymentTypeBalanceTrackers returned an "
+                f"unexpected value {raw!r}"
+            )
+            return None
+        lowered = raw.lower()
+        if lowered == _ZERO_ADDRESS:
+            self._logger.warning(
+                "MechMarketplace has no BalanceTracker registered for "
+                f"paymentType 0x{payment_type.hex()}; cannot validate 402 "
+                "destination."
+            )
+            return None
+        return lowered
+
+    def _resolve_tracker_token(
+        self, tracker_address: str
+    ) -> Generator[None, None, Optional[str]]:
+        """Read ``BalanceTrackerFixedPriceToken.token()``.
+
+        Returns the lowercase ERC20 address the tracker accepts, so the
+        caller can compare it against ``challenge.asset``. ``None`` on
+        any read failure or non-address response.
+        """
+        response = yield from self._b.get_contract_api_response(
+            performative=ContractApiMessage.Performative.GET_STATE,
+            contract_address=tracker_address,
+            contract_id=str(BalanceTrackerFixedPriceToken.contract_id),
+            contract_callable="get_token",
+        )
+        if response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"BalanceTrackerFixedPriceToken.token() read failed at "
+                f"{tracker_address}: performative={response.performative}"
+            )
+            return None
+        raw = response.state.body.get("token")
+        if not isinstance(raw, str) or not raw:
+            self._logger.warning(
+                "BalanceTrackerFixedPriceToken.token() returned an "
+                f"unexpected value {raw!r}"
+            )
+            return None
+        return raw.lower()
+
+    def _validate_402_destination(
+        self,
+        challenge: PaymentChallenge,
+        payment_type: bytes,
+    ) -> Generator[None, None, bool]:
+        """Cross-check the 402 ``payTo`` (and ``asset``) against the on-chain tracker.
+
+        Returns ``True`` when the 402 destination matches the canonical
+        BalanceTracker the marketplace has registered for this
+        ``paymentType``, and (on the token path) when ``challenge.asset``
+        matches the tracker's ``token()`` getter. Without this check a
+        malicious mech could direct a real native transfer / ERC20
+        approval to an attacker-chosen address — bounded by
+        ``auto_deposit_cap_per_cycle`` but recurring (review: bennyjo on
+        PR #95).
+
+        NVM paths are skipped: ``_build_deposit_tx`` already returns
+        ``None`` for NVM (the BalanceTracker reverts ``depositFor`` by
+        design), so the destination would never be used.
+        """
+        payment_label = self._classify_payment_type(payment_type)
+        if payment_label in (_PAYMENT_NVM_NATIVE, _PAYMENT_NVM_TOKEN, ""):
+            # The deposit builder won't act on these labels anyway; treat
+            # validation as a no-op so the existing surface (None tx hex →
+            # OFFCHAIN_402_INSUFFICIENT) drives the outcome.
+            return True
+
+        canonical = yield from self._resolve_canonical_tracker(payment_type)
+        if canonical is None:
+            # Read failure or no tracker registered; we cannot prove the
+            # destination is safe, so refuse to deposit.
+            return False
+
+        challenge_pay_to = challenge.pay_to.lower()
+        if challenge_pay_to != canonical:
+            self._logger.error(
+                "Offchain 402 payTo mismatch: mech reported "
+                f"{challenge.pay_to!r} but the canonical BalanceTracker for "
+                f"paymentType 0x{payment_type.hex()} is {canonical!r}. "
+                "Refusing to deposit and failing over."
+            )
+            return False
+
+        if payment_label == _PAYMENT_TOKEN:
+            tracker_token = yield from self._resolve_tracker_token(canonical)
+            if tracker_token is None:
+                return False
+            challenge_asset = challenge.asset.lower()
+            if challenge_asset != tracker_token:
+                self._logger.error(
+                    "Offchain 402 asset mismatch: mech reported "
+                    f"{challenge.asset!r} but BalanceTracker {canonical} "
+                    f"accepts {tracker_token!r}. Refusing to deposit and "
+                    "failing over."
+                )
+                return False
+
+        return True
 
     # ---------- mech selection ---------------------------------------------
 

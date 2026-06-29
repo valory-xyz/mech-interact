@@ -66,6 +66,31 @@ class BalanceTrackerFixedPriceToken(Contract):
         return dict(balance=balance)
 
     @classmethod
+    def get_token(
+        cls,
+        ledger_api: EthereumApi,
+        contract_address: str,
+    ) -> JSONLike:
+        """Read the ERC20 ``token`` address this BalanceTracker accepts.
+
+        The off-chain request behaviour cross-checks this against the
+        ``asset`` field of a structured 402 challenge before approving
+        any spend. Without the check a compromised mech could direct the
+        Safe to approve an attacker-chosen token (or an arbitrary
+        contract that happens to expose ``approve``); pinning the
+        approval target to the marketplace's on-chain registry blocks
+        that.
+
+        :param ledger_api: the ledger API object.
+        :param contract_address: the BalanceTracker contract address.
+        :return: ``{"token": "0x…"}`` matching the ``GET_STATE`` shape.
+        """
+        contract_address = ledger_api.api.to_checksum_address(contract_address)
+        contract_instance = cls.get_instance(ledger_api, contract_address)
+        token = contract_instance.functions.token().call()
+        return dict(token=str(token))
+
+    @classmethod
     def build_deposit_for_data(
         cls,
         ledger_api: LedgerApi,

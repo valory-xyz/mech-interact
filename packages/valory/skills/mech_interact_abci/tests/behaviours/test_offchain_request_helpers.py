@@ -742,17 +742,28 @@ class TestFreshCycle:
         assert len(stub.posted_urls) == 1
 
     def test_402_under_cap_returns_deposit_needed(self) -> None:
-        """A structured 402 within the cap builds a Safe tx + pending blob."""
+        """A structured 402 within the cap builds a Safe tx + pending blob.
+
+        The mech advertises the canonical tracker as ``payTo``, so the
+        destination validation passes and the executor proceeds to build
+        the deposit tx.
+        """
         mech_addr = "0x" + "aa" * 20
+        canonical_tracker = "0x" + "11" * 20
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
             contract_api_responses=[
                 *self._native_reads(),
+                # _validate_402_destination → marketplace.get_balance_tracker
+                _state_resp({"balance_tracker": canonical_tracker}),
                 # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
                 _state_resp({"data": b"\x01\x02\x03"}),
             ],
             http_responses=[
-                _make_http_response(402, _make_402_body(required=500, current=0)),
+                _make_http_response(
+                    402,
+                    _make_402_body(pay_to=canonical_tracker, required=500, current=0),
+                ),
             ],
             auto_deposit_cap=10**18,
         )
@@ -998,3 +1009,221 @@ class TestAttemptResultPlumbing:
             )
         )
         assert attempt.outcome == OffchainAttemptOutcome.BAD_RESPONSE
+
+
+class TestValidate402Destination:
+    """Cross-check 402 destination against on-chain BalanceTracker (Benny).
+
+    These tests pin the recipient-validation behaviour added to defend
+    against a malicious mech directing the auto-deposit to an
+    attacker-chosen address.
+    """
+
+    _CANONICAL_TRACKER = "0x" + "11" * 20
+    _CANONICAL_TOKEN = "0x" + "22" * 20
+
+    def _native_pre_402_reads(self) -> List[Any]:
+        return [
+            _state_resp({"chain_id": 100}),
+            _state_resp({"nonce": 7}),
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def _token_pre_402_reads(self) -> List[Any]:
+        return [
+            _state_resp({"chain_id": 100}),
+            _state_resp({"nonce": 7}),
+            _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def test_pay_to_mismatch_treated_as_bad_response(self) -> None:
+        """Malicious payTo → BAD_RESPONSE; failover continues to next mech.
+
+        The native deposit builder is never called because the canonical
+        tracker read precedes it and rejects the destination.
+        """
+        mech_a = "0x" + "aa" * 20
+        mech_b = "0x" + "bb" * 20
+        attacker_address = "0x" + "ee" * 20
+        per_attempt_reads = [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(mech_a, "https://mech-aa.example"),
+                _FakeMechInfo(mech_b, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"chain_id": 100}),
+                _state_resp({"nonce": 7}),
+                *per_attempt_reads,  # attempt #1
+                # validation → marketplace.get_balance_tracker
+                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
+                *per_attempt_reads,  # attempt #2
+                # validation on the second mech (also attacker payTo)
+                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
+            ],
+            http_responses=[
+                _make_http_response(402, _make_402_body(pay_to=attacker_address)),
+                _make_http_response(402, _make_402_body(pay_to=attacker_address)),
+            ],
+            auto_deposit_cap=10**18,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        # Distinct from OFFCHAIN_TIMEOUT_ALL_MECHS: this is a misbehaving mech.
+        from packages.valory.skills.mech_interact_abci.states.base import (
+            OFFCHAIN_BAD_RESPONSE,
+        )
+
+        assert result.last_failure_reason == OFFCHAIN_BAD_RESPONSE
+        # Both ranked mechs were attempted, deposit never built.
+        assert len(stub.posted_urls) == 2
+
+    def test_token_asset_mismatch_treated_as_bad_response(self) -> None:
+        """A canonical payTo but attacker-chosen asset → BAD_RESPONSE.
+
+        The token path additionally validates that ``challenge.asset``
+        equals the tracker's ``token()`` getter so the Safe can't be
+        steered into approving an arbitrary contract.
+        """
+        mech_addr = "0x" + "aa" * 20
+        attacker_token = "0x" + "ee" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                *self._token_pre_402_reads(),
+                # validation: tracker matches but token does not
+                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
+                _state_resp({"token": self._CANONICAL_TOKEN}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402,
+                    _make_402_body(
+                        pay_to=self._CANONICAL_TRACKER, asset=attacker_token
+                    ),
+                ),
+            ],
+            auto_deposit_cap=10**18,
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        from packages.valory.skills.mech_interact_abci.states.base import (
+            OFFCHAIN_BAD_RESPONSE,
+        )
+
+        assert result.last_failure_reason == OFFCHAIN_BAD_RESPONSE
+
+    def test_token_path_matching_destination_proceeds_to_build(self) -> None:
+        """Canonical payTo + canonical asset on the token path proceeds.
+
+        Validation succeeds, so the executor goes on to build the
+        approve + depositFor multisend and surfaces
+        ``OFFCHAIN_DEPOSIT_NEEDED``.
+        """
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                *self._token_pre_402_reads(),
+                # validation: both tracker and token match
+                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
+                _state_resp({"token": self._CANONICAL_TOKEN}),
+                # token deposit multisend reads: approve, depositFor, multisend
+                _state_resp({"data": b"\xaa"}),
+                _state_resp({"data": b"\xbb"}),
+                _state_resp({"data": "0xcc"}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402,
+                    _make_402_body(
+                        pay_to=self._CANONICAL_TRACKER,
+                        asset=self._CANONICAL_TOKEN,
+                        required=500,
+                        current=0,
+                    ),
+                ),
+            ],
+            auto_deposit_cap=10**18,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        assert result.tx_hash is not None
+
+    def test_tracker_read_failure_treated_as_bad_response(self) -> None:
+        """If the canonical-tracker read errors we refuse to deposit.
+
+        Without the on-chain read we can't prove the payTo is safe, so
+        we treat the attempt as a misbehaving mech and fail over.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        bad = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                *self._native_pre_402_reads(),
+                # validation read fails
+                bad,
+            ],
+            http_responses=[
+                _make_http_response(
+                    402, _make_402_body(pay_to=self._CANONICAL_TRACKER)
+                ),
+            ],
+            auto_deposit_cap=10**18,
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        from packages.valory.skills.mech_interact_abci.states.base import (
+            OFFCHAIN_BAD_RESPONSE,
+        )
+
+        assert result.last_failure_reason == OFFCHAIN_BAD_RESPONSE
+
+    def test_zero_address_tracker_treated_as_bad_response(self) -> None:
+        """A marketplace with no tracker registered for paymentType is refused.
+
+        The on-chain read succeeds but returns the zero address, meaning
+        no canonical destination exists; validation must refuse rather
+        than vacuously accept the mech's claim.
+        """
+        mech_addr = "0x" + "aa" * 20
+        zero = "0x" + "00" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                *self._native_pre_402_reads(),
+                _state_resp({"balance_tracker": zero}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402, _make_402_body(pay_to=self._CANONICAL_TRACKER)
+                ),
+            ],
+            auto_deposit_cap=10**18,
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        from packages.valory.skills.mech_interact_abci.states.base import (
+            OFFCHAIN_BAD_RESPONSE,
+        )
+
+        assert result.last_failure_reason == OFFCHAIN_BAD_RESPONSE
