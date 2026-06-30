@@ -1096,6 +1096,7 @@ class OffchainRequestExecutor:
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_nonce",
             sender=self._safe_address(),
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1124,6 +1125,7 @@ class OffchainRequestExecutor:
             contract_address=self._config.mech_marketplace_address,
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_chain_id",
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1148,6 +1150,7 @@ class OffchainRequestExecutor:
             contract_address=mech_address,
             contract_id=str(MechMMContract.contract_id),
             contract_callable="get_payment_type",
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1183,6 +1186,7 @@ class OffchainRequestExecutor:
             contract_address=mech_address,
             contract_id=str(MechMMContract.contract_id),
             contract_callable="get_max_delivery_rate",
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1229,6 +1233,7 @@ class OffchainRequestExecutor:
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_balance_tracker",
             payment_type=payment_type,
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1267,6 +1272,7 @@ class OffchainRequestExecutor:
             contract_address=tracker_address,
             contract_id=str(BalanceTrackerFixedPriceToken.contract_id),
             contract_callable="get_token",
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1481,6 +1487,7 @@ class OffchainRequestExecutor:
             contract_id=str(BalanceTrackerFixedPriceNative.contract_id),
             contract_callable="build_deposit_for_data",
             account=self._safe_address(),
+            chain_id=self._b.params.mech_chain_id,
         )
         if call_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1517,6 +1524,7 @@ class OffchainRequestExecutor:
             contract_callable="build_approval_tx",
             spender=challenge.pay_to,
             amount=deposit_amount,
+            chain_id=self._b.params.mech_chain_id,
         )
         if approve_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1533,6 +1541,7 @@ class OffchainRequestExecutor:
             contract_callable="build_deposit_for_data",
             account=self._safe_address(),
             amount=deposit_amount,
+            chain_id=self._b.params.mech_chain_id,
         )
         if deposit_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1575,6 +1584,7 @@ class OffchainRequestExecutor:
                     "data": HexBytes(bytes(deposit_data)),
                 },
             ],
+            chain_id=self._b.params.mech_chain_id,
         )
         if multisend_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
