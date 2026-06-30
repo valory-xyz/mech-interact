@@ -897,6 +897,18 @@ class TestFreshCycle:
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
         assert result.tx_hash is not None
+        # tx_hash MUST be the packed ``hash_payload_to_hex`` form so the
+        # downstream ``transaction_settlement`` skill can decode it back
+        # to the Safe tx params. A raw 64-char hash would deserialise to
+        # garbage and the deposit would never settle. Round-trip decode
+        # to assert structure.
+        from packages.valory.skills.transaction_settlement_abci.payload_tools import (
+            skill_input_hex_to_payload,
+        )
+
+        decoded = skill_input_hex_to_payload(result.tx_hash)
+        assert decoded["safe_tx_hash"] == "fe" * 32
+        assert decoded["to_address"].lower() == canonical_tracker.lower()
         assert result.pending_request_json is not None
         # tx_submitter MUST be the sentinel so consumer multiplexers
         # can route the settled deposit back into MechRequestRound. Pin

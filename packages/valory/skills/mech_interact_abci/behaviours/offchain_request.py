@@ -56,7 +56,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Generator, List, Optional, Tuple, cast
+from typing import Any, Dict, Generator, List, Optional, Tuple
 from urllib.parse import urlencode
 
 from eth_abi import encode as abi_encode  # type: ignore[import-not-found]
@@ -78,6 +78,7 @@ from packages.valory.contracts.multisend.contract import (
     MultiSendOperation,
 )
 from packages.valory.protocols.contract_api import ContractApiMessage
+from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechInteractionResponse,
@@ -90,6 +91,10 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 from packages.valory.skills.mech_interact_abci.states.request import (
     OFFCHAIN_DEPOSIT_TX_SUBMITTER,
 )
+from packages.valory.skills.transaction_settlement_abci.payload_tools import (
+    hash_payload_to_hex,
+)
+from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
 
 # ----------------------------------------------------------------------------
 # Local CIDv1 (bare-file UnixFS+DAG-PB single block) — ported from
@@ -1632,7 +1637,12 @@ class OffchainRequestExecutor:
         """
         # Mirrors ``MechRequestBehaviour._build_multisend_safe_tx_hash``
         # in base.py — same GnosisSafe call, only the operation differs
-        # (CALL here vs DELEGATE_CALL for multisend).
+        # (CALL here vs DELEGATE_CALL for multisend). The downstream
+        # ``transaction_settlement`` consumer decodes the *packed*
+        # ``tx_hex`` (safe_tx_hash | value | gas | to | data | operation)
+        # to execute the Safe tx, so we pack here exactly like base.py's
+        # ``tx_hex`` property. Returning just the raw hash would leave
+        # settlement with an unexecutable payload.
         response = yield from self._b.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_STATE,
             contract_address=self._safe_address(),
@@ -1641,7 +1651,7 @@ class OffchainRequestExecutor:
             to_address=to_address,
             value=value,
             data=data,
-            safe_tx_gas=0,
+            safe_tx_gas=SAFE_GAS,
             operation=operation,
             chain_id=self._b.params.mech_chain_id,
         )
@@ -1651,7 +1661,29 @@ class OffchainRequestExecutor:
                 f"performative={response.performative}"
             )
             return None
-        return cast(str, response.state.body.get("tx_hash"))
+        safe_tx_hash = response.state.body.get("tx_hash")
+        if (
+            safe_tx_hash is None
+            or not isinstance(safe_tx_hash, str)
+            or len(safe_tx_hash) != TX_HASH_LENGTH
+        ):
+            self._logger.warning(
+                f"GnosisSafe.get_raw_safe_transaction_hash returned an "
+                f"invalid hash: {safe_tx_hash!r}"
+            )
+            return None
+        # ``hash_payload_to_hex`` expects a raw 64-char hex (no ``0x``
+        # prefix) for ``safe_tx_hash`` and a ``bytes`` ``data`` (it calls
+        # ``.hex()`` internally); base.py:116 stores the same form via
+        # ``safe_hash[2:]`` and feeds ``self.multisend_data`` (bytes).
+        return hash_payload_to_hex(
+            safe_tx_hash[2:],
+            value,
+            SAFE_GAS,
+            to_address,
+            bytes(data) if not isinstance(data, bytes) else data,
+            operation,
+        )
 
     @staticmethod
     def _classify_payment_type(payment_type: bytes) -> str:
