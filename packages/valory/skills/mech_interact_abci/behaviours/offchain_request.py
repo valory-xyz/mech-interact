@@ -56,7 +56,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple, cast
 from urllib.parse import urlencode
 
 from eth_abi import encode as abi_encode  # type: ignore[import-not-found]
@@ -70,6 +70,7 @@ from packages.valory.contracts.balance_tracker_fixed_price_token.contract import
     BalanceTrackerFixedPriceToken,
 )
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
+from packages.valory.contracts.gnosis_safe.contract import GnosisSafeContract
 from packages.valory.contracts.mech_marketplace.contract import MechMarketplace
 from packages.valory.contracts.mech_mm.contract import MechMM as MechMMContract
 from packages.valory.contracts.multisend.contract import (
@@ -1629,18 +1630,28 @@ class OffchainRequestExecutor:
         request build path so the consumer's transaction_settlement skill
         treats it the same.
         """
-        # The behaviour exposes ``_get_safe_tx_hash`` as the shared helper
-        # for Safe-routed contract calls; routing through it preserves
-        # the gas estimation, nonce handling, and signature-aggregation
-        # path the on-chain mech request already uses.
-        return (
-            yield from self._b._get_safe_tx_hash(  # pylint: disable=protected-access
-                to_address=to_address,
-                value=value,
-                data=data,
-                operation=operation,
-            )
+        # Mirrors ``MechRequestBehaviour._build_multisend_safe_tx_hash``
+        # in base.py — same GnosisSafe call, only the operation differs
+        # (CALL here vs DELEGATE_CALL for multisend).
+        response = yield from self._b.get_contract_api_response(
+            performative=ContractApiMessage.Performative.GET_STATE,
+            contract_address=self._safe_address(),
+            contract_id=str(GnosisSafeContract.contract_id),
+            contract_callable="get_raw_safe_transaction_hash",
+            to_address=to_address,
+            value=value,
+            data=data,
+            safe_tx_gas=0,
+            operation=operation,
+            chain_id=self._b.params.mech_chain_id,
         )
+        if response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"GnosisSafe.get_raw_safe_transaction_hash failed: "
+                f"performative={response.performative}"
+            )
+            return None
+        return cast(str, response.state.body.get("tx_hash"))
 
     @staticmethod
     def _classify_payment_type(payment_type: bytes) -> str:
