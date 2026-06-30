@@ -694,6 +694,7 @@ class _StubBehaviour:
         deposit_target_calls: int = 10,
         failover_retries: int = 2,
         mech_requests: Optional[List[Any]] = None,
+        use_dynamic_mech_selection: bool = True,
     ) -> None:
         self.context = SimpleNamespace(
             logger=SimpleNamespace(
@@ -711,8 +712,10 @@ class _StubBehaviour:
                 priority_mech_address=priority_mech_address,
                 auto_deposit_cap_per_cycle=auto_deposit_cap,
                 offchain_deposit_target_calls=deposit_target_calls,
+                use_dynamic_mech_selection=use_dynamic_mech_selection,
             ),
             multisend_address="0x" + "ee" * 20,
+            mech_chain_id="gnosis",
         )
         from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
 
