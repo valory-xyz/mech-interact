@@ -24,7 +24,6 @@ from typing import Dict
 from aea.common import JSONLike
 from aea.configurations.base import PublicId
 from aea.contracts.base import Contract
-from aea.crypto.base import LedgerApi
 from aea_ledger_ethereum import EthereumApi
 
 PUBLIC_ID = PublicId.from_str("valory/balance_tracker_fixed_price_native:0.1.0")
@@ -68,7 +67,7 @@ class BalanceTrackerFixedPriceNative(Contract):
     @classmethod
     def build_deposit_for_data(
         cls,
-        ledger_api: LedgerApi,
+        ledger_api: EthereumApi,
         contract_address: str,
         account: str,
     ) -> Dict[str, bytes]:
@@ -78,7 +77,7 @@ class BalanceTrackerFixedPriceNative(Contract):
         in the Safe-multisend batch. The deposit amount is carried by
         ``msg.value`` on chain rather than by the calldata.
 
-        :param ledger_api: the ledger API object.
+        :param ledger_api: the Ethereum ledger API.
         :param contract_address: the BalanceTracker contract address.
         :param account: the requester address being credited.
         :return: ``{"data": bytes}`` calldata for the multisend batch.
@@ -86,4 +85,11 @@ class BalanceTrackerFixedPriceNative(Contract):
         contract_instance = cls.get_instance(ledger_api, contract_address)
         account = ledger_api.api.to_checksum_address(account)
         data = contract_instance.encode_abi("depositFor", args=(account,))
+        # ``encode_abi`` returns a ``0x``-prefixed hex string today; guard
+        # the prefix so a future web3 ABI change surfaces as a loud error
+        # rather than silently mis-sliced calldata that reverts on chain.
+        if not data.startswith("0x"):
+            raise ValueError(
+                f"encode_abi returned non-0x-prefixed payload: {data[:4]!r}"
+            )
         return {"data": bytes.fromhex(data[2:])}

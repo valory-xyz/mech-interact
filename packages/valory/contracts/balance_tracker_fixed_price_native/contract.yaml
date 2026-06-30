@@ -10,7 +10,7 @@ fingerprint:
   README.md: bafybeiaciz6fqemsxoo6vp55kvche6o2sciovo6mx4bwmobmphv5fxj2xa
   __init__.py: bafybeic26yci54hmmqca43ro7hwxfy5cjwwipt7iheq63cvmko3unldyne
   build/balance_tracker_fixed_price_native.json: bafybeiapfus4ith6atrc2bgznpltf5zzpjitiwdivlxesw2epjqqdbherm
-  contract.py: bafybeibnr74vswbe4au7kmxeadrt3z2oxxigx4blv7ariyi2oojpjxc7w4
+  contract.py: bafybeif5ixpxs2uchkguqtfbevmfbnp4nh2hq6xuvljlijuvvhr2o5cyr4
 fingerprint_ignore_patterns: []
 contracts: []
 class_name: BalanceTrackerFixedPriceNative
