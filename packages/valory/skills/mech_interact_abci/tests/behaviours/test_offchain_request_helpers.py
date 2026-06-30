@@ -882,6 +882,8 @@ class TestFreshCycle:
                 _state_resp({"balance_tracker": canonical_tracker}),
                 # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
                 _state_resp({"data": b"\x01\x02\x03"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
             http_responses=[
                 _make_http_response(
@@ -895,6 +897,18 @@ class TestFreshCycle:
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
         assert result.tx_hash is not None
+        # tx_hash MUST be the packed ``hash_payload_to_hex`` form so the
+        # downstream ``transaction_settlement`` skill can decode it back
+        # to the Safe tx params. A raw 64-char hash would deserialise to
+        # garbage and the deposit would never settle. Round-trip decode
+        # to assert structure.
+        from packages.valory.skills.transaction_settlement_abci.payload_tools import (
+            skill_input_hex_to_payload,
+        )
+
+        decoded = skill_input_hex_to_payload(result.tx_hash)
+        assert decoded["safe_tx_hash"] == "fe" * 32
+        assert decoded["to_address"].lower() == canonical_tracker.lower()
         assert result.pending_request_json is not None
         # tx_submitter MUST be the sentinel so consumer multiplexers
         # can route the settled deposit back into MechRequestRound. Pin
@@ -937,6 +951,8 @@ class TestFreshCycle:
                 *self._native_reads(),
                 _state_resp({"balance_tracker": canonical_tracker}),
                 _state_resp({"data": b"\x01\x02\x03"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
             http_responses=[
                 _make_http_response(
@@ -1291,6 +1307,8 @@ class TestDepositScalesWithDeliveryRate:
                 _state_resp({"data": b"\xaa"}),
                 _state_resp({"data": b"\xbb"}),
                 _state_resp({"data": "0xcc"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
             http_responses=[
                 _make_http_response(
@@ -1546,6 +1564,8 @@ class TestValidate402Destination:
                 _state_resp({"data": b"\xaa"}),
                 _state_resp({"data": b"\xbb"}),
                 _state_resp({"data": "0xcc"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
             http_responses=[
                 _make_http_response(

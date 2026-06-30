@@ -70,6 +70,7 @@ from packages.valory.contracts.balance_tracker_fixed_price_token.contract import
     BalanceTrackerFixedPriceToken,
 )
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
+from packages.valory.contracts.gnosis_safe.contract import GnosisSafeContract
 from packages.valory.contracts.mech_marketplace.contract import MechMarketplace
 from packages.valory.contracts.mech_mm.contract import MechMM as MechMMContract
 from packages.valory.contracts.multisend.contract import (
@@ -77,6 +78,7 @@ from packages.valory.contracts.multisend.contract import (
     MultiSendOperation,
 )
 from packages.valory.protocols.contract_api import ContractApiMessage
+from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechInteractionResponse,
@@ -89,6 +91,10 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 from packages.valory.skills.mech_interact_abci.states.request import (
     OFFCHAIN_DEPOSIT_TX_SUBMITTER,
 )
+from packages.valory.skills.transaction_settlement_abci.payload_tools import (
+    hash_payload_to_hex,
+)
+from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
 
 # ----------------------------------------------------------------------------
 # Local CIDv1 (bare-file UnixFS+DAG-PB single block) — ported from
@@ -1096,6 +1102,7 @@ class OffchainRequestExecutor:
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_nonce",
             sender=self._safe_address(),
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1124,6 +1131,7 @@ class OffchainRequestExecutor:
             contract_address=self._config.mech_marketplace_address,
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_chain_id",
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1148,6 +1156,7 @@ class OffchainRequestExecutor:
             contract_address=mech_address,
             contract_id=str(MechMMContract.contract_id),
             contract_callable="get_payment_type",
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1183,6 +1192,7 @@ class OffchainRequestExecutor:
             contract_address=mech_address,
             contract_id=str(MechMMContract.contract_id),
             contract_callable="get_max_delivery_rate",
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1229,6 +1239,7 @@ class OffchainRequestExecutor:
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_balance_tracker",
             payment_type=payment_type,
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1267,6 +1278,7 @@ class OffchainRequestExecutor:
             contract_address=tracker_address,
             contract_id=str(BalanceTrackerFixedPriceToken.contract_id),
             contract_callable="get_token",
+            chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1363,13 +1375,19 @@ class OffchainRequestExecutor:
         an explicit address is configured.
         """
         attempted_lc = {a.lower() for a in attempted}
-        for mech in self._synced.ranked_mechs:
-            if mech.address.lower() in attempted_lc:
-                continue
-            url = mech.http_url or self._config.offchain_url
-            if not url:
-                continue
-            return mech.address, url
+        # ``ranked_mechs`` reads ``mech_tool`` strictly from db, which is
+        # only written by the v2 dynamic-selection round. Consumers using a
+        # hardcoded ``priority_mech_address`` never write it, so traversing
+        # ``ranked_mechs`` here would raise on every offchain cycle.
+        # Mirrors the same gate request.py uses on the on-chain path.
+        if self._config.use_dynamic_mech_selection:
+            for mech in self._synced.ranked_mechs:
+                if mech.address.lower() in attempted_lc:
+                    continue
+                url = mech.http_url or self._config.offchain_url
+                if not url:
+                    continue
+                return mech.address, url
         # No ranked mech left. Fall back to the static URL only if the
         # operator configured both an ``offchain_url`` and a
         # ``priority_mech_address`` that has not already been tried.
@@ -1481,6 +1499,7 @@ class OffchainRequestExecutor:
             contract_id=str(BalanceTrackerFixedPriceNative.contract_id),
             contract_callable="build_deposit_for_data",
             account=self._safe_address(),
+            chain_id=self._b.params.mech_chain_id,
         )
         if call_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1517,6 +1536,7 @@ class OffchainRequestExecutor:
             contract_callable="build_approval_tx",
             spender=challenge.pay_to,
             amount=deposit_amount,
+            chain_id=self._b.params.mech_chain_id,
         )
         if approve_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1533,6 +1553,7 @@ class OffchainRequestExecutor:
             contract_callable="build_deposit_for_data",
             account=self._safe_address(),
             amount=deposit_amount,
+            chain_id=self._b.params.mech_chain_id,
         )
         if deposit_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1575,6 +1596,7 @@ class OffchainRequestExecutor:
                     "data": HexBytes(bytes(deposit_data)),
                 },
             ],
+            chain_id=self._b.params.mech_chain_id,
         )
         if multisend_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
@@ -1613,17 +1635,54 @@ class OffchainRequestExecutor:
         request build path so the consumer's transaction_settlement skill
         treats it the same.
         """
-        # The behaviour exposes ``_get_safe_tx_hash`` as the shared helper
-        # for Safe-routed contract calls; routing through it preserves
-        # the gas estimation, nonce handling, and signature-aggregation
-        # path the on-chain mech request already uses.
-        return (
-            yield from self._b._get_safe_tx_hash(  # pylint: disable=protected-access
-                to_address=to_address,
-                value=value,
-                data=data,
-                operation=operation,
+        # Mirrors ``MechRequestBehaviour._build_multisend_safe_tx_hash``
+        # in base.py — same GnosisSafe call, only the operation differs
+        # (CALL here vs DELEGATE_CALL for multisend). The downstream
+        # ``transaction_settlement`` consumer decodes the *packed*
+        # ``tx_hex`` (safe_tx_hash | value | gas | to | data | operation)
+        # to execute the Safe tx, so we pack here exactly like base.py's
+        # ``tx_hex`` property. Returning just the raw hash would leave
+        # settlement with an unexecutable payload.
+        response = yield from self._b.get_contract_api_response(
+            performative=ContractApiMessage.Performative.GET_STATE,
+            contract_address=self._safe_address(),
+            contract_id=str(GnosisSafeContract.contract_id),
+            contract_callable="get_raw_safe_transaction_hash",
+            to_address=to_address,
+            value=value,
+            data=data,
+            safe_tx_gas=SAFE_GAS,
+            operation=operation,
+            chain_id=self._b.params.mech_chain_id,
+        )
+        if response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"GnosisSafe.get_raw_safe_transaction_hash failed: "
+                f"performative={response.performative}"
             )
+            return None
+        safe_tx_hash = response.state.body.get("tx_hash")
+        if (
+            safe_tx_hash is None
+            or not isinstance(safe_tx_hash, str)
+            or len(safe_tx_hash) != TX_HASH_LENGTH
+        ):
+            self._logger.warning(
+                f"GnosisSafe.get_raw_safe_transaction_hash returned an "
+                f"invalid hash: {safe_tx_hash!r}"
+            )
+            return None
+        # ``hash_payload_to_hex`` expects a raw 64-char hex (no ``0x``
+        # prefix) for ``safe_tx_hash`` and a ``bytes`` ``data`` (it calls
+        # ``.hex()`` internally); base.py:116 stores the same form via
+        # ``safe_hash[2:]`` and feeds ``self.multisend_data`` (bytes).
+        return hash_payload_to_hex(
+            safe_tx_hash[2:],
+            value,
+            SAFE_GAS,
+            to_address,
+            bytes(data) if not isinstance(data, bytes) else data,
+            operation,
         )
 
     @staticmethod
