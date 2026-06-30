@@ -882,6 +882,8 @@ class TestFreshCycle:
                 _state_resp({"balance_tracker": canonical_tracker}),
                 # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
                 _state_resp({"data": b"\x01\x02\x03"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
             http_responses=[
                 _make_http_response(
@@ -937,6 +939,8 @@ class TestFreshCycle:
                 *self._native_reads(),
                 _state_resp({"balance_tracker": canonical_tracker}),
                 _state_resp({"data": b"\x01\x02\x03"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
             http_responses=[
                 _make_http_response(
@@ -1291,6 +1295,8 @@ class TestDepositScalesWithDeliveryRate:
                 _state_resp({"data": b"\xaa"}),
                 _state_resp({"data": b"\xbb"}),
                 _state_resp({"data": "0xcc"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
             http_responses=[
                 _make_http_response(
@@ -1546,6 +1552,8 @@ class TestValidate402Destination:
                 _state_resp({"data": b"\xaa"}),
                 _state_resp({"data": b"\xbb"}),
                 _state_resp({"data": "0xcc"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
             http_responses=[
                 _make_http_response(
