@@ -1369,13 +1369,19 @@ class OffchainRequestExecutor:
         an explicit address is configured.
         """
         attempted_lc = {a.lower() for a in attempted}
-        for mech in self._synced.ranked_mechs:
-            if mech.address.lower() in attempted_lc:
-                continue
-            url = mech.http_url or self._config.offchain_url
-            if not url:
-                continue
-            return mech.address, url
+        # ``ranked_mechs`` reads ``mech_tool`` strictly from db, which is
+        # only written by the v2 dynamic-selection round. Consumers using a
+        # hardcoded ``priority_mech_address`` never write it, so traversing
+        # ``ranked_mechs`` here would raise on every offchain cycle.
+        # Mirrors the same gate request.py uses on the on-chain path.
+        if self._config.use_dynamic_mech_selection:
+            for mech in self._synced.ranked_mechs:
+                if mech.address.lower() in attempted_lc:
+                    continue
+                url = mech.http_url or self._config.offchain_url
+                if not url:
+                    continue
+                return mech.address, url
         # No ranked mech left. Fall back to the static URL only if the
         # operator configured both an ``offchain_url`` and a
         # ``priority_mech_address`` that has not already been tried.
