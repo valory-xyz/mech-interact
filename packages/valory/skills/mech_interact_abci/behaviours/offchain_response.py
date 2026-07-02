@@ -261,9 +261,19 @@ class OffchainResponsePoller:
             return _PollSnapshot(status="processing")
         status = str(payload.get("status", "")).lower()
         if status == "ok":
+            # Match the on-chain `mech_response` ApiSpec (`response_key: result`):
+            # extract the inner `result` field so downstream (DecisionReceive
+            # on trader) sees the same string shape as the on-chain branch.
+            # Passing the full envelope here broke `_get_decision` — on tool
+            # failure the envelope JSON-parses but has no `p_yes`, hitting
+            # KeyError in `PredictionResponse.__init__`.
+            envelope = payload.get("response")
+            inner_result = (
+                envelope.get("result") if isinstance(envelope, dict) else envelope
+            )
             return _PollSnapshot(
                 status="ok",
-                result=self._serialise_result(payload.get("response")),
+                result=self._serialise_result(inner_result),
             )
         if status == "rejected":
             return _PollSnapshot(
