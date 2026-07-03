@@ -129,7 +129,7 @@ class OffchainResponsePoller:
                 requestId=int(pending.request_id, 16),
                 requestIds=[int(pending.request_id, 16)],
                 numRequests=1,
-                nonce=str(pending.nonce),
+                nonce=pending.metadata_nonce,
                 result=None,
                 error="Unknown",
             )
@@ -268,9 +268,33 @@ class OffchainResponsePoller:
             # failure the envelope JSON-parses but has no `p_yes`, hitting
             # KeyError in `PredictionResponse.__init__`.
             envelope = payload.get("response")
-            inner_result = (
-                envelope.get("result") if isinstance(envelope, dict) else envelope
-            )
+            if isinstance(envelope, dict):
+                if "result" not in envelope:
+                    # Schema drift: the ok envelope should always carry a
+                    # `result` key. Falling through with None would look
+                    # indistinguishable from a routine tool failure
+                    # (target.error becomes "Unknown"); flag it so the
+                    # drift is visible rather than a fake failed prediction.
+                    self._logger.warning(
+                        "Offchain 'ok' envelope missing 'result' key; "
+                        "keys=%s. Treating as a failed poll.",
+                        sorted(envelope.keys()),
+                    )
+                inner_result = envelope.get("result")
+            else:
+                # Same drift bucket: the `response` field is either absent
+                # (envelope is None) or a scalar/list rather than the dict
+                # the mech server contracts to send. Without a warning
+                # the fall-through sets `result` to that value (or None)
+                # and downstream sees `error="Unknown"` -- indistinguishable
+                # from a real tool failure, so the truncated-payload shape
+                # would keep looking like a bad prediction. Flag it.
+                self._logger.warning(
+                    "Offchain 'ok' status but 'response' envelope "
+                    "missing/malformed: %r. Treating as a failed poll.",
+                    envelope,
+                )
+                inner_result = envelope
             return _PollSnapshot(
                 status="ok",
                 result=self._serialise_result(inner_result),
@@ -331,7 +355,18 @@ class OffchainResponsePoller:
         raw = self._synced.offchain_pending_request
         if not isinstance(raw, dict):
             return None
-        return PendingRequest.from_dict(raw)
+        pending = PendingRequest.from_dict(raw)
+        if pending is None:
+            # Distinguish corrupt-payload from empty so the outer
+            # "no pending request on synced data" warning at the caller
+            # isn't misleading. Log keys, not values, to avoid spilling
+            # request_id / signature material.
+            self._logger.warning(
+                "Pending offchain request on synced data failed "
+                "validation and was discarded; keys=%s.",
+                sorted(raw.keys()),
+            )
+        return pending
 
 
 def serialise_responses(responses: List[MechInteractionResponse]) -> str:
