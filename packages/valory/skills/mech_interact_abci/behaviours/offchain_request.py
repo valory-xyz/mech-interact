@@ -1291,8 +1291,7 @@ class OffchainRequestExecutor:
         raw = response.state.body.get("token_address")
         if not isinstance(raw, str) or not raw:
             self._logger.warning(
-                "BalanceTracker.token() returned an "
-                f"unexpected value {raw!r}"
+                "BalanceTracker.token() returned an " f"unexpected value {raw!r}"
             )
             return None
         return raw.lower()
