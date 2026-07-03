@@ -147,18 +147,60 @@ class TestPollUntilTerminal:
         assert snapshot.status == "ok"
         assert snapshot.result == "answer"
 
-    def test_ok_status_returns_serialised_result(self) -> None:
-        """A 200 with ``status="ok"`` surfaces the serialised result.
+    def test_ok_status_extracts_inner_result_field(self) -> None:
+        """A 200 with ``status="ok"`` surfaces only the envelope's ``result``.
 
-        Non-string ``response`` values are JSON-serialised for the
-        downstream consumer's wire shape.
+        The real mech wraps the tool payload in a ``response`` envelope
+        (``{schema_version, requestId, result, tool, executed_at}``). To match
+        the on-chain ``mech_response`` ApiSpec (``response_key: result``), we
+        extract just the inner ``result`` field so ``DecisionReceive`` on
+        trader sees the same string shape as the on-chain branch.
         """
-        body = json.dumps({"status": "ok", "response": {"answer": 1}}).encode()
+        body = json.dumps(
+            {
+                "status": "ok",
+                "response": {
+                    "schema_version": "2.0",
+                    "requestId": "42",
+                    "result": '{"p_yes": 0.6, "p_no": 0.4}',
+                    "tool": "prediction-online",
+                    "executed_at": "2026-07-02T14:24:27Z",
+                },
+            }
+        ).encode()
         stub = _StubBehaviour(http_responses=[_http_response(200, body)])
         poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
         snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
         assert snapshot.status == "ok"
-        assert json.loads(snapshot.result or "{}") == {"answer": 1}
+        assert snapshot.result == '{"p_yes": 0.6, "p_no": 0.4}'
+
+    def test_ok_status_passes_invalid_response_string_through_unwrapped(
+        self,
+    ) -> None:
+        """Tool-failure envelopes carry a non-JSON ``result`` (``"Invalid response"``).
+
+        The downstream ``_get_decision`` in trader parses ``mech_response.result``
+        with ``json.loads`` and catches ``JSONDecodeError`` to safely skip. If we
+        emitted the full envelope here, that catch would miss and the trader
+        would blow up in ``PredictionResponse(**dict)`` with ``KeyError('p_yes')``.
+        """
+        body = json.dumps(
+            {
+                "status": "ok",
+                "response": {
+                    "schema_version": "2.0",
+                    "requestId": "42",
+                    "result": "Invalid response",
+                    "tool": "prediction-online",
+                    "executed_at": "2026-07-02T14:24:27Z",
+                },
+            }
+        ).encode()
+        stub = _StubBehaviour(http_responses=[_http_response(200, body)])
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
+        assert snapshot.status == "ok"
+        assert snapshot.result == "Invalid response"
 
     def test_rejected_status_surfaces_reason(self) -> None:
         """A 200 with ``status="rejected"`` carries the reason as ``error``."""
