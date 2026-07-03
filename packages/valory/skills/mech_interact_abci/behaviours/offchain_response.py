@@ -355,7 +355,18 @@ class OffchainResponsePoller:
         raw = self._synced.offchain_pending_request
         if not isinstance(raw, dict):
             return None
-        return PendingRequest.from_dict(raw)
+        pending = PendingRequest.from_dict(raw)
+        if pending is None:
+            # Distinguish corrupt-payload from empty so the outer
+            # "no pending request on synced data" warning at the caller
+            # isn't misleading. Log keys, not values, to avoid spilling
+            # request_id / signature material.
+            self._logger.warning(
+                "Pending offchain request on synced data failed "
+                "validation and was discarded; keys=%s.",
+                sorted(raw.keys()),
+            )
+        return pending
 
 
 def serialise_responses(responses: List[MechInteractionResponse]) -> str:

@@ -783,7 +783,17 @@ class OffchainRequestExecutor:
                 delivery_rate=delivery_rate,
                 ipfs_hash=ipfs_hash,
                 ipfs_data=ipfs_data,
-                metadata_nonce=request_meta.nonce,
+                # `MechMetadata.nonce` is typed `str` but the dataclass has
+                # no runtime enforcement; states/base.py builds it via
+                # `MechMetadata(**metadata_item)` from the DB blob so a
+                # producer emitting `{"nonce": null}` reaches here as None.
+                # Coerce to match `from_dict`'s tolerance -- otherwise the
+                # `__post_init__` isinstance guard would raise AFTER
+                # `_post_signed_request` has already POSTed, turning a quiet
+                # shape bug into a mid-cycle crash past an irreversible side
+                # effect. Matches `build_request_metadata`'s treatment of
+                # None nonce upstream.
+                metadata_nonce=str(request_meta.nonce or ""),
             )
 
             if attempt.outcome is OffchainAttemptOutcome.DONE:
@@ -1757,7 +1767,21 @@ class OffchainRequestExecutor:
         raw = self._synced.offchain_pending_request
         if not raw:
             return None
-        return PendingRequest.from_dict(raw)
+        pending = PendingRequest.from_dict(raw)
+        if pending is None:
+            # from_dict swallowed the shape-error (KeyError | TypeError |
+            # ValueError). Without this warning the paid-for correlation
+            # is silently abandoned and run() falls to _fresh_cycle
+            # indistinguishable from the "nothing was pending" branch.
+            # Log keys, not values, so a corrupt payload doesn't spill
+            # request_id / signature material to logs.
+            self._logger.warning(
+                "Pending offchain request on synced data failed "
+                "validation and was discarded; keys=%s. Starting a fresh "
+                "cycle instead of resuming.",
+                sorted(raw.keys()) if isinstance(raw, dict) else type(raw).__name__,
+            )
+        return pending
 
     def _safe_address(self) -> str:
         return str(self._synced.safe_contract_address)

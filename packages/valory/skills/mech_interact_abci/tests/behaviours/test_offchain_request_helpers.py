@@ -1236,6 +1236,42 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
 
+    def test_null_metadata_nonce_does_not_crash_after_signed_post(self) -> None:
+        """``MechMetadata(nonce=None)`` from an untyped producer doesn't crash mid-cycle.
+
+        Reproduces the bug where the strengthened ``__post_init__``
+        isinstance guard would fire on the direct construction path
+        AFTER ``_post_signed_request`` had already POSTed -- turning a
+        quiet shape bug into an uncaught ValueError past an irreversible
+        side effect. The coercion at the ``_build_pending`` call site
+        (``str(request_meta.nonce or "")``) restores the graceful
+        happy-path completion.
+        """
+        from packages.valory.skills.mech_interact_abci.states.base import (
+            MechMetadata,
+        )
+
+        mech_addr = "0x" + "aa" * 20
+        # ``MechMetadata.nonce`` is typed ``str`` but the dataclass has
+        # no runtime enforcement; the DB-blob → ``MechMetadata(**dict)``
+        # path can pass a null through. Unpacking bypasses the type
+        # checker exactly as the production path does.
+        null_nonce_meta = MechMetadata(**{"prompt": "x", "tool": "t", "nonce": None})  # type: ignore[arg-type]
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=self._native_reads(),
+            http_responses=[_make_http_response(200)],
+            mech_requests=[null_nonce_meta],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert result.pending_request_json is not None
+        pending = PendingRequest.from_dict(json.loads(result.pending_request_json))
+        assert pending is not None
+        # ``None`` normalised to empty, not the literal string ``"None"``.
+        assert pending.metadata_nonce == ""
+
 
 class TestRetryPending:
     """Resumed cycle after a deposit settles (review C8)."""
@@ -1283,6 +1319,54 @@ class TestRetryPending:
         result = _drive(executor._retry_pending(pending))
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_402_INSUFFICIENT
+
+
+class TestLoadPendingRequestDistinguishesCorruption:
+    """The pending-request loader distinguishes empty-raw from corrupt-raw.
+
+    Before the warning, ``_load_pending_request`` returned ``None`` on
+    both "nothing was pending" (normal) and "a stored payload failed
+    validation" (paid-for correlation lost) -- ``run()`` fell to
+    ``_fresh_cycle`` identically. That path silently abandons the
+    deposit-just-settled bridge with no diagnostic trail.
+    """
+
+    def test_corrupt_raw_logs_and_falls_to_fresh(self) -> None:
+        """Truthy-but-invalid raw payload emits a validation warning."""
+        warnings: List[str] = []
+        # Missing required ``request_id`` triggers ``KeyError`` inside
+        # ``from_dict`` (swallowed by the pre-existing except block).
+        # Keeps ``mech_url``/``sender`` so the log key list demonstrates
+        # the payload wasn't empty -- just broken.
+        corrupt = {
+            "mech_url": "https://mech-aa.example",
+            "sender": "0x" + "bb" * 20,
+        }
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            offchain_pending_request=corrupt,
+        )
+        stub.context.logger.warning = lambda *a, **k: warnings.append(a[0] if a else "")
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = executor._load_pending_request()
+        assert result is None
+        assert any("failed validation" in w for w in warnings)
+
+    def test_empty_raw_is_quiet(self) -> None:
+        """Empty raw payload is the ``run()``-fresh-cycle path -- no warning."""
+        warnings: List[str] = []
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            offchain_pending_request=None,
+        )
+        stub.context.logger.warning = lambda *a, **k: warnings.append(a[0] if a else "")
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        assert executor._load_pending_request() is None
+        assert warnings == []
 
 
 class TestComputeDepositAmount:
