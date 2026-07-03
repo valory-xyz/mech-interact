@@ -601,10 +601,9 @@ class TestPendingRequest:
         pending = PendingRequest.from_dict(raw)
         assert pending is not None
         assert pending.metadata_nonce == uuid_meta
-        assert (
-            PendingRequest.from_dict(json.loads(pending.to_json())).metadata_nonce
-            == uuid_meta
-        )
+        roundtrip = PendingRequest.from_dict(json.loads(pending.to_json()))
+        assert roundtrip is not None
+        assert roundtrip.metadata_nonce == uuid_meta
 
     def test_missing_metadata_nonce_defaults_to_empty(self) -> None:
         """Older payloads (pre-metadata-nonce) still deserialise cleanly.
@@ -797,7 +796,7 @@ class _StubBehaviour:
     def get_contract_api_response(self, **kwargs: Any) -> Any:
         if False:
             yield  # make this a generator
-        callable_name = kwargs.get("contract_callable")
+        callable_name = str(kwargs.get("contract_callable", ""))
         expected = self._CANONICAL_REQUIRED_KWARGS.get(callable_name)
         if expected is not None:
             missing = expected - set(kwargs.keys())
@@ -1771,9 +1770,7 @@ class TestReadContractState:
             contract_api_responses=[response],
             http_responses=[],
         )
-        stub.context.logger.warning = lambda *a, **k: warnings.append(
-            a[0] if a else ""
-        )
+        stub.context.logger.warning = lambda *a, **k: warnings.append(a[0] if a else "")
         return stub
 
     def test_returns_body_value_on_state(self) -> None:
