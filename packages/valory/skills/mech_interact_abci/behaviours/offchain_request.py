@@ -531,6 +531,11 @@ class PendingRequest:
                 "PendingRequest.delivery_rate must be non-negative; "
                 f"got {self.delivery_rate}"
             )
+        if not isinstance(self.metadata_nonce, str):
+            raise ValueError(
+                "PendingRequest.metadata_nonce must be a string (empty for "
+                f"pre-metadata-nonce payloads); got {self.metadata_nonce!r}"
+            )
 
     def to_json(self) -> str:
         """Serialize to the form persisted on synchronized_data."""
@@ -558,7 +563,13 @@ class PendingRequest:
                 delivery_rate=int(raw["delivery_rate"]),
                 ipfs_hash=str(raw["ipfs_hash"]),
                 ipfs_data=str(raw["ipfs_data"]),
-                metadata_nonce=str(raw.get("metadata_nonce", "")),
+                # `str(None)` produces the literal "None" — a present-but-null
+                # key (e.g. an upstream producer emitting `metadata_nonce:
+                # null`, which MechMetadata doesn't runtime-enforce) would
+                # otherwise ship as the correlation key in
+                # `_serialise_pending_response`. The `or ""` normalises None
+                # / missing to the same empty-string fallback.
+                metadata_nonce=str(raw.get("metadata_nonce") or ""),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -1112,13 +1123,13 @@ class OffchainRequestExecutor:
         result_key: str = "data",
         **kwargs: Any,
     ) -> Generator[None, None, Optional[Any]]:
-        """Shared GET_STATE adapter for the 11 near-identical read blocks.
+        """Shared GET_STATE adapter for the near-identical contract-read blocks.
 
         Handles the performative check and the ``body[result_key]`` lookup
         with a consistent warning pattern so a degraded RPC or a
         contract-wrapper key rename fails loudly at one place instead of
-        silently at each call site (review 3520760220). Callers keep
-        ownership of coercion and shape validation against ``result``.
+        silently at each call site. Callers keep ownership of coercion and
+        shape validation against ``result``.
         """
         response = yield from self._b.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_STATE,
@@ -1140,7 +1151,14 @@ class OffchainRequestExecutor:
                 f"body keys={sorted(body.keys())}"
             )
             return None
-        return body[result_key]
+        value = body[result_key]
+        if value is None:
+            # Present-but-null is the same drift bucket as missing-key: pre-
+            # refactor sites all logged on this shape via their `is None or
+            # not isinstance(...)` guards. Warning here keeps the diagnostic
+            # trail equivalent for a degraded RPC that emits `{"data": null}`.
+            self._logger.warning(f"{error_label} response {result_key!r} value is None")
+        return value
 
     def _read_on_chain_nonce(self) -> Generator[None, None, Optional[int]]:
         """Read ``MechMarketplace.mapNonces(safe)`` for the current Safe.

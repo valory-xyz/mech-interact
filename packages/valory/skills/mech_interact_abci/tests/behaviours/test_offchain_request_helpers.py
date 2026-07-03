@@ -619,6 +619,20 @@ class TestPendingRequest:
         assert pending is not None
         assert pending.metadata_nonce == ""
 
+    def test_null_metadata_nonce_normalises_to_empty(self) -> None:
+        """``metadata_nonce: null`` on the wire also normalises to empty string.
+
+        Without the ``or ""`` fallback, ``str(None)`` would produce the
+        literal ``"None"`` string and ship as the correlation key in
+        ``_serialise_pending_response``. MechMetadata doesn't runtime-
+        enforce this field, so a null-emitting upstream can reach here.
+        """
+        raw = self._raw()
+        raw["metadata_nonce"] = None
+        pending = PendingRequest.from_dict(raw)
+        assert pending is not None
+        assert pending.metadata_nonce == ""
+
 
 class TestPaymentTypeHashesMatchEnum:
     """Drift guard (review C7).
@@ -791,6 +805,17 @@ class _StubBehaviour:
         "build_deposit_for_data": {"account", "amount"},
         "build_approval_tx": {"spender", "amount"},
         "get_tx_data": {"multi_send_txs"},
+        # Safe-tx-hash build sits on every settlement path; a dropped kwarg
+        # here silently produces a wrong tx hash and the deposit / delivery
+        # is signed against a stale envelope. Kept in step with
+        # `_build_safe_tx_for_single_call`'s call site.
+        "get_raw_safe_transaction_hash": {
+            "to_address",
+            "value",
+            "data",
+            "safe_tx_gas",
+            "operation",
+        },
     }
 
     def get_contract_api_response(self, **kwargs: Any) -> Any:
@@ -1813,7 +1838,7 @@ class TestReadContractState:
         assert warnings == []
 
     def test_non_state_performative_returns_none_with_warning(self) -> None:
-        """Regression 3520760216: silent-failure branches now log."""
+        """Silent-failure branch: non-STATE performative now logs before returning None."""
         from packages.valory.protocols.contract_api import ContractApiMessage
 
         error_resp = SimpleNamespace(
@@ -1858,6 +1883,30 @@ class TestReadContractState:
         )
         assert result is None
         assert any("missing 'data'" in w for w in warnings)
+        assert any("MechMarketplace.mapNonces" in w for w in warnings)
+
+    def test_present_but_null_value_returns_none_with_warning(self) -> None:
+        """Present-but-``None`` (e.g. degraded RPC returning ``{"data": null}``) also warns.
+
+        Pre-refactor, several sites logged this shape via their combined
+        ``is None or not isinstance(...)`` guards; the extraction moved
+        the None-short-circuit above the isinstance branch, so the
+        adapter must own this warning or the diagnostic trail is lost.
+        """
+        warnings: List[str] = []
+        stub = self._stub(_state_resp({"data": None}), warnings)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._read_contract_state(
+                contract_address="0x" + "aa" * 20,
+                contract_id="dummy",
+                contract_callable="get_nonce",
+                error_label="MechMarketplace.mapNonces",
+                sender_address="0x" + "bb" * 20,
+            )
+        )
+        assert result is None
+        assert any("value is None" in w for w in warnings)
         assert any("MechMarketplace.mapNonces" in w for w in warnings)
 
     def test_chain_id_injected_from_params(self) -> None:
@@ -1906,6 +1955,44 @@ class TestStubValidatesCanonicalKwargs:
                     chain_id="gnosis",
                 )
             )
+
+    def test_missing_kwargs_on_get_raw_safe_transaction_hash_raises(
+        self,
+    ) -> None:
+        """Dropping any of the 5 required kwargs on the Safe-tx-hash build is a hard error.
+
+        The Safe-tx-hash build is the highest-value call site: dropping
+        e.g. ``value`` here would produce a wrong tx hash and every
+        deposit / delivery would be signed against a stale envelope.
+        Guard against the whole kwarg-drop class, not just one at a
+        time.
+        """
+        for missing in (
+            "to_address",
+            "value",
+            "data",
+            "safe_tx_gas",
+            "operation",
+        ):
+            stub = self._bare_stub()
+            kwargs = {
+                "to_address": "0x" + "bb" * 20,
+                "value": 1,
+                "data": b"",
+                "safe_tx_gas": 0,
+                "operation": 0,
+            }
+            kwargs.pop(missing)
+            with pytest.raises(AssertionError, match="get_raw_safe_transaction_hash"):
+                _drive(
+                    stub.get_contract_api_response(
+                        contract_callable="get_raw_safe_transaction_hash",
+                        contract_address="0x" + "aa" * 20,
+                        contract_id="dummy",
+                        chain_id="gnosis",
+                        **kwargs,
+                    )
+                )
 
     def test_correct_kwargs_pass_through(self) -> None:
         """The validator is additive -- valid calls still record + return."""
