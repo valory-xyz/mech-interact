@@ -587,6 +587,39 @@ class TestPendingRequest:
         assert not hasattr(pending, "signature")
         assert "signature" not in json.loads(pending.to_json())
 
+    def test_metadata_nonce_survives_round_trip(self) -> None:
+        """The caller-supplied metadata UUID must round-trip on ``PendingRequest``.
+
+        Downstream consumers (e.g. market-resolver's ``build_answer_tx``)
+        correlate a response back to the originating request by matching
+        ``MechInteractionResponse.nonce`` against this UUID. If it drops
+        across the deposit retry (which reconstructs the ``PendingRequest``
+        from synced_data), the retry-side response is un-matchable.
+        """
+        uuid_meta = "b0d591e2-b340-4fc0-b663-65301ca2c673"
+        raw = self._raw(metadata_nonce=uuid_meta)
+        pending = PendingRequest.from_dict(raw)
+        assert pending is not None
+        assert pending.metadata_nonce == uuid_meta
+        assert (
+            PendingRequest.from_dict(json.loads(pending.to_json())).metadata_nonce
+            == uuid_meta
+        )
+
+    def test_missing_metadata_nonce_defaults_to_empty(self) -> None:
+        """Older payloads (pre-metadata-nonce) still deserialise cleanly.
+
+        Backwards-compat: a payload written by an older revision that
+        omits ``metadata_nonce`` re-enters as empty string rather than
+        raising, since the deposit-retry path may pick up an in-flight
+        request from before this field existed.
+        """
+        raw = self._raw()
+        raw.pop("metadata_nonce", None)
+        pending = PendingRequest.from_dict(raw)
+        assert pending is not None
+        assert pending.metadata_nonce == ""
+
 
 class TestPaymentTypeHashesMatchEnum:
     """Drift guard (review C7).
@@ -742,9 +775,38 @@ class _StubBehaviour:
         self.contract_api_calls: List[Dict[str, Any]] = []
         self.safe_tx_calls: List[Dict[str, Any]] = []
 
+    # Required kwargs per canonical contract callable, on top of the framework-
+    # supplied set (performative, contract_address, contract_id, chain_id).
+    # Every callable exercised by ``OffchainRequestExecutor`` is listed here;
+    # if a call site drops one of these, the stub raises instead of silently
+    # returning the queued response -- which is how bennyjo's ``sender=``
+    # vs ``sender_address=`` and missing-``amount`` regressions passed CI
+    # before this stub was tightened.
+    _CANONICAL_REQUIRED_KWARGS = {
+        "get_nonce": {"sender_address"},
+        "get_chain_id": set(),
+        "get_payment_type": set(),
+        "get_max_delivery_rate": set(),
+        "get_balance_tracker_for_mech_type": {"mech_type"},
+        "get_token_address": set(),
+        "build_deposit_for_data": {"account", "amount"},
+        "build_approval_tx": {"spender", "amount"},
+        "get_tx_data": {"multi_send_txs"},
+    }
+
     def get_contract_api_response(self, **kwargs: Any) -> Any:
         if False:
             yield  # make this a generator
+        callable_name = kwargs.get("contract_callable")
+        expected = self._CANONICAL_REQUIRED_KWARGS.get(callable_name)
+        if expected is not None:
+            missing = expected - set(kwargs.keys())
+            if missing:
+                raise AssertionError(
+                    f"Canonical contract callable {callable_name!r} missing "
+                    f"required kwargs {sorted(missing)}; call site passed "
+                    f"{sorted(kwargs.keys())}."
+                )
         self.contract_api_calls.append(kwargs)
         return self._contract_api_responses.pop(0)
 
@@ -1653,3 +1715,98 @@ class TestValidate402Destination:
         )
 
         assert result.last_failure_reason == OFFCHAIN_BAD_RESPONSE
+
+
+class TestSerialisePendingResponseNonce:
+    """Wire semantics: ``MechInteractionResponse.nonce`` carries the metadata UUID.
+
+    Downstream consumers (e.g. market-resolver's ``build_answer_tx``)
+    correlate a response back to its request by matching this field
+    against the caller-supplied metadata UUID. The legacy on-chain path
+    (``request.py:660``) already does that. The offchain path must match,
+    otherwise multi-request consumers silently drop every response.
+    """
+
+    def test_metadata_nonce_is_wire_value(self) -> None:
+        """The placeholder's ``nonce`` must be the metadata UUID verbatim."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        request_id_bytes = bytes.fromhex("aa" * 32)
+        metadata_nonce = "b0d591e2-b340-4fc0-b663-65301ca2c673"
+        raw = executor._serialise_pending_response(request_id_bytes, metadata_nonce)
+        responses = json.loads(raw)
+        assert len(responses) == 1
+        assert responses[0]["nonce"] == metadata_nonce
+
+
+class TestStubValidatesCanonicalKwargs:
+    """Regression guard for the test stub itself.
+
+    The pre-fix stub swallowed every kwarg and popped the queued response
+    regardless of shape, which let two contract-signature mismatches
+    (``sender=`` vs ``sender_address=`` on ``get_nonce`` and missing
+    ``amount`` on native ``build_deposit_for_data``) land silently. These
+    tests fail if a future refactor loosens the stub again.
+    """
+
+    def _bare_stub(self) -> "_StubBehaviour":
+        return _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[_state_resp({"data": 0})],
+            http_responses=[],
+        )
+
+    def test_missing_sender_address_on_get_nonce_raises(self) -> None:
+        """Dropping ``sender_address`` on ``get_nonce`` is a hard error."""
+        stub = self._bare_stub()
+        with pytest.raises(AssertionError, match="get_nonce"):
+            _drive(
+                stub.get_contract_api_response(
+                    contract_callable="get_nonce",
+                    contract_address="0x" + "aa" * 20,
+                    contract_id="dummy",
+                    chain_id="gnosis",
+                )
+            )
+
+    def test_correct_kwargs_pass_through(self) -> None:
+        """The validator is additive -- valid calls still record + return."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[_state_resp({"data": 42})],
+            http_responses=[],
+        )
+        response = _drive(
+            stub.get_contract_api_response(
+                contract_callable="get_nonce",
+                contract_address="0x" + "aa" * 20,
+                contract_id="dummy",
+                chain_id="gnosis",
+                sender_address="0x" + "bb" * 20,
+            )
+        )
+        assert response.state.body["data"] == 42
+        assert stub.contract_api_calls[-1]["sender_address"] == "0x" + "bb" * 20
+
+    def test_native_build_deposit_requires_account_and_amount(self) -> None:
+        """Native ``build_deposit_for_data`` needs both ``account`` and ``amount``.
+
+        The pre-fix call site passed only ``account``; without ``amount``
+        the canonical contract layer raises before the calldata is
+        encoded, so the deposit tx never builds.
+        """
+        stub = self._bare_stub()
+        with pytest.raises(AssertionError, match="build_deposit_for_data"):
+            _drive(
+                stub.get_contract_api_response(
+                    contract_callable="build_deposit_for_data",
+                    contract_address="0x" + "aa" * 20,
+                    contract_id="dummy",
+                    chain_id="gnosis",
+                    account="0x" + "bb" * 20,
+                )
+            )

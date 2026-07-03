@@ -496,6 +496,15 @@ class PendingRequest:
     delivery_rate: int
     ipfs_hash: str
     ipfs_data: str
+    # Metadata UUID assigned by the caller (e.g. market-resolver's
+    # evaluate_answers). Downstream consumers correlate a response back to
+    # the request by matching MechInteractionResponse.nonce against this
+    # UUID -- same semantics as the legacy on-chain path
+    # (request.py:660: MechInteractionResponse(nonce=metadata.nonce, ...)).
+    # The on-chain `nonce` field above is the mapNonces value used for
+    # request_id derivation and replay protection; it is not what
+    # downstream consumers match on.
+    metadata_nonce: str = ""
 
     def __post_init__(self) -> None:
         """Reject malformed values up front; raise rather than silently drift."""
@@ -549,6 +558,7 @@ class PendingRequest:
                 delivery_rate=int(raw["delivery_rate"]),
                 ipfs_hash=str(raw["ipfs_hash"]),
                 ipfs_data=str(raw["ipfs_data"]),
+                metadata_nonce=str(raw.get("metadata_nonce", "")),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -762,6 +772,7 @@ class OffchainRequestExecutor:
                 delivery_rate=delivery_rate,
                 ipfs_hash=ipfs_hash,
                 ipfs_data=ipfs_data,
+                metadata_nonce=request_meta.nonce,
             )
 
             if attempt.outcome is OffchainAttemptOutcome.DONE:
@@ -769,7 +780,7 @@ class OffchainRequestExecutor:
                     offchain_result=Event.OFFCHAIN_DONE.value,
                     mech_requests_json=self._serialise_mech_requests([request_meta]),
                     mech_responses_json=self._serialise_pending_response(
-                        request_id_bytes, on_chain_nonce
+                        request_id_bytes, request_meta.nonce
                     ),
                     pending_request_json=pending.to_json(),
                 )
@@ -894,7 +905,7 @@ class OffchainRequestExecutor:
                     self._synced.mech_requests
                 ),
                 mech_responses_json=self._serialise_pending_response(
-                    request_id_bytes, pending.nonce
+                    request_id_bytes, pending.metadata_nonce
                 ),
                 pending_request_json=pending.to_json(),
             )
@@ -914,6 +925,7 @@ class OffchainRequestExecutor:
         delivery_rate: int,
         ipfs_hash: str,
         ipfs_data: str,
+        metadata_nonce: str,
     ) -> PendingRequest:
         """Assemble the ``PendingRequest`` recorded on consensus payloads.
 
@@ -932,6 +944,7 @@ class OffchainRequestExecutor:
             delivery_rate=delivery_rate,
             ipfs_hash=ipfs_hash,
             ipfs_data=ipfs_data,
+            metadata_nonce=metadata_nonce,
         )
 
     def _post_signed_request(
@@ -1103,7 +1116,7 @@ class OffchainRequestExecutor:
             contract_address=self._config.mech_marketplace_address,
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_nonce",
-            sender=self._safe_address(),
+            sender_address=self._safe_address(),
             chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
@@ -1500,6 +1513,7 @@ class OffchainRequestExecutor:
             contract_id=str(BalanceTrackerFixedPriceNative.contract_id),
             contract_callable="build_deposit_for_data",
             account=self._safe_address(),
+            amount=deposit_amount,
             chain_id=self._b.params.mech_chain_id,
         )
         if call_data_response.performative != ContractApiMessage.Performative.STATE:
@@ -1716,14 +1730,25 @@ class OffchainRequestExecutor:
             ensure_ascii=True,
         )
 
-    def _serialise_pending_response(self, request_id_bytes: bytes, nonce: int) -> str:
-        """Initial ``MechInteractionResponse`` placeholder for the polling round."""
+    def _serialise_pending_response(
+        self, request_id_bytes: bytes, metadata_nonce: str
+    ) -> str:
+        """Initial ``MechInteractionResponse`` placeholder for the polling round.
+
+        ``nonce`` carries the caller-supplied metadata UUID so downstream
+        consumers (e.g. market-resolver's ``build_answer_tx``) can correlate
+        a response back to the originating request the same way as the
+        legacy on-chain path in ``request.py`` (which sets
+        ``MechInteractionResponse.nonce = metadata.nonce``). The on-chain
+        ``mapNonces`` value used for request_id derivation is a separate
+        concern kept on ``PendingRequest.nonce`` and is not exposed here.
+        """
         placeholder = MechInteractionResponse(
             data=request_id_bytes.hex(),
             requestId=int.from_bytes(request_id_bytes, "big"),
             requestIds=[int.from_bytes(request_id_bytes, "big")],
             numRequests=1,
-            nonce=str(nonce),
+            nonce=metadata_nonce,
             result=None,
             error="Unknown",
         )

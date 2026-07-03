@@ -129,7 +129,7 @@ class OffchainResponsePoller:
                 requestId=int(pending.request_id, 16),
                 requestIds=[int(pending.request_id, 16)],
                 numRequests=1,
-                nonce=str(pending.nonce),
+                nonce=pending.metadata_nonce,
                 result=None,
                 error="Unknown",
             )
