@@ -14,8 +14,8 @@ fingerprint:
   behaviours/base.py: bafybeiggfcw7zt6glthh47kszk7ymadzgkr27qixswfmsqiezxr5hmekb4
   behaviours/mech_info.py: bafybeidajqcqn6mo2rparhopcunubvymrnyuuwxzx4xyviydcrwbjfrfou
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
-  behaviours/offchain_request.py: bafybeicklzjybxbkqm4ofxrtrl7giosxxkqqisatitkcx7xel3lz6txpgm
-  behaviours/offchain_response.py: bafybeih5ur6lqkch4s2o5zhwtcgh3rtunslwwsnztt2ywkbhmqq6hsyub4
+  behaviours/offchain_request.py: bafybeicyo4m2gdgxwrdbpodxe6dsvlmhskgbghvdo5es53ch67tpt2nzkq
+  behaviours/offchain_response.py: bafybeighjvjhczgngdgm7wawt2do3lxd6ugwynl7q7e7cob63er6ifq4yu
   behaviours/purchase_subcription.py: bafybeieet7du56scd2cltnuy7xlvvrapvk7ugmnv426k2xfnmim4wj5bfy
   behaviours/request.py: bafybeig3tyl6pcdmlm7odp7oqrgijygwyflcmkqrbalnukz6zzmxtb2j4y
   behaviours/response.py: bafybeift7qcgnehlphp4muqdo5harabo3jpw5ufb7egsf6bqnj4slhv2gq
@@ -43,7 +43,7 @@ fingerprint:
   tests/behaviours/conftest.py: bafybeiemvv76bfkkzg5v7co6ayz4kfmhnbzgptxhjwrvb74hgum2oixtxm
   tests/behaviours/test_base.py: bafybeih5gzn23htrkovh4mrlycygbpjdc4smq27hgfptrlg7ekndybavjy
   tests/behaviours/test_mech_version.py: bafybeidmjgq2cwqafq36j7irm4nf53ca6imkyvtbtetscltqwiu6ebb444
-  tests/behaviours/test_offchain_request_helpers.py: bafybeie5z5fii3ofrxgtac5mbise26eltcxcscfp56oxza7kmdw6336pe4
+  tests/behaviours/test_offchain_request_helpers.py: bafybeicly57msijktjhfcrywpihnli52w3cfy6mqsxumwjzzxi7ymwlzue
   tests/behaviours/test_offchain_response_poller.py: bafybeicmjxf264dky5sw6gg5xzf45av3zjruojb5ki7fhs3dxvxrtw2r6a
   tests/behaviours/test_purchase_subscription.py: bafybeih2nd26wx6dpvycl2xlewmgqirjtwwtu6ge3gu4dhpby2aoogml5u
   tests/behaviours/test_request.py: bafybeifng4uhlb3j6fg3wriwt2rvhqh3smwvfo5ugzqjdyt36uua6t3k7y
@@ -77,8 +77,8 @@ contracts:
 - valory/ierc1155:0.1.0:bafybeifzl3xd3va2otvkda5netav3xbcj7pyxzyhsx2cpfgk4eq5abq3ky
 - valory/nvm_balance_tracker_token:0.1.0:bafybeibh7dcomhz4ytowykbw2opwi3g7ypfc65bxxccdcvz3q7awmtqmle
 - valory/nvm_balance_tracker_native:0.1.0:bafybeieyvmkuwbj3i32yp66hwbx2avsyubufipbwbvufqyv6apoalmfgwy
-- valory/balance_tracker:0.1.0:bafybeie7xvhpyztpixha7kjx6z6deyvvsk5er4xpdkpgqc65q552xpvi6e
-- valory/balance_tracker_fixed_price_native:0.1.0:bafybeibzobebmwsi3sd4a5ubrrbmhm6dqjh4fmxpqmzcycklk5vet3xqce
+- valory/balance_tracker:0.1.0:bafybeiayyxl643qfpw57vopytxgyd6flxxmwassswuxen7myekqaxdxxvi
+- valory/balance_tracker_fixed_price_native:0.1.0:bafybeihyaxqkyw2ulroqlhpfcgkrwtrwkhshn35fdq2ystraezwyco3k4u
 - valory/mech_marketplace:0.1.0:bafybeigrcnjaycggulxyx2tsjub4ssjij66d7nfzsavo6gd54hm7beliiu
 - valory/escrow_payment_condition:0.1.0:bafybeifghaewxrhssktvscpxpvydq3xvjd5rxx37oz54lhzsg2kelmwkai
 - valory/did_registry:0.1.0:bafybeianxf7gjparfype4xesfdep362odimhgriviweluinnexwuglm2ku
