@@ -940,7 +940,7 @@ class TestFreshCycle:
             ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
             contract_api_responses=[
                 *self._native_reads(),
-                # _validate_402_destination → marketplace.get_balance_tracker
+                # _validate_402_destination → marketplace.get_balance_tracker_for_mech_type
                 _state_resp({"data": canonical_tracker}),
                 # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
                 _state_resp({"data": b"\x01\x02\x03"}),
@@ -971,6 +971,18 @@ class TestFreshCycle:
         decoded = skill_input_hex_to_payload(result.tx_hash)
         assert decoded["safe_tx_hash"] == "fe" * 32
         assert decoded["to_address"].lower() == canonical_tracker.lower()
+        # The Safe envelope's ether_value must equal the deposit amount
+        # sized by ``_compute_deposit_amount``: for this fixture,
+        # deposit_target_calls (10) * maxDeliveryRate (1e16) = 1e17,
+        # which exceeds the 500-wei shortfall and is under the 1e18 cap.
+        # A regression that hard-coded ``value=0`` -- the same silent
+        # zero-value bug the upstream native BalanceTracker now guards
+        # against with ``amount <= 0`` in ``build_deposit_for_data`` --
+        # would leave the calldata intact but the on-chain deposit
+        # would credit zero, so the retry keeps 402ing. Pin the exact
+        # value here so the value=deposit_amount plumbing is verified
+        # end-to-end.
+        assert decoded["ether_value"] == 10 * 10**16
         assert result.pending_request_json is not None
         # tx_submitter MUST be the sentinel so consumer multiplexers
         # can route the settled deposit back into MechRequestRound. Pin
@@ -1546,7 +1558,7 @@ class TestValidate402Destination:
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 *per_attempt_reads,  # attempt #1
-                # validation → marketplace.get_balance_tracker
+                # validation → marketplace.get_balance_tracker_for_mech_type
                 _state_resp({"data": self._CANONICAL_TRACKER}),
                 *per_attempt_reads,  # attempt #2
                 # validation on the second mech (also attacker payTo)
@@ -1741,6 +1753,131 @@ class TestSerialisePendingResponseNonce:
         responses = json.loads(raw)
         assert len(responses) == 1
         assert responses[0]["nonce"] == metadata_nonce
+
+
+class TestReadContractState:
+    """Shared GET_STATE adapter: performative + missing-key + logging.
+
+    Locks in the invariants that were previously duplicated (with subtle
+    drift, per bennyjo's structural review) across 11 call sites. If a
+    future refactor loosens one branch here, every migrated caller
+    inherits the regression -- so these tests carry the load for all of
+    them.
+    """
+
+    def _stub(self, response: Any, warnings: List[str]) -> "_StubBehaviour":
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[response],
+            http_responses=[],
+        )
+        stub.context.logger.warning = lambda *a, **k: warnings.append(
+            a[0] if a else ""
+        )
+        return stub
+
+    def test_returns_body_value_on_state(self) -> None:
+        """Happy path: STATE performative + result_key present → returns value."""
+        warnings: List[str] = []
+        stub = self._stub(_state_resp({"data": 42}), warnings)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._read_contract_state(
+                contract_address="0x" + "aa" * 20,
+                contract_id="dummy",
+                contract_callable="get_nonce",
+                error_label="dummy",
+                sender_address="0x" + "bb" * 20,
+            )
+        )
+        assert result == 42
+        assert warnings == []
+
+    def test_custom_result_key(self) -> None:
+        """``result_key`` other than ``data`` (e.g. ``tx_hash``) is honoured."""
+        warnings: List[str] = []
+        stub = self._stub(_state_resp({"tx_hash": "0x" + "cc" * 32}), warnings)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._read_contract_state(
+                contract_address="0x" + "aa" * 20,
+                contract_id="dummy",
+                contract_callable="get_raw_safe_transaction_hash",
+                error_label="dummy",
+                result_key="tx_hash",
+                to_address="0x" + "bb" * 20,
+                value=0,
+                data=b"",
+                safe_tx_gas=0,
+                operation=0,
+            )
+        )
+        assert result == "0x" + "cc" * 32
+        assert warnings == []
+
+    def test_non_state_performative_returns_none_with_warning(self) -> None:
+        """Regression 3520760216: silent-failure branches now log."""
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        error_resp = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        warnings: List[str] = []
+        stub = self._stub(error_resp, warnings)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._read_contract_state(
+                contract_address="0x" + "aa" * 20,
+                contract_id="dummy",
+                contract_callable="get_nonce",
+                error_label="MechMarketplace.mapNonces",
+                sender_address="0x" + "bb" * 20,
+            )
+        )
+        assert result is None
+        assert any("MechMarketplace.mapNonces" in w for w in warnings)
+        assert any("read failed" in w for w in warnings)
+
+    def test_missing_result_key_returns_none_with_warning(self) -> None:
+        """Key drift (renamed/dropped) surfaces as a warning, not silence.
+
+        Before the extraction, only some sites checked the ``.get(key) is
+        None`` branch and only two of those logged; the rest returned
+        ``None`` with zero diagnostic trail. Now every caller inherits
+        the same shape.
+        """
+        warnings: List[str] = []
+        stub = self._stub(_state_resp({"other_key": 1}), warnings)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._read_contract_state(
+                contract_address="0x" + "aa" * 20,
+                contract_id="dummy",
+                contract_callable="get_nonce",
+                error_label="MechMarketplace.mapNonces",
+                sender_address="0x" + "bb" * 20,
+            )
+        )
+        assert result is None
+        assert any("missing 'data'" in w for w in warnings)
+        assert any("MechMarketplace.mapNonces" in w for w in warnings)
+
+    def test_chain_id_injected_from_params(self) -> None:
+        """The helper injects ``chain_id`` from behaviour params so callers don't."""
+        warnings: List[str] = []
+        stub = self._stub(_state_resp({"data": 1}), warnings)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        _drive(
+            executor._read_contract_state(
+                contract_address="0x" + "aa" * 20,
+                contract_id="dummy",
+                contract_callable="get_chain_id",
+                error_label="dummy",
+            )
+        )
+        recorded = stub.contract_api_calls[-1]
+        assert "chain_id" in recorded
 
 
 class TestStubValidatesCanonicalKwargs:

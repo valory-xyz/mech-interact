@@ -1103,6 +1103,45 @@ class OffchainRequestExecutor:
 
     # ---------- on-chain reads ---------------------------------------------
 
+    def _read_contract_state(
+        self,
+        contract_address: str,
+        contract_id: str,
+        contract_callable: str,
+        error_label: str,
+        result_key: str = "data",
+        **kwargs: Any,
+    ) -> Generator[None, None, Optional[Any]]:
+        """Shared GET_STATE adapter for the 11 near-identical read blocks.
+
+        Handles the performative check and the ``body[result_key]`` lookup
+        with a consistent warning pattern so a degraded RPC or a
+        contract-wrapper key rename fails loudly at one place instead of
+        silently at each call site (review 3520760220). Callers keep
+        ownership of coercion and shape validation against ``result``.
+        """
+        response = yield from self._b.get_contract_api_response(
+            performative=ContractApiMessage.Performative.GET_STATE,
+            contract_address=contract_address,
+            contract_id=contract_id,
+            contract_callable=contract_callable,
+            chain_id=self._b.params.mech_chain_id,
+            **kwargs,
+        )
+        if response.performative != ContractApiMessage.Performative.STATE:
+            self._logger.warning(
+                f"{error_label} read failed: performative={response.performative}"
+            )
+            return None
+        body = response.state.body or {}
+        if result_key not in body:
+            self._logger.warning(
+                f"{error_label} response missing {result_key!r} key; "
+                f"body keys={sorted(body.keys())}"
+            )
+            return None
+        return body[result_key]
+
     def _read_on_chain_nonce(self) -> Generator[None, None, Optional[int]]:
         """Read ``MechMarketplace.mapNonces(safe)`` for the current Safe.
 
@@ -1111,25 +1150,21 @@ class OffchainRequestExecutor:
         settlement, so the value pinned here is the one the request_id
         derivation must match.
         """
-        response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        raw = yield from self._read_contract_state(
             contract_address=self._config.mech_marketplace_address,
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_nonce",
+            error_label="MechMarketplace.mapNonces",
             sender_address=self._safe_address(),
-            chain_id=self._b.params.mech_chain_id,
         )
-        if response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"mapNonces read failed: performative={response.performative}"
-            )
-            return None
-        nonce = response.state.body.get("data")
-        if nonce is None:
+        if raw is None:
             return None
         try:
-            return int(nonce)
-        except (TypeError, ValueError):
+            return int(raw)
+        except (TypeError, ValueError) as exc:
+            self._logger.warning(
+                f"MechMarketplace.mapNonces returned a non-numeric value: {exc}"
+            )
             return None
 
     def _resolve_chain_id_int(self) -> Generator[None, None, Optional[int]]:
@@ -1141,21 +1176,16 @@ class OffchainRequestExecutor:
         contract instead of trusting service config keeps the derivation
         self-consistent across forks and replay scenarios.
         """
-        response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        raw = yield from self._read_contract_state(
             contract_address=self._config.mech_marketplace_address,
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_chain_id",
-            chain_id=self._b.params.mech_chain_id,
+            error_label="MechMarketplace.chainId",
         )
-        if response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"MechMarketplace.chainId read failed: "
-                f"performative={response.performative}"
-            )
+        if raw is None:
             return None
         try:
-            return int(response.state.body.get("data"))
+            return int(raw)
         except (TypeError, ValueError) as exc:
             self._logger.warning(
                 f"MechMarketplace.chainId returned a non-numeric value: {exc}"
@@ -1166,20 +1196,15 @@ class OffchainRequestExecutor:
         self, mech_address: str
     ) -> Generator[None, None, Optional[bytes]]:
         """Read the mech's ``paymentType`` (32-byte selector) for the request_id."""
-        response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        raw = yield from self._read_contract_state(
             contract_address=mech_address,
             contract_id=str(MechMMContract.contract_id),
             contract_callable="get_payment_type",
-            chain_id=self._b.params.mech_chain_id,
+            error_label=f"Mech {mech_address} paymentType",
+            result_key="payment_type",
         )
-        if response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"Mech {mech_address} paymentType read failed: "
-                f"performative={response.performative}"
-            )
+        if raw is None:
             return None
-        raw = response.state.body.get("payment_type")
         if isinstance(raw, (bytes, bytearray)):
             payment_type = bytes(raw)
         elif isinstance(raw, str):
@@ -1202,20 +1227,15 @@ class OffchainRequestExecutor:
         self, mech_address: str
     ) -> Generator[None, None, Optional[int]]:
         """Read the mech's ``maxDeliveryRate``; mech-client charges at this rate."""
-        response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        raw = yield from self._read_contract_state(
             contract_address=mech_address,
             contract_id=str(MechMMContract.contract_id),
             contract_callable="get_max_delivery_rate",
-            chain_id=self._b.params.mech_chain_id,
+            error_label=f"Mech {mech_address} maxDeliveryRate",
+            result_key="max_delivery_rate",
         )
-        if response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"Mech {mech_address} maxDeliveryRate read failed: "
-                f"performative={response.performative}"
-            )
+        if raw is None:
             return None
-        raw = response.state.body.get("max_delivery_rate")
         try:
             rate = int(raw)
         except (TypeError, ValueError) as exc:
@@ -1248,21 +1268,15 @@ class OffchainRequestExecutor:
         a zero-address registration (meaning the marketplace has no
         tracker for this paymentType).
         """
-        response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        raw = yield from self._read_contract_state(
             contract_address=self._config.mech_marketplace_address,
             contract_id=str(MechMarketplace.contract_id),
             contract_callable="get_balance_tracker_for_mech_type",
+            error_label="MechMarketplace.mapPaymentTypeBalanceTrackers",
             mech_type=payment_type,
-            chain_id=self._b.params.mech_chain_id,
         )
-        if response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                "MechMarketplace.mapPaymentTypeBalanceTrackers read failed: "
-                f"performative={response.performative}"
-            )
+        if raw is None:
             return None
-        raw = response.state.body.get("data")
         if not isinstance(raw, str) or not raw:
             self._logger.warning(
                 "MechMarketplace.mapPaymentTypeBalanceTrackers returned an "
@@ -1288,23 +1302,18 @@ class OffchainRequestExecutor:
         caller can compare it against ``challenge.asset``. ``None`` on
         any read failure or non-address response.
         """
-        response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        raw = yield from self._read_contract_state(
             contract_address=tracker_address,
             contract_id=str(BalanceTracker.contract_id),
             contract_callable="get_token_address",
-            chain_id=self._b.params.mech_chain_id,
+            error_label=f"BalanceTracker.token() at {tracker_address}",
+            result_key="token_address",
         )
-        if response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"BalanceTracker.token() read failed at "
-                f"{tracker_address}: performative={response.performative}"
-            )
+        if raw is None:
             return None
-        raw = response.state.body.get("token_address")
         if not isinstance(raw, str) or not raw:
             self._logger.warning(
-                "BalanceTracker.token() returned an " f"unexpected value {raw!r}"
+                f"BalanceTracker.token() returned an unexpected value {raw!r}"
             )
             return None
         return raw.lower()
@@ -1507,23 +1516,19 @@ class OffchainRequestExecutor:
         # Encode the depositFor selector — value is supplied by the Safe
         # tx envelope, not by the calldata, mirroring mech-client's native
         # ``deposit_native`` path.
-        call_data_response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        data = yield from self._read_contract_state(
             contract_address=challenge.pay_to,
             contract_id=str(BalanceTrackerFixedPriceNative.contract_id),
             contract_callable="build_deposit_for_data",
+            error_label=(
+                f"BalanceTrackerFixedPriceNative.build_deposit_for_data "
+                f"at {challenge.pay_to}"
+            ),
             account=self._safe_address(),
             amount=deposit_amount,
-            chain_id=self._b.params.mech_chain_id,
         )
-        if call_data_response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"BalanceTrackerFixedPriceNative.build_deposit_for_data "
-                f"read failed at {challenge.pay_to}: "
-                f"performative={call_data_response.performative}"
-            )
+        if data is None:
             return None
-        data = call_data_response.state.body.get("data")
         if not isinstance(data, (bytes, bytearray)):
             self._logger.warning(
                 "BalanceTrackerFixedPriceNative.build_deposit_for_data "
@@ -1544,40 +1549,29 @@ class OffchainRequestExecutor:
         deposit_amount: int,
     ) -> Generator[None, None, Optional[str]]:
         """Two-call multisend: ``ERC20.approve(deposit_amount)`` + ``BalanceTracker.depositFor(deposit_amount)``."""
-        approve_data_response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        approve_data = yield from self._read_contract_state(
             contract_address=challenge.asset,
             contract_id=str(ERC20TokenContract.contract_id),
             contract_callable="build_approval_tx",
+            error_label=f"ERC20.build_approval_tx at {challenge.asset}",
             spender=challenge.pay_to,
             amount=deposit_amount,
-            chain_id=self._b.params.mech_chain_id,
         )
-        if approve_data_response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"ERC20.build_approval_tx read failed at {challenge.asset}: "
-                f"performative={approve_data_response.performative}"
-            )
+        if approve_data is None:
             return None
-        approve_data = approve_data_response.state.body.get("data")
 
-        deposit_data_response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        deposit_data = yield from self._read_contract_state(
             contract_address=challenge.pay_to,
             contract_id=str(BalanceTracker.contract_id),
             contract_callable="build_deposit_for_data",
+            error_label=(
+                f"BalanceTracker.build_deposit_for_data at {challenge.pay_to}"
+            ),
             account=self._safe_address(),
             amount=deposit_amount,
-            chain_id=self._b.params.mech_chain_id,
         )
-        if deposit_data_response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"BalanceTracker.build_deposit_for_data "
-                f"read failed at {challenge.pay_to}: "
-                f"performative={deposit_data_response.performative}"
-            )
+        if deposit_data is None:
             return None
-        deposit_data = deposit_data_response.state.body.get("data")
 
         if not isinstance(approve_data, (bytes, bytearray)):
             self._logger.warning(
@@ -1592,11 +1586,11 @@ class OffchainRequestExecutor:
             )
             return None
 
-        multisend_response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        data = yield from self._read_contract_state(
             contract_address=self._b.params.multisend_address,
             contract_id=str(MultiSendContract.contract_id),
             contract_callable="get_tx_data",
+            error_label="MultiSend.get_tx_data",
             multi_send_txs=[
                 {
                     "operation": MultiSendOperation.CALL,
@@ -1611,15 +1605,9 @@ class OffchainRequestExecutor:
                     "data": HexBytes(bytes(deposit_data)),
                 },
             ],
-            chain_id=self._b.params.mech_chain_id,
         )
-        if multisend_response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"MultiSend.get_tx_data read failed: "
-                f"performative={multisend_response.performative}"
-            )
+        if data is None:
             return None
-        data = multisend_response.state.body.get("data")
         if not isinstance(data, str):
             self._logger.warning(
                 f"MultiSend.get_tx_data returned a non-string payload "
@@ -1658,30 +1646,21 @@ class OffchainRequestExecutor:
         # to execute the Safe tx, so we pack here exactly like base.py's
         # ``tx_hex`` property. Returning just the raw hash would leave
         # settlement with an unexecutable payload.
-        response = yield from self._b.get_contract_api_response(
-            performative=ContractApiMessage.Performative.GET_STATE,
+        safe_tx_hash = yield from self._read_contract_state(
             contract_address=self._safe_address(),
             contract_id=str(GnosisSafeContract.contract_id),
             contract_callable="get_raw_safe_transaction_hash",
+            error_label="GnosisSafe.get_raw_safe_transaction_hash",
+            result_key="tx_hash",
             to_address=to_address,
             value=value,
             data=data,
             safe_tx_gas=SAFE_GAS,
             operation=operation,
-            chain_id=self._b.params.mech_chain_id,
         )
-        if response.performative != ContractApiMessage.Performative.STATE:
-            self._logger.warning(
-                f"GnosisSafe.get_raw_safe_transaction_hash failed: "
-                f"performative={response.performative}"
-            )
+        if safe_tx_hash is None:
             return None
-        safe_tx_hash = response.state.body.get("tx_hash")
-        if (
-            safe_tx_hash is None
-            or not isinstance(safe_tx_hash, str)
-            or len(safe_tx_hash) != TX_HASH_LENGTH
-        ):
+        if not isinstance(safe_tx_hash, str) or len(safe_tx_hash) != TX_HASH_LENGTH:
             self._logger.warning(
                 f"GnosisSafe.get_raw_safe_transaction_hash returned an "
                 f"invalid hash: {safe_tx_hash!r}"

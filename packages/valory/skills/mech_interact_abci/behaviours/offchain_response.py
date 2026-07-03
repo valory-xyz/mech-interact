@@ -282,6 +282,18 @@ class OffchainResponsePoller:
                     )
                 inner_result = envelope.get("result")
             else:
+                # Same drift bucket: the `response` field is either absent
+                # (envelope is None) or a scalar/list rather than the dict
+                # the mech server contracts to send. Without a warning
+                # the fall-through sets `result` to that value (or None)
+                # and downstream sees `error="Unknown"` -- indistinguishable
+                # from a real tool failure, so the truncated-payload shape
+                # would keep looking like a bad prediction. Flag it.
+                self._logger.warning(
+                    "Offchain 'ok' status but 'response' envelope "
+                    "missing/malformed: %r. Treating as a failed poll.",
+                    envelope,
+                )
                 inner_result = envelope
             return _PollSnapshot(
                 status="ok",
