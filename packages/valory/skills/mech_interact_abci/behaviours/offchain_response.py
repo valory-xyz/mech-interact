@@ -268,9 +268,21 @@ class OffchainResponsePoller:
             # failure the envelope JSON-parses but has no `p_yes`, hitting
             # KeyError in `PredictionResponse.__init__`.
             envelope = payload.get("response")
-            inner_result = (
-                envelope.get("result") if isinstance(envelope, dict) else envelope
-            )
+            if isinstance(envelope, dict):
+                if "result" not in envelope:
+                    # Schema drift: the ok envelope should always carry a
+                    # `result` key. Falling through with None would look
+                    # indistinguishable from a routine tool failure
+                    # (target.error becomes "Unknown"); flag it so the
+                    # drift is visible rather than a fake failed prediction.
+                    self._logger.warning(
+                        "Offchain 'ok' envelope missing 'result' key; "
+                        "keys=%s. Treating as a failed poll.",
+                        sorted(envelope.keys()),
+                    )
+                inner_result = envelope.get("result")
+            else:
+                inner_result = envelope
             return _PollSnapshot(
                 status="ok",
                 result=self._serialise_result(inner_result),

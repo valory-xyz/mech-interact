@@ -53,10 +53,13 @@ class _StubBehaviour:
         pending: Any = None,
         mech_responses: Any = None,
     ) -> None:
+        self.warnings: List[str] = []
         self.context = SimpleNamespace(
             logger=SimpleNamespace(
                 info=lambda *a, **k: None,
-                warning=lambda *a, **k: None,
+                warning=lambda msg, *a, **k: self.warnings.append(
+                    msg % a if a else msg
+                ),
                 error=lambda *a, **k: None,
                 debug=lambda *a, **k: None,
             )
@@ -201,6 +204,60 @@ class TestPollUntilTerminal:
         snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
         assert snapshot.status == "ok"
         assert snapshot.result == "Invalid response"
+
+    def test_ok_status_envelope_missing_result_key_warns(self) -> None:
+        """Schema drift: an ``ok`` envelope with no ``result`` key logs a warning.
+
+        Falling through silently would land in ``mech_responses`` as a
+        fake failed prediction (``result=None, error="Unknown"``),
+        indistinguishable from a routine tool failure. Emit a warning
+        so the drift is visible.
+        """
+        body = json.dumps(
+            {
+                "status": "ok",
+                "response": {
+                    "schema_version": "2.0",
+                    "requestId": "42",
+                    "tool": "prediction-online",
+                    "executed_at": "2026-07-02T14:24:27Z",
+                },
+            }
+        ).encode()
+        stub = _StubBehaviour(http_responses=[_http_response(200, body)])
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
+        assert snapshot.status == "ok"
+        assert snapshot.result is None
+        assert any(
+            "missing 'result' key" in msg for msg in stub.warnings
+        ), stub.warnings
+
+    def test_ok_status_serialises_non_string_inner_result_to_json(self) -> None:
+        """Non-string inner ``result`` values are JSON-encoded for the downstream wire shape.
+
+        Pins the fallback branch of ``_serialise_result``: if a future
+        mech-executor variant returns the parsed prediction dict instead
+        of a JSON string, downstream still receives a string.
+        """
+        body = json.dumps(
+            {
+                "status": "ok",
+                "response": {
+                    "schema_version": "2.0",
+                    "requestId": "42",
+                    "result": {"p_yes": 0.6, "p_no": 0.4},
+                    "tool": "prediction-online",
+                    "executed_at": "2026-07-02T14:24:27Z",
+                },
+            }
+        ).encode()
+        stub = _StubBehaviour(http_responses=[_http_response(200, body)])
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
+        assert snapshot.status == "ok"
+        assert isinstance(snapshot.result, str)
+        assert json.loads(snapshot.result) == {"p_yes": 0.6, "p_no": 0.4}
 
     def test_rejected_status_surfaces_reason(self) -> None:
         """A 200 with ``status="rejected"`` carries the reason as ``error``."""
