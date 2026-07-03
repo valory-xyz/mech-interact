@@ -829,8 +829,8 @@ class TestFreshCycle:
     def _native_reads(self) -> List[Any]:
         """Sequence of contract reads a single happy-path attempt consumes."""
         return [
-            _state_resp({"chain_id": 100}),  # _resolve_chain_id_int
-            _state_resp({"nonce": 7}),  # _read_on_chain_nonce
+            _state_resp({"data": 100}),  # _resolve_chain_id_int
+            _state_resp({"data": 7}),  # _read_on_chain_nonce
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
             _state_resp({"max_delivery_rate": 10**16}),
         ]
@@ -879,7 +879,7 @@ class TestFreshCycle:
             contract_api_responses=[
                 *self._native_reads(),
                 # _validate_402_destination → marketplace.get_balance_tracker
-                _state_resp({"balance_tracker": canonical_tracker}),
+                _state_resp({"data": canonical_tracker}),
                 # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
                 _state_resp({"data": b"\x01\x02\x03"}),
                 # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
@@ -949,7 +949,7 @@ class TestFreshCycle:
             ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
             contract_api_responses=[
                 *self._native_reads(),
-                _state_resp({"balance_tracker": canonical_tracker}),
+                _state_resp({"data": canonical_tracker}),
                 _state_resp({"data": b"\x01\x02\x03"}),
                 # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
                 _state_resp({"tx_hash": "0x" + "fe" * 32}),
@@ -1034,8 +1034,8 @@ class TestFreshCycle:
                 _FakeMechInfo(mech_b, "https://mech-bb.example"),
             ],
             contract_api_responses=[
-                _state_resp({"chain_id": 100}),
-                _state_resp({"nonce": 7}),
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
                 *per_attempt_reads,  # attempt against mech_a
                 *per_attempt_reads,  # attempt against mech_b
             ],
@@ -1060,8 +1060,8 @@ class TestFreshCycle:
                 _FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example"),
             ],
             contract_api_responses=[
-                _state_resp({"chain_id": 100}),
-                _state_resp({"nonce": 7}),
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
                 *per_attempt_reads,
             ],
             http_responses=[_make_http_response(503)],
@@ -1105,8 +1105,8 @@ class TestFreshCycle:
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo(mech_addr, "https://m")],
             contract_api_responses=[
-                _state_resp({"chain_id": 100}),
-                _state_resp({"nonce": 7}),
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
                 # ``0`` would silently neutralize the dynamic sizing.
                 _state_resp({"max_delivery_rate": 0}),
@@ -1125,8 +1125,8 @@ class TestFreshCycle:
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo(mech_addr, "https://m")],
             contract_api_responses=[
-                _state_resp({"chain_id": 100}),
-                _state_resp({"nonce": 7}),
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
                 _state_resp({"max_delivery_rate": -1}),
             ],
@@ -1288,8 +1288,8 @@ class TestDepositScalesWithDeliveryRate:
 
     def _token_reads_with_rate(self, delivery_rate: int) -> List[Any]:
         return [
-            _state_resp({"chain_id": 100}),
-            _state_resp({"nonce": 7}),
+            _state_resp({"data": 100}),
+            _state_resp({"data": 7}),
             _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
             _state_resp({"max_delivery_rate": delivery_rate}),
         ]
@@ -1301,8 +1301,8 @@ class TestDepositScalesWithDeliveryRate:
             contract_api_responses=[
                 *self._token_reads_with_rate(delivery_rate),
                 # _validate_402_destination → tracker + token
-                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
-                _state_resp({"token": self._CANONICAL_TOKEN}),
+                _state_resp({"data": self._CANONICAL_TRACKER}),
+                _state_resp({"token_address": self._CANONICAL_TOKEN}),
                 # token deposit multisend: approve + depositFor + multisend
                 _state_resp({"data": b"\xaa"}),
                 _state_resp({"data": b"\xbb"}),
@@ -1448,16 +1448,16 @@ class TestValidate402Destination:
 
     def _native_pre_402_reads(self) -> List[Any]:
         return [
-            _state_resp({"chain_id": 100}),
-            _state_resp({"nonce": 7}),
+            _state_resp({"data": 100}),
+            _state_resp({"data": 7}),
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
             _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _token_pre_402_reads(self) -> List[Any]:
         return [
-            _state_resp({"chain_id": 100}),
-            _state_resp({"nonce": 7}),
+            _state_resp({"data": 100}),
+            _state_resp({"data": 7}),
             _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
             _state_resp({"max_delivery_rate": 10**16}),
         ]
@@ -1481,14 +1481,14 @@ class TestValidate402Destination:
                 _FakeMechInfo(mech_b, "https://mech-bb.example"),
             ],
             contract_api_responses=[
-                _state_resp({"chain_id": 100}),
-                _state_resp({"nonce": 7}),
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
                 *per_attempt_reads,  # attempt #1
                 # validation → marketplace.get_balance_tracker
-                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
+                _state_resp({"data": self._CANONICAL_TRACKER}),
                 *per_attempt_reads,  # attempt #2
                 # validation on the second mech (also attacker payTo)
-                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
+                _state_resp({"data": self._CANONICAL_TRACKER}),
             ],
             http_responses=[
                 _make_http_response(402, _make_402_body(pay_to=attacker_address)),
@@ -1522,8 +1522,8 @@ class TestValidate402Destination:
             contract_api_responses=[
                 *self._token_pre_402_reads(),
                 # validation: tracker matches but token does not
-                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
-                _state_resp({"token": self._CANONICAL_TOKEN}),
+                _state_resp({"data": self._CANONICAL_TRACKER}),
+                _state_resp({"token_address": self._CANONICAL_TOKEN}),
             ],
             http_responses=[
                 _make_http_response(
@@ -1558,8 +1558,8 @@ class TestValidate402Destination:
             contract_api_responses=[
                 *self._token_pre_402_reads(),
                 # validation: both tracker and token match
-                _state_resp({"balance_tracker": self._CANONICAL_TRACKER}),
-                _state_resp({"token": self._CANONICAL_TOKEN}),
+                _state_resp({"data": self._CANONICAL_TRACKER}),
+                _state_resp({"token_address": self._CANONICAL_TOKEN}),
                 # token deposit multisend reads: approve, depositFor, multisend
                 _state_resp({"data": b"\xaa"}),
                 _state_resp({"data": b"\xbb"}),
@@ -1635,7 +1635,7 @@ class TestValidate402Destination:
             ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
             contract_api_responses=[
                 *self._native_pre_402_reads(),
-                _state_resp({"balance_tracker": zero}),
+                _state_resp({"data": zero}),
             ],
             http_responses=[
                 _make_http_response(

@@ -63,15 +63,17 @@ from eth_abi import encode as abi_encode  # type: ignore[import-not-found]
 from eth_utils import keccak as eth_keccak  # type: ignore[import-not-found]
 from hexbytes import HexBytes  # type: ignore[import-not-found]
 
-from packages.valory.contracts.balance_tracker_fixed_price_native.contract import (
-    BalanceTrackerFixedPriceNative,
+from packages.valory.contracts.balance_tracker.contract import (
+    BalanceTrackerContract as BalanceTracker,
 )
-from packages.valory.contracts.balance_tracker_fixed_price_token.contract import (
-    BalanceTrackerFixedPriceToken,
+from packages.valory.contracts.balance_tracker_fixed_price_native.contract import (
+    BalanceTrackerFixedPriceNativeContract as BalanceTrackerFixedPriceNative,
 )
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
 from packages.valory.contracts.gnosis_safe.contract import GnosisSafeContract
-from packages.valory.contracts.mech_marketplace.contract import MechMarketplace
+from packages.valory.contracts.mech_marketplace.contract import (
+    MechMarketplaceContract as MechMarketplace,
+)
 from packages.valory.contracts.mech_mm.contract import MechMM as MechMMContract
 from packages.valory.contracts.multisend.contract import (
     MultiSendContract,
@@ -1109,7 +1111,7 @@ class OffchainRequestExecutor:
                 f"mapNonces read failed: performative={response.performative}"
             )
             return None
-        nonce = response.state.body.get("nonce")
+        nonce = response.state.body.get("data")
         if nonce is None:
             return None
         try:
@@ -1140,7 +1142,7 @@ class OffchainRequestExecutor:
             )
             return None
         try:
-            return int(response.state.body.get("chain_id"))
+            return int(response.state.body.get("data"))
         except (TypeError, ValueError) as exc:
             self._logger.warning(
                 f"MechMarketplace.chainId returned a non-numeric value: {exc}"
@@ -1237,8 +1239,8 @@ class OffchainRequestExecutor:
             performative=ContractApiMessage.Performative.GET_STATE,
             contract_address=self._config.mech_marketplace_address,
             contract_id=str(MechMarketplace.contract_id),
-            contract_callable="get_balance_tracker",
-            payment_type=payment_type,
+            contract_callable="get_balance_tracker_for_mech_type",
+            mech_type=payment_type,
             chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
@@ -1247,7 +1249,7 @@ class OffchainRequestExecutor:
                 f"performative={response.performative}"
             )
             return None
-        raw = response.state.body.get("balance_tracker")
+        raw = response.state.body.get("data")
         if not isinstance(raw, str) or not raw:
             self._logger.warning(
                 "MechMarketplace.mapPaymentTypeBalanceTrackers returned an "
@@ -1267,7 +1269,7 @@ class OffchainRequestExecutor:
     def _resolve_tracker_token(
         self, tracker_address: str
     ) -> Generator[None, None, Optional[str]]:
-        """Read ``BalanceTrackerFixedPriceToken.token()``.
+        """Read ``BalanceTracker.token()``.
 
         Returns the lowercase ERC20 address the tracker accepts, so the
         caller can compare it against ``challenge.asset``. ``None`` on
@@ -1276,20 +1278,20 @@ class OffchainRequestExecutor:
         response = yield from self._b.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_STATE,
             contract_address=tracker_address,
-            contract_id=str(BalanceTrackerFixedPriceToken.contract_id),
-            contract_callable="get_token",
+            contract_id=str(BalanceTracker.contract_id),
+            contract_callable="get_token_address",
             chain_id=self._b.params.mech_chain_id,
         )
         if response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
-                f"BalanceTrackerFixedPriceToken.token() read failed at "
+                f"BalanceTracker.token() read failed at "
                 f"{tracker_address}: performative={response.performative}"
             )
             return None
-        raw = response.state.body.get("token")
+        raw = response.state.body.get("token_address")
         if not isinstance(raw, str) or not raw:
             self._logger.warning(
-                "BalanceTrackerFixedPriceToken.token() returned an "
+                "BalanceTracker.token() returned an "
                 f"unexpected value {raw!r}"
             )
             return None
@@ -1549,7 +1551,7 @@ class OffchainRequestExecutor:
         deposit_data_response = yield from self._b.get_contract_api_response(
             performative=ContractApiMessage.Performative.GET_STATE,
             contract_address=challenge.pay_to,
-            contract_id=str(BalanceTrackerFixedPriceToken.contract_id),
+            contract_id=str(BalanceTracker.contract_id),
             contract_callable="build_deposit_for_data",
             account=self._safe_address(),
             amount=deposit_amount,
@@ -1557,7 +1559,7 @@ class OffchainRequestExecutor:
         )
         if deposit_data_response.performative != ContractApiMessage.Performative.STATE:
             self._logger.warning(
-                f"BalanceTrackerFixedPriceToken.build_deposit_for_data "
+                f"BalanceTracker.build_deposit_for_data "
                 f"read failed at {challenge.pay_to}: "
                 f"performative={deposit_data_response.performative}"
             )
@@ -1572,7 +1574,7 @@ class OffchainRequestExecutor:
             return None
         if not isinstance(deposit_data, (bytes, bytearray)):
             self._logger.warning(
-                "BalanceTrackerFixedPriceToken.build_deposit_for_data returned "
+                "BalanceTracker.build_deposit_for_data returned "
                 f"a non-bytes payload {type(deposit_data).__name__}"
             )
             return None
