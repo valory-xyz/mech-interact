@@ -21,13 +21,16 @@
 
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Generator, Optional
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from packages.valory.skills.mech_interact_abci.behaviours.response import (
     MechResponseBehaviour,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
+    Event,
     MechInteractionResponse,
 )
 
@@ -330,3 +333,155 @@ class TestCheckMatch:
 
         result = behaviour._check_match(pending, request, is_first_pending=True)
         assert result is True
+
+
+class _EmptyResponsesPoller:
+    """Stub at the off-chain HTTP boundary: yields once, returns no responses.
+
+    Drift risk: this mirrors ``OffchainResponsePoller``'s interface by hand
+    (single-behaviour constructor, generator ``run()`` returning the response
+    list). If the real poller's constructor or ``run()`` signature changes,
+    update this stub in lockstep -- nothing links them mechanically.
+    """
+
+    def __init__(self, _behaviour: MechResponseBehaviour) -> None:
+        """Accept the behaviour like the real poller."""
+
+    def run(self) -> Generator[None, None, list]:
+        """Return an empty response list after a single yield."""
+        yield
+        return []
+
+
+class TestOffchainPollBudgetGuard:
+    """Tests for _check_round_timeout_fits_poll_budget."""
+
+    @staticmethod
+    def _make_behaviour_with_timeout(
+        poll_timeout_seconds: float, effective_timeout: Optional[float]
+    ) -> MechResponseBehaviour:
+        """Build a behaviour whose composed app reports the given round timeout."""
+        behaviour = _make_response_behaviour()
+        behaviour._context.params.mech_marketplace_config = SimpleNamespace(
+            offchain_poll_timeout_seconds=poll_timeout_seconds
+        )
+        event_to_timeout = (
+            {}
+            if effective_timeout is None
+            else {Event.ROUND_TIMEOUT: effective_timeout}
+        )
+        behaviour._context.state.round_sequence.abci_app.event_to_timeout = (
+            event_to_timeout
+        )
+        return behaviour
+
+    def test_raises_when_effective_timeout_below_poll_budget(self) -> None:
+        """A round timeout below poll budget + overhead refuses to run.
+
+        This is the flag-ON guard replacing the removed dedicated timeout
+        event: the consumer owns the round timeout, so a value that cannot
+        fit the poll loop means every off-chain request would time out
+        mid-poll. Such a deployment must fail fast instead of degrading.
+        """
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=30.0
+        )
+        # poll budget = 300 + 30 overhead
+        with pytest.raises(ValueError, match=r"330\.0"):
+            behaviour._check_round_timeout_fits_poll_budget()
+
+    @pytest.mark.parametrize(
+        "effective_timeout",
+        (330.0, 1800.0, None),
+        ids=("equal_to_budget", "above_budget", "missing_entry"),
+    )
+    def test_accepts_when_effective_timeout_fits_or_unknown(
+        self, effective_timeout: Optional[float]
+    ) -> None:
+        """A round timeout at/above the budget, or missing entirely, is accepted."""
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=effective_timeout
+        )
+        behaviour._check_round_timeout_fits_poll_budget()
+
+    def test_offchain_response_cycle_raises_before_polling_on_misconfig(self) -> None:
+        """The response cycle propagates the error before the poller is built."""
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=30.0
+        )
+        with patch(
+            "packages.valory.skills.mech_interact_abci.behaviours.response."
+            "OffchainResponsePoller"
+        ) as poller_cls:
+            gen = behaviour._run_offchain_response_cycle()
+            with pytest.raises(ValueError, match=r"330\.0"):
+                next(gen)
+        poller_cls.assert_not_called()
+
+    def test_offchain_response_cycle_completes_when_timeout_fits(self) -> None:
+        """A fitting round timeout lets the cycle run through to the payload."""
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=1800.0
+        )
+        captured = {}
+
+        def capture_finish(payload: Any) -> Generator:
+            captured["payload"] = payload
+            yield
+
+        behaviour.finish_behaviour = capture_finish  # type: ignore[method-assign]
+        with patch(
+            "packages.valory.skills.mech_interact_abci.behaviours.response."
+            "OffchainResponsePoller",
+            _EmptyResponsesPoller,
+        ):
+            gen = behaviour._run_offchain_response_cycle()
+            try:
+                while True:
+                    next(gen)
+            except StopIteration:
+                pass
+
+        assert captured["payload"].information == "[]"
+
+    def test_flag_off_async_act_never_invokes_guard(self) -> None:
+        """With ``use_offchain`` disabled, ``async_act`` must not touch the guard.
+
+        Flag-off tripwire: the on-chain path has to stay byte-identical to
+        main, so neither the poll-budget guard nor the off-chain cycle may
+        run when the flag is off. Without this test, a refactor hoisting the
+        guard out of the off-chain branches would go unnoticed.
+        """
+        behaviour = _make_response_behaviour()
+        behaviour._context.params.mech_marketplace_config = SimpleNamespace(
+            use_offchain=False
+        )
+
+        mock_synced = MagicMock()
+        # Falsy final_tx_hash keeps the on-chain branch off the
+        # response-processing network path.
+        mock_synced.final_tx_hash = ""
+
+        captured = {}
+
+        def capture_finish(payload: Any) -> Generator:
+            captured["payload"] = payload
+            yield
+
+        guard = MagicMock()
+        behaviour._check_round_timeout_fits_poll_budget = guard  # type: ignore[method-assign]
+        behaviour.finish_behaviour = capture_finish  # type: ignore[method-assign]
+        with patch.object(
+            type(behaviour),
+            "synchronized_data",
+            new_callable=lambda: property(lambda self: mock_synced),
+        ):
+            gen = behaviour.async_act()
+            try:
+                while True:
+                    next(gen)
+            except StopIteration:
+                pass
+
+        guard.assert_not_called()
+        assert captured["payload"].information == "[]"

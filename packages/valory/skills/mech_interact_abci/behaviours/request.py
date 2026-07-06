@@ -1017,6 +1017,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         keeping the on-chain ``DONE``/``SKIP_REQUEST``/``BUY_SUBSCRIPTION``
         branches in this method bit-for-bit unchanged.
         """
+        # Checked before the executor runs so a misconfigured deployment
+        # fails before any payment is made, not after.
+        self._check_round_timeout_fits_poll_budget()
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             executor = OffchainRequestExecutor(self)
             result: OffchainCycleResult = yield from executor.run()

@@ -623,6 +623,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         integration only needs the FSM edge change, not a payload schema
         update.
         """
+        self._check_round_timeout_fits_poll_budget()
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             poller = OffchainResponsePoller(self)
             responses = yield from poller.run()
