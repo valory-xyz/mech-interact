@@ -274,7 +274,8 @@ class MechMarketplaceConfig:
         """Validate configuration after initialization."""
         # Coerce so the float annotations hold even when the values arrive
         # as ints from yaml config; readers can then trust the types without
-        # re-wrapping in float().
+        # re-wrapping in float(). Done via ``object.__setattr__`` because
+        # the dataclass is frozen.
         object.__setattr__(
             self,
             "offchain_poll_interval_seconds",

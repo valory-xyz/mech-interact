@@ -20,11 +20,14 @@
 """Tests for the request behaviour module."""
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
+    OffchainCycleResult,
+)
 from packages.valory.skills.mech_interact_abci.behaviours.request import (
     DECIMALS_6,
     DECIMALS_18,
@@ -562,3 +565,93 @@ class TestOffchainRequestCycleGuard:
             with pytest.raises(ValueError, match=r"330\.0"):
                 next(gen)
         executor_cls.assert_not_called()
+
+    def test_offchain_request_cycle_lifts_executor_result_onto_payload(self) -> None:
+        """A fitting round timeout runs the cycle through to the payload.
+
+        Happy-path mirror of the response-side completion test: drives
+        ``_run_offchain_request_cycle`` end to end with the executor stubbed
+        at its boundary, so ``_payload_from_offchain_result`` runs for real
+        and a swapped or dropped kwarg in the payload lift fails here.
+        """
+        behaviour = _make_request_behaviour()
+        behaviour._context.agent_address = "0xagent"
+        behaviour._context.params.mech_chain_id = "gnosis"
+        behaviour._context.params.mech_marketplace_config = SimpleNamespace(
+            offchain_poll_timeout_seconds=300.0
+        )
+        behaviour._context.state.round_sequence.abci_app.event_to_timeout = {
+            Event.ROUND_TIMEOUT: 1800.0
+        }
+
+        mock_synced = MagicMock()
+        mock_synced.safe_contract_address = "0xsafe"
+
+        # Every optional field carries a distinct sentinel so field
+        # pass-through is asserted one-to-one; no single real cycle
+        # populates all of them at once.
+        canned_result = OffchainCycleResult(
+            offchain_result=Event.OFFCHAIN_DONE.value,
+            mech_requests_json='["req"]',
+            mech_responses_json='["resp"]',
+            pending_request_json='{"nonce": "n1"}',
+            last_failure_reason="last-reason",
+            tx_submitter="submitter-round",
+            tx_hash="0xdeadbeef",
+        )
+
+        class _CannedResultExecutor:
+            """Stub at the executor boundary: yields once, returns the result.
+
+            Drift risk: mirrors ``OffchainRequestExecutor``'s interface by
+            hand (single-behaviour constructor, generator ``run()`` returning
+            the cycle result). If the real executor's constructor or ``run()``
+            signature changes, update this stub in lockstep.
+            """
+
+            def __init__(self, _behaviour: Any) -> None:
+                """Accept the behaviour like the real executor."""
+
+            def run(self) -> Generator[None, None, OffchainCycleResult]:
+                """Return the canned cycle result after a single yield."""
+                yield
+                return canned_result
+
+        captured = {}
+
+        def capture_finish(payload: Any) -> Generator:
+            captured["payload"] = payload
+            yield
+
+        behaviour.finish_behaviour = capture_finish  # type: ignore[method-assign]
+        with (
+            patch.object(
+                type(behaviour),
+                "synchronized_data",
+                new_callable=lambda: property(lambda self: mock_synced),
+            ),
+            patch(
+                "packages.valory.skills.mech_interact_abci.behaviours.request."
+                "OffchainRequestExecutor",
+                _CannedResultExecutor,
+            ),
+        ):
+            gen = behaviour._run_offchain_request_cycle()
+            try:
+                while True:
+                    next(gen)
+            except StopIteration:
+                pass
+
+        payload = captured["payload"]
+        assert payload.sender == "0xagent"
+        assert payload.tx_submitter == "submitter-round"
+        assert payload.tx_hash == "0xdeadbeef"
+        assert payload.price is None
+        assert payload.chain_id == "gnosis"
+        assert payload.safe_contract_address == "0xsafe"
+        assert payload.mech_requests == '["req"]'
+        assert payload.mech_responses == '["resp"]'
+        assert payload.offchain_result == Event.OFFCHAIN_DONE.value
+        assert payload.offchain_pending_request == '{"nonce": "n1"}'
+        assert payload.offchain_last_failure_reason == "last-reason"

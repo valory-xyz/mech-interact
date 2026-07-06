@@ -336,7 +336,13 @@ class TestCheckMatch:
 
 
 class _EmptyResponsesPoller:
-    """Stub at the off-chain HTTP boundary: yields once, returns no responses."""
+    """Stub at the off-chain HTTP boundary: yields once, returns no responses.
+
+    Drift risk: this mirrors ``OffchainResponsePoller``'s interface by hand
+    (single-behaviour constructor, generator ``run()`` returning the response
+    list). If the real poller's constructor or ``run()`` signature changes,
+    update this stub in lockstep -- nothing links them mechanically.
+    """
 
     def __init__(self, _behaviour: MechResponseBehaviour) -> None:
         """Accept the behaviour like the real poller."""
@@ -436,4 +442,46 @@ class TestOffchainPollBudgetGuard:
             except StopIteration:
                 pass
 
+        assert captured["payload"].information == "[]"
+
+    def test_flag_off_async_act_never_invokes_guard(self) -> None:
+        """With ``use_offchain`` disabled, ``async_act`` must not touch the guard.
+
+        Flag-off tripwire: the on-chain path has to stay byte-identical to
+        main, so neither the poll-budget guard nor the off-chain cycle may
+        run when the flag is off. Without this test, a refactor hoisting the
+        guard out of the off-chain branches would go unnoticed.
+        """
+        behaviour = _make_response_behaviour()
+        behaviour._context.params.mech_marketplace_config = SimpleNamespace(
+            use_offchain=False
+        )
+
+        mock_synced = MagicMock()
+        # Falsy final_tx_hash keeps the on-chain branch off the
+        # response-processing network path.
+        mock_synced.final_tx_hash = ""
+
+        captured = {}
+
+        def capture_finish(payload: Any) -> Generator:
+            captured["payload"] = payload
+            yield
+
+        guard = MagicMock()
+        behaviour._check_round_timeout_fits_poll_budget = guard  # type: ignore[method-assign]
+        behaviour.finish_behaviour = capture_finish  # type: ignore[method-assign]
+        with patch.object(
+            type(behaviour),
+            "synchronized_data",
+            new_callable=lambda: property(lambda self: mock_synced),
+        ):
+            gen = behaviour.async_act()
+            try:
+                while True:
+                    next(gen)
+            except StopIteration:
+                pass
+
+        guard.assert_not_called()
         assert captured["payload"].information == "[]"

@@ -203,18 +203,30 @@ class TestMechMarketplaceConfig:
                 **{field: value},  # type: ignore[arg-type]
             )
 
-    def test_offchain_poll_values_coerced_to_float(self) -> None:
-        """Int poll values (as yaml delivers them) are coerced to real floats.
+    @pytest.mark.parametrize(
+        "interval_in, timeout_in",
+        [
+            (5, 300),
+            ("5", "300"),
+        ],
+        ids=("int_yaml_values", "quoted_string_yaml_values"),
+    )
+    def test_offchain_poll_values_coerced_to_float(
+        self, interval_in: Any, timeout_in: Any
+    ) -> None:
+        """Int and quoted-string poll values (as yaml delivers them) become floats.
 
         Readers like ``OffchainResponsePoller`` consume these fields without
         re-wrapping in ``float()``, so the coercion in ``__post_init__`` is
-        what upholds the annotated types.
+        what upholds the annotated types. The string case pins the fix for
+        the boot crash where a quoted override made ``"300" <= 0`` raise
+        ``TypeError`` before coercion existed.
         """
         config = MechMarketplaceConfig(
             mech_marketplace_address="0xmarket",
             response_timeout=30,
-            offchain_poll_interval_seconds=5,  # type: ignore[arg-type]
-            offchain_poll_timeout_seconds=300,  # type: ignore[arg-type]
+            offchain_poll_interval_seconds=interval_in,
+            offchain_poll_timeout_seconds=timeout_in,
         )
         assert type(config.offchain_poll_interval_seconds) is float
         assert config.offchain_poll_interval_seconds == 5.0

@@ -321,13 +321,14 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
     def _check_round_timeout_fits_poll_budget(self) -> None:
         """Fail fast when the round timeout cannot fit the off-chain poll budget.
 
-        The off-chain poll runs inside ``MechResponseRound``, bounded by the
-        composed app's ``ROUND_TIMEOUT`` for this skill's rounds. That value
-        is owned by the consumer repo's round-timeout override, so it cannot
-        be validated from params alone; read the effective value off the live
-        app instead. A timeout below ``offchain_poll_timeout_seconds`` plus
-        overhead means every off-chain request times out mid-poll, so such a
-        deployment is never legitimate and refusing to run beats degrading.
+        The off-chain HTTP cycles run inside this skill's rounds
+        (``MechRequestRound`` and ``MechResponseRound``), bounded by the
+        composed app's ``ROUND_TIMEOUT``. That value is owned by the consumer
+        repo's round-timeout override, so it cannot be validated from params
+        alone; read the effective value off the live app instead. A timeout
+        below ``offchain_poll_timeout_seconds`` plus overhead means every
+        off-chain cycle times out mid-poll, so such a deployment is never
+        legitimate and refusing to run beats degrading.
 
         :raises ValueError: when ``use_offchain`` is enabled and the effective
             round timeout is below the poll budget.
@@ -344,8 +345,9 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
                 f"use_offchain is enabled but the effective mech-interact round timeout "
                 f"({effective}s) is below the off-chain poll budget "
                 f"(offchain_poll_timeout_seconds + {OFFCHAIN_POLL_TIMEOUT_OVERHEAD_SECONDS}s "
-                f"overhead = {poll_budget}s). The response round would time out mid-poll "
-                f"on every request. Raise the consumer's round-timeout override to at "
+                f"overhead = {poll_budget}s). The round running the off-chain cycle "
+                f"would time out mid-poll on every request. "
+                f"Raise the consumer's round-timeout override to at "
                 f"least {poll_budget}s or lower offchain_poll_timeout_seconds."
             )
 
