@@ -38,6 +38,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import V1_HEX_
 from packages.valory.skills.mech_interact_abci.models import MechResponseSpecs, Ox
 from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
+    Event,
     MECH_RESPONSE,
     MechInteractionResponse,
     MechRequest,
@@ -53,6 +54,9 @@ BYTES32_HEX_FORMAT_SPEC = "064x"
 HEX_BASE = 16
 ADDRESS_ZERO = "0x0000000000000000000000000000000000000000"
 DELIVERY_MECH_INDEX = 1
+# Slack on top of the off-chain poll budget for payload assembly and
+# consensus, so the round timeout never fires mid-poll.
+OFFCHAIN_POLL_TIMEOUT_OVERHEAD_SECONDS = 30.0
 
 
 class MechResponseBehaviour(MechInteractBaseBehaviour):
@@ -611,6 +615,36 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
                     f"There was an error in the mech's response: {self.current_mech_response.error}"
                 )
 
+    def _warn_if_round_timeout_below_poll_budget(self) -> None:
+        """Warn loudly when the response-round timeout cannot fit the poll budget.
+
+        The off-chain poll runs inside ``MechResponseRound``, bounded by the
+        composed app's ``ROUND_TIMEOUT`` for this skill's rounds. That value
+        is owned by the consumer repo (e.g. trader's
+        ``mech_interact_round_timeout_seconds`` rebind), so it cannot be
+        validated from params alone; read the effective value off the live
+        app instead. If it is below ``offchain_poll_timeout_seconds`` plus
+        overhead, the round times out mid-poll and every off-chain request
+        slower than the round timeout lands in
+        ``FinishedMechResponseTimeoutRound``.
+        """
+        poll_budget = (
+            float(self.mech_marketplace_config.offchain_poll_timeout_seconds)
+            + OFFCHAIN_POLL_TIMEOUT_OVERHEAD_SECONDS
+        )
+        effective = self.context.state.round_sequence.abci_app.event_to_timeout.get(
+            Event.ROUND_TIMEOUT
+        )
+        if effective is not None and effective < poll_budget:
+            self.context.logger.error(
+                f"use_offchain is enabled but the effective mech-interact round timeout "
+                f"({effective}s) is below the off-chain poll budget "
+                f"(offchain_poll_timeout_seconds + {OFFCHAIN_POLL_TIMEOUT_OVERHEAD_SECONDS}s "
+                f"overhead = {poll_budget}s). The response round will time out mid-poll. "
+                f"Raise the consumer's round-timeout override to at least {poll_budget}s "
+                f"or lower offchain_poll_timeout_seconds."
+            )
+
     def _run_offchain_response_cycle(self) -> Generator:
         """Drive one off-chain response poll cycle and finish the behaviour.
 
@@ -623,6 +657,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         integration only needs the FSM edge change, not a payload schema
         update.
         """
+        self._warn_if_round_timeout_below_poll_budget()
         with self.context.benchmark_tool.measure(self.behaviour_id).local():
             poller = OffchainResponsePoller(self)
             responses = yield from poller.run()

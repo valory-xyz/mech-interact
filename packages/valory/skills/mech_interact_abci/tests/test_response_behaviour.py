@@ -28,6 +28,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.response import (
     MechResponseBehaviour,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
+    Event,
     MechInteractionResponse,
 )
 
@@ -330,3 +331,66 @@ class TestCheckMatch:
 
         result = behaviour._check_match(pending, request, is_first_pending=True)
         assert result is True
+
+
+class TestOffchainPollBudgetGuard:
+    """Tests for _warn_if_round_timeout_below_poll_budget."""
+
+    @staticmethod
+    def _make_behaviour_with_timeout(
+        poll_timeout_seconds: float, effective_timeout: Any
+    ) -> MechResponseBehaviour:
+        """Build a behaviour whose composed app reports the given round timeout."""
+        behaviour = _make_response_behaviour()
+        behaviour._context.params.mech_marketplace_config = SimpleNamespace(
+            offchain_poll_timeout_seconds=poll_timeout_seconds
+        )
+        event_to_timeout = (
+            {}
+            if effective_timeout is None
+            else {Event.ROUND_TIMEOUT: effective_timeout}
+        )
+        behaviour._context.state.round_sequence.abci_app.event_to_timeout = (
+            event_to_timeout
+        )
+        return behaviour
+
+    def test_logs_error_when_effective_timeout_below_poll_budget(self) -> None:
+        """A round timeout below poll budget + overhead is reported loudly.
+
+        This is the flag-ON guard replacing the removed dedicated timeout
+        event: the consumer owns the round timeout, so a value that cannot
+        fit the poll loop must be surfaced instead of silently truncating
+        every off-chain response wait.
+        """
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=30.0
+        )
+        behaviour._warn_if_round_timeout_below_poll_budget()
+        behaviour.context.logger.error.assert_called_once()
+        log_msg = behaviour.context.logger.error.call_args[0][0]
+        assert "330.0" in log_msg  # poll budget = 300 + 30 overhead
+
+    def test_no_error_when_effective_timeout_equals_poll_budget(self) -> None:
+        """A round timeout exactly at the poll budget is accepted."""
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=330.0
+        )
+        behaviour._warn_if_round_timeout_below_poll_budget()
+        behaviour.context.logger.error.assert_not_called()
+
+    def test_no_error_when_effective_timeout_above_poll_budget(self) -> None:
+        """A round timeout above the poll budget is accepted."""
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=1800.0
+        )
+        behaviour._warn_if_round_timeout_below_poll_budget()
+        behaviour.context.logger.error.assert_not_called()
+
+    def test_no_error_when_effective_timeout_unknown(self) -> None:
+        """A missing ROUND_TIMEOUT entry does not raise or log."""
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=None
+        )
+        behaviour._warn_if_round_timeout_below_poll_budget()
+        behaviour.context.logger.error.assert_not_called()
