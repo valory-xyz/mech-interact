@@ -21,8 +21,10 @@
 
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Generator, Optional
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from packages.valory.skills.mech_interact_abci.behaviours.response import (
     MechResponseBehaviour,
@@ -333,12 +335,24 @@ class TestCheckMatch:
         assert result is True
 
 
+class _EmptyResponsesPoller:
+    """Stub at the off-chain HTTP boundary: yields once, returns no responses."""
+
+    def __init__(self, _behaviour: MechResponseBehaviour) -> None:
+        """Accept the behaviour like the real poller."""
+
+    def run(self) -> Generator[None, None, list]:
+        """Return an empty response list after a single yield."""
+        yield
+        return []
+
+
 class TestOffchainPollBudgetGuard:
-    """Tests for _warn_if_round_timeout_below_poll_budget."""
+    """Tests for _check_round_timeout_fits_poll_budget."""
 
     @staticmethod
     def _make_behaviour_with_timeout(
-        poll_timeout_seconds: float, effective_timeout: Any
+        poll_timeout_seconds: float, effective_timeout: Optional[float]
     ) -> MechResponseBehaviour:
         """Build a behaviour whose composed app reports the given round timeout."""
         behaviour = _make_response_behaviour()
@@ -355,42 +369,71 @@ class TestOffchainPollBudgetGuard:
         )
         return behaviour
 
-    def test_logs_error_when_effective_timeout_below_poll_budget(self) -> None:
-        """A round timeout below poll budget + overhead is reported loudly.
+    def test_raises_when_effective_timeout_below_poll_budget(self) -> None:
+        """A round timeout below poll budget + overhead refuses to run.
 
         This is the flag-ON guard replacing the removed dedicated timeout
         event: the consumer owns the round timeout, so a value that cannot
-        fit the poll loop must be surfaced instead of silently truncating
-        every off-chain response wait.
+        fit the poll loop means every off-chain request would time out
+        mid-poll. Such a deployment must fail fast instead of degrading.
         """
         behaviour = self._make_behaviour_with_timeout(
             poll_timeout_seconds=300.0, effective_timeout=30.0
         )
-        behaviour._warn_if_round_timeout_below_poll_budget()
-        behaviour.context.logger.error.assert_called_once()
-        log_msg = behaviour.context.logger.error.call_args[0][0]
-        assert "330.0" in log_msg  # poll budget = 300 + 30 overhead
+        # poll budget = 300 + 30 overhead
+        with pytest.raises(ValueError, match=r"330\.0"):
+            behaviour._check_round_timeout_fits_poll_budget()
 
-    def test_no_error_when_effective_timeout_equals_poll_budget(self) -> None:
-        """A round timeout exactly at the poll budget is accepted."""
+    @pytest.mark.parametrize(
+        "effective_timeout",
+        (330.0, 1800.0, None),
+        ids=("equal_to_budget", "above_budget", "missing_entry"),
+    )
+    def test_accepts_when_effective_timeout_fits_or_unknown(
+        self, effective_timeout: Optional[float]
+    ) -> None:
+        """A round timeout at/above the budget, or missing entirely, is accepted."""
         behaviour = self._make_behaviour_with_timeout(
-            poll_timeout_seconds=300.0, effective_timeout=330.0
+            poll_timeout_seconds=300.0, effective_timeout=effective_timeout
         )
-        behaviour._warn_if_round_timeout_below_poll_budget()
-        behaviour.context.logger.error.assert_not_called()
+        behaviour._check_round_timeout_fits_poll_budget()
 
-    def test_no_error_when_effective_timeout_above_poll_budget(self) -> None:
-        """A round timeout above the poll budget is accepted."""
+    def test_offchain_response_cycle_raises_before_polling_on_misconfig(self) -> None:
+        """The response cycle propagates the error before the poller is built."""
+        behaviour = self._make_behaviour_with_timeout(
+            poll_timeout_seconds=300.0, effective_timeout=30.0
+        )
+        with patch(
+            "packages.valory.skills.mech_interact_abci.behaviours.response."
+            "OffchainResponsePoller"
+        ) as poller_cls:
+            gen = behaviour._run_offchain_response_cycle()
+            with pytest.raises(ValueError, match=r"330\.0"):
+                next(gen)
+        poller_cls.assert_not_called()
+
+    def test_offchain_response_cycle_completes_when_timeout_fits(self) -> None:
+        """A fitting round timeout lets the cycle run through to the payload."""
         behaviour = self._make_behaviour_with_timeout(
             poll_timeout_seconds=300.0, effective_timeout=1800.0
         )
-        behaviour._warn_if_round_timeout_below_poll_budget()
-        behaviour.context.logger.error.assert_not_called()
+        captured = {}
 
-    def test_no_error_when_effective_timeout_unknown(self) -> None:
-        """A missing ROUND_TIMEOUT entry does not raise or log."""
-        behaviour = self._make_behaviour_with_timeout(
-            poll_timeout_seconds=300.0, effective_timeout=None
-        )
-        behaviour._warn_if_round_timeout_below_poll_budget()
-        behaviour.context.logger.error.assert_not_called()
+        def capture_finish(payload: Any) -> Generator:
+            captured["payload"] = payload
+            yield
+
+        behaviour.finish_behaviour = capture_finish  # type: ignore[method-assign]
+        with patch(
+            "packages.valory.skills.mech_interact_abci.behaviours.response."
+            "OffchainResponsePoller",
+            _EmptyResponsesPoller,
+        ):
+            gen = behaviour._run_offchain_response_cycle()
+            try:
+                while True:
+                    next(gen)
+            except StopIteration:
+                pass
+
+        assert captured["payload"].information == "[]"

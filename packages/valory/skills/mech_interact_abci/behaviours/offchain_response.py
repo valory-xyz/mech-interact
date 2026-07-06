@@ -165,8 +165,8 @@ class OffchainResponsePoller:
           consecutive failures, then fast-fails. Any non-5xx response
           (including a 200 reporting "processing") resets the counter.
         """
-        interval = float(self._config.offchain_poll_interval_seconds)
-        budget = float(self._config.offchain_poll_timeout_seconds)
+        interval = self._config.offchain_poll_interval_seconds
+        budget = self._config.offchain_poll_timeout_seconds
         deadline = time.monotonic() + budget
         url = mech_url.rstrip("/") + "/fetch_offchain_info"
         body = self._build_body(request_id_int_str)

@@ -19,6 +19,7 @@
 
 """Tests for the request behaviour module."""
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +31,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import (
     MechRequestBehaviour,
     PaymentType,
 )
+from packages.valory.skills.mech_interact_abci.states.base import Event
 
 
 def _make_request_behaviour(**overrides: Any) -> MechRequestBehaviour:
@@ -532,3 +534,31 @@ class TestGetPriorityMechAddress:
 
         assert result == "0xgood"
         assert mock_shared.last_failure_reason is None
+
+
+class TestOffchainRequestCycleGuard:
+    """Tests for the poll-budget guard at the off-chain request cycle entry."""
+
+    def test_offchain_request_cycle_raises_before_executor_on_misconfig(self) -> None:
+        """A round timeout below the poll budget fails before any payment.
+
+        The guard runs at the top of ``_run_offchain_request_cycle`` so a
+        misconfigured deployment raises before ``OffchainRequestExecutor``
+        is even constructed, i.e. before the request is posted or paid for.
+        """
+        behaviour = _make_request_behaviour()
+        behaviour._context.params.mech_marketplace_config = SimpleNamespace(
+            offchain_poll_timeout_seconds=300.0
+        )
+        behaviour._context.state.round_sequence.abci_app.event_to_timeout = {
+            Event.ROUND_TIMEOUT: 30.0
+        }
+        with patch(
+            "packages.valory.skills.mech_interact_abci.behaviours.request."
+            "OffchainRequestExecutor"
+        ) as executor_cls:
+            gen = behaviour._run_offchain_request_cycle()
+            # poll budget = 300 + 30 overhead
+            with pytest.raises(ValueError, match=r"330\.0"):
+                next(gen)
+        executor_cls.assert_not_called()

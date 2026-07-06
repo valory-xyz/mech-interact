@@ -272,6 +272,19 @@ class MechMarketplaceConfig:
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
+        # Coerce so the float annotations hold even when the values arrive
+        # as ints from yaml config; readers can then trust the types without
+        # re-wrapping in float().
+        object.__setattr__(
+            self,
+            "offchain_poll_interval_seconds",
+            float(self.offchain_poll_interval_seconds),
+        )
+        object.__setattr__(
+            self,
+            "offchain_poll_timeout_seconds",
+            float(self.offchain_poll_timeout_seconds),
+        )
         if self.response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
         if (

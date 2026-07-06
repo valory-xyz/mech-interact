@@ -203,6 +203,24 @@ class TestMechMarketplaceConfig:
                 **{field: value},  # type: ignore[arg-type]
             )
 
+    def test_offchain_poll_values_coerced_to_float(self) -> None:
+        """Int poll values (as yaml delivers them) are coerced to real floats.
+
+        Readers like ``OffchainResponsePoller`` consume these fields without
+        re-wrapping in ``float()``, so the coercion in ``__post_init__`` is
+        what upholds the annotated types.
+        """
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            offchain_poll_interval_seconds=5,  # type: ignore[arg-type]
+            offchain_poll_timeout_seconds=300,  # type: ignore[arg-type]
+        )
+        assert type(config.offchain_poll_interval_seconds) is float
+        assert config.offchain_poll_interval_seconds == 5.0
+        assert type(config.offchain_poll_timeout_seconds) is float
+        assert config.offchain_poll_timeout_seconds == 300.0
+
     def test_offchain_deposit_target_calls_default(self) -> None:
         """Default sizes 10 forward calls per deposit.
 

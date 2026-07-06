@@ -49,7 +49,10 @@ from packages.valory.skills.mech_interact_abci.models import (
     MultisendBatch,
     SharedState,
 )
-from packages.valory.skills.mech_interact_abci.states.base import SynchronizedData
+from packages.valory.skills.mech_interact_abci.states.base import (
+    Event,
+    SynchronizedData,
+)
 from packages.valory.skills.transaction_settlement_abci.payload_tools import (
     hash_payload_to_hex,
 )
@@ -62,6 +65,11 @@ WaitableConditionType = Generator[None, None, bool]
 # which is what we want in most cases
 # more info here: https://safe-docs.dev.gnosisdev.com/safe/docs/contracts_tx_execution/
 SAFE_GAS = 0
+
+# Slack on top of the off-chain poll budget for payload assembly and
+# consensus; used to compute the minimum round timeout enforced by
+# ``_check_round_timeout_fits_poll_budget``.
+OFFCHAIN_POLL_TIMEOUT_OVERHEAD_SECONDS = 30.0
 
 
 class MechInteractBaseBehaviour(BaseBehaviour, ABC):
@@ -309,6 +317,37 @@ class MechInteractBaseBehaviour(BaseBehaviour, ABC):
             msg = f"Retrying in {self.params.mech_interaction_sleep_time} seconds."
             self.context.logger.info(msg)
             yield from self.sleep(self.params.mech_interaction_sleep_time)
+
+    def _check_round_timeout_fits_poll_budget(self) -> None:
+        """Fail fast when the round timeout cannot fit the off-chain poll budget.
+
+        The off-chain poll runs inside ``MechResponseRound``, bounded by the
+        composed app's ``ROUND_TIMEOUT`` for this skill's rounds. That value
+        is owned by the consumer repo's round-timeout override, so it cannot
+        be validated from params alone; read the effective value off the live
+        app instead. A timeout below ``offchain_poll_timeout_seconds`` plus
+        overhead means every off-chain request times out mid-poll, so such a
+        deployment is never legitimate and refusing to run beats degrading.
+
+        :raises ValueError: when ``use_offchain`` is enabled and the effective
+            round timeout is below the poll budget.
+        """
+        poll_budget = (
+            self.mech_marketplace_config.offchain_poll_timeout_seconds
+            + OFFCHAIN_POLL_TIMEOUT_OVERHEAD_SECONDS
+        )
+        effective = self.shared_state.round_sequence.abci_app.event_to_timeout.get(
+            Event.ROUND_TIMEOUT
+        )
+        if effective is not None and effective < poll_budget:
+            raise ValueError(
+                f"use_offchain is enabled but the effective mech-interact round timeout "
+                f"({effective}s) is below the off-chain poll budget "
+                f"(offchain_poll_timeout_seconds + {OFFCHAIN_POLL_TIMEOUT_OVERHEAD_SECONDS}s "
+                f"overhead = {poll_budget}s). The response round would time out mid-poll "
+                f"on every request. Raise the consumer's round-timeout override to at "
+                f"least {poll_budget}s or lower offchain_poll_timeout_seconds."
+            )
 
     def finish_behaviour(self, payload: BaseTxPayload) -> Generator:  # pragma: no cover
         """Finish the behaviour."""
