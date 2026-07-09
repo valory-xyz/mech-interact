@@ -53,6 +53,7 @@ import dataclasses
 import enum
 import hashlib
 import json
+import logging
 import re
 import uuid
 from dataclasses import dataclass
@@ -97,6 +98,8 @@ from packages.valory.skills.transaction_settlement_abci.payload_tools import (
     hash_payload_to_hex,
 )
 from packages.valory.skills.transaction_settlement_abci.rounds import TX_HASH_LENGTH
+
+_LOGGER = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------
 # Local CIDv1 (bare-file UnixFS+DAG-PB single block) — ported from
@@ -182,21 +185,36 @@ def build_request_metadata(
     tool: str,
     extra_attributes: Optional[Dict[str, Any]] = None,
     nonce_str: Optional[str] = None,
+    request_context: Optional[Dict[str, Any]] = None,
+    schema_version: str = "2.0",
 ) -> Tuple[str, str, str]:
     """Build the offchain request metadata and its on-chain hash.
 
-    Mirrors ``mech-client``'s ``fetch_ipfs_hash`` shape so the mech server
-    recomputes the same CID on receipt. Returns ``(truncated_hash,
-    v1_file_hash_hex, ipfs_data)`` where ``truncated_hash`` is the ``0x``
-    + 62-hex form the on-chain commitment uses and ``ipfs_data`` is the
-    JSON string carried as the ``ipfs_data`` form field.
+    Mirrors the on-chain ``_send_metadata_to_ipfs`` payload shape
+    (``request.py``): ``{prompt, tool, nonce, schema_version,
+    request_context, **extra_attributes}``. ``schema_version`` and
+    ``request_context`` are emitted unconditionally so the analytics
+    lake sees a single request shape regardless of transport
+    (``request_context`` is JSON ``null`` when the caller did not
+    populate it, matching ``asdict(MechMetadata)``). Returns
+    ``(truncated_hash, v1_file_hash_hex, ipfs_data)`` where
+    ``truncated_hash`` is the ``0x`` + 62-hex form the on-chain
+    commitment uses and ``ipfs_data`` is the JSON string carried as
+    the ``ipfs_data`` form field.
     """
     metadata: Dict[str, Any] = {
         "prompt": prompt,
         "tool": tool,
         "nonce": nonce_str if nonce_str is not None else str(uuid.uuid4()),
+        "schema_version": schema_version,
+        "request_context": request_context,
     }
     if extra_attributes:
+        clobbered = extra_attributes.keys() & metadata.keys()
+        if clobbered:
+            _LOGGER.warning(
+                "extra_attributes override reserved request keys: %s", clobbered
+            )
         metadata.update(extra_attributes)
     ipfs_data = json.dumps(metadata)
     cid_bytes = compute_cidv1_bytes(ipfs_data.encode("utf-8"))
@@ -709,6 +727,8 @@ class OffchainRequestExecutor:
             tool=request_meta.tool,
             extra_attributes=request_meta.extra_attributes,
             nonce_str=request_meta.nonce,
+            request_context=request_meta.request_context,
+            schema_version=request_meta.schema_version,
         )
 
         chain_id_int = yield from self._resolve_chain_id_int()
