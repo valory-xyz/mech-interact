@@ -79,8 +79,11 @@ class FinishedOffchainMechDepositNeededRound(DegenerateRound):
 class FailedOffchainMechRequestRound(DegenerateRound):
     """Offchain failure path: the cycle exhausted its failover budget.
 
-    Triggered by all timeouts, all 503s, an over-cap 402, or a Nevermined
-    402 that cannot be auto-resolved. The reason is in
+    Triggered by all timeouts, all 503s, an over-cap 402, a Nevermined
+    402 that cannot be auto-resolved, or a ``BAD_RESPONSE`` outcome (a
+    malformed 402 body, a non-200/402/503 HTTP status, an unknown
+    ``paymentType``, or a failed ``_validate_402_destination``
+    cross-check). The reason is in
     ``synchronized_data.offchain_last_failure_reason``. The consumer
     surfaces this to its decision-receive flow as a clean failure.
     """

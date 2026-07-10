@@ -450,8 +450,9 @@ class OffchainAttemptOutcome(enum.Enum):
     Counts toward the failover budget. The framework helper used here
     (``get_http_response``) does not expose a per-call timeout argument,
     so this is the framework's own raise/None signal rather than a
-    deadline policed locally — see the ``offchain_http_timeout_seconds``
-    history in the module-level review notes.
+    deadline policed locally. Overall polling budget for the offchain
+    path is capped by ``offchain_poll_timeout_seconds`` (see
+    ``MechParams`` in ``models.py``).
     """
 
     SERVER_BUSY = "server_busy"
@@ -520,8 +521,9 @@ class PendingRequest:
     # Metadata UUID assigned by the caller (e.g. market-resolver's
     # evaluate_answers). Downstream consumers correlate a response back to
     # the request by matching MechInteractionResponse.nonce against this
-    # UUID -- same semantics as the legacy on-chain path
-    # (request.py:660: MechInteractionResponse(nonce=metadata.nonce, ...)).
+    # UUID -- same semantics as the legacy on-chain path (see
+    # ``_send_metadata_to_ipfs`` in ``request.py``, which constructs the
+    # placeholder ``MechInteractionResponse(nonce=metadata.nonce, ...)``).
     # The on-chain `nonce` field above is the mapNonces value used for
     # request_id derivation and replay protection; it is not what
     # downstream consumers match on.
@@ -655,9 +657,6 @@ class OffchainCycleResult:
     # ``MechRequestRound`` to retry the POST.
     tx_submitter: Optional[str] = None
     tx_hash: Optional[str] = None
-
-
-_HEX_RE = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
 class OffchainRequestExecutor:
@@ -944,6 +943,11 @@ class OffchainRequestExecutor:
         )
 
         if attempt.outcome is OffchainAttemptOutcome.DONE:
+            self._logger.info(
+                "Offchain retry after deposit succeeded (mech=%s, request_id=%s)",
+                pending.mech_url,
+                pending.request_id,
+            )
             return OffchainCycleResult(
                 offchain_result=Event.OFFCHAIN_DONE.value,
                 mech_requests_json=self._serialise_mech_requests(
@@ -954,9 +958,31 @@ class OffchainRequestExecutor:
                 ),
                 pending_request_json=pending.to_json(),
             )
+
+        # Non-DONE branch: unconditionally log the outcome + HTTP status so
+        # the failure reason on the FSM path can be traced back to a specific
+        # attempt result, and route each outcome to the right label. Hard-
+        # coding OFFCHAIN_402_INSUFFICIENT (the previous behaviour) sent every
+        # network/server failure through the "top up your cap" diagnostic
+        # instead of surfacing the actual cause.
+        self._logger.warning(
+            "Offchain retry after deposit failed (mech=%s, request_id=%s, "
+            "outcome=%s, status=%s)",
+            pending.mech_url,
+            pending.request_id,
+            attempt.outcome.name if attempt.outcome else "None",
+            attempt.status_code,
+        )
+        if attempt.outcome in (
+            OffchainAttemptOutcome.DEPOSIT_NEEDED,
+            OffchainAttemptOutcome.OVER_CAP,
+        ):
+            failure_reason = OFFCHAIN_402_INSUFFICIENT
+        else:
+            failure_reason = self._failure_label_for(attempt.outcome)
         return OffchainCycleResult(
             offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
-            last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
+            last_failure_reason=failure_reason,
         )
 
     # ---------- attempts (HTTP wire) ----------------------------------------

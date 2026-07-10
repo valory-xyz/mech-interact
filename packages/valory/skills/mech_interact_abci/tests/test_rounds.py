@@ -23,6 +23,8 @@ import json
 from typing import Any, Dict, List, Optional, Sequence, Type, cast
 from unittest.mock import MagicMock
 
+import pytest
+
 from packages.valory.skills.abstract_round_abci.base import AbstractRound, BaseTxPayload
 from packages.valory.skills.abstract_round_abci.test_tools.rounds import (
     BaseRoundTestClass,
@@ -241,12 +243,14 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
         _, event = result
         assert event == Event.DONE
 
-    def test_unknown_offchain_result_keeps_on_chain_done(self) -> None:
-        """An unknown ``offchain_result`` label falls back to on-chain ``DONE``.
+    def test_unknown_offchain_result_raises(self) -> None:
+        """An unknown ``offchain_result`` label raises rather than silently misrouting.
 
-        Protects against a misbehaving consumer that writes an unrecognised
-        label: the round dispatches to the on-chain path rather than to an
-        undefined event.
+        The previous behaviour (fall through to the on-chain ``DONE`` branch)
+        hid a programmer error: any future outcome added to the executor but
+        not to ``_OFFCHAIN_RESULT_TO_EVENT`` would silently route the FSM to
+        the wrong final state. Loud-fail at ``end_block`` catches the drift
+        at consensus time instead of shipping a wrong-transition bug.
         """
         test_round = self._create_round()
         mech_requests = json.dumps([{"prompt": "p", "tool": "t", "nonce": "n"}])
@@ -257,10 +261,8 @@ class TestMechRequestRound(BaseMechInteractRoundTest):
                 offchain_result="something_unexpected",
             ),
         )
-        result = test_round.end_block()
-        assert result is not None
-        _, event = result
-        assert event == Event.DONE
+        with pytest.raises(ValueError, match="unknown offchain_result"):
+            test_round.end_block()
 
     def test_consensus_with_deterministic_pending_request(self) -> None:
         """Multi-agent consensus closes on the off-chain happy path (review C1).
