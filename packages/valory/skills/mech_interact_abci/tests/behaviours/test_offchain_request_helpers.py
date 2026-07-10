@@ -27,6 +27,8 @@ executor's failover decision tree.
 """
 
 import json
+import logging
+from dataclasses import asdict
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -52,8 +54,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
 from packages.valory.skills.mech_interact_abci.behaviours.request import PaymentType
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
+    MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
+    merge_extra_attributes,
 )
 
 
@@ -110,14 +114,15 @@ class TestComputeCidv1Bytes:
 
 
 class TestBuildRequestMetadata:
-    """Shape parity with ``mech-client`` 's ``fetch_ipfs_hash``."""
+    """Shape parity with the on-chain ``_send_metadata_to_ipfs`` payload."""
 
     def test_known_nonce_produces_stable_output(self) -> None:
         """Deterministic output for a fixed triple.
 
         For a fixed ``(prompt, tool, nonce)`` the body and hash are
         deterministic; required for any future cross-client parity
-        regression check.
+        regression check. ``schema_version`` and ``request_context``
+        appear unconditionally so the analytics lake sees one shape.
         """
         truncated, full, body = build_request_metadata(
             prompt="hello world",
@@ -130,6 +135,8 @@ class TestBuildRequestMetadata:
             "prompt": "hello world",
             "tool": "prediction-request",
             "nonce": "fixed-nonce-1234",
+            "schema_version": "2.0",
+            "request_context": None,
         }
         # On-chain truncation: ``0x`` + 62 hex chars.
         assert truncated.startswith("0x")
@@ -156,6 +163,153 @@ class TestBuildRequestMetadata:
         parsed = json.loads(body)
         assert isinstance(parsed["nonce"], str)
         assert len(parsed["nonce"]) >= 32  # UUID4 hex length without dashes
+
+    def test_request_context_present_in_body(self) -> None:
+        """A populated ``request_context`` is carried verbatim.
+
+        The analytics ETL reads ``raw_content->request_context`` for
+        ``market_id`` and ``market_prob``; the off-chain path must not
+        drop these fields (previously it did).
+        """
+        ctx = {
+            "market_id": "0xabc",
+            "type": "omen",
+            "market_prob": 0.42,
+        }
+        _, _, body = build_request_metadata(
+            prompt="p",
+            tool="t",
+            nonce_str="n",
+            request_context=ctx,
+        )
+        parsed = json.loads(body)
+        assert parsed["request_context"] == ctx
+        assert parsed["schema_version"] == "2.0"
+
+    def test_schema_version_override(self) -> None:
+        """``schema_version`` is passed through verbatim."""
+        _, _, body = build_request_metadata(
+            prompt="p",
+            tool="t",
+            nonce_str="n",
+            schema_version="3.0",
+        )
+        parsed = json.loads(body)
+        assert parsed["schema_version"] == "3.0"
+
+    def test_extras_clobber_warning_routes_through_caller_logger(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When the caller passes a logger, the warning fires on it, not the module logger.
+
+        The executor passes ``self._logger`` at the call site so the
+        clobber warning surfaces through the AEA logging pipeline the
+        agent's operators configured, not through Python's root logger
+        (which the deployed agent may not attach handlers to).
+        """
+        caller_logger = logging.getLogger("test.caller.logger")
+        with caplog.at_level(logging.WARNING, logger=caller_logger.name):
+            _, _, _ = build_request_metadata(
+                prompt="p",
+                tool="t",
+                nonce_str="n",
+                extra_attributes={"prompt": "override"},
+                logger=caller_logger,
+            )
+        emitting = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert emitting, "expected a warning on the caller-supplied logger"
+        assert all(
+            r.name == caller_logger.name for r in emitting
+        ), "warning must be emitted on the caller's logger, not the module logger"
+        assert any(
+            "extra_attributes override reserved" in r.getMessage() for r in emitting
+        )
+
+    def test_extras_clobber_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Extras colliding with reserved keys emit a warning.
+
+        Mirrors the on-chain warning in ``request.py::_send_metadata_to_ipfs``
+        so a caller stuffing ``prompt`` or ``request_context`` into
+        ``extra_attributes`` no longer silently overwrites the reserved
+        field on the off-chain path. Exercises the module-logger fallback
+        (no ``logger`` kwarg) — used by tests and ad-hoc call sites.
+        """
+        module_name = (
+            "packages.valory.skills.mech_interact_abci.behaviours.offchain_request"
+        )
+        with caplog.at_level(logging.WARNING, logger=module_name):
+            _, _, body = build_request_metadata(
+                prompt="p",
+                tool="t",
+                nonce_str="n",
+                extra_attributes={"prompt": "override", "request_context": {"x": 1}},
+            )
+        parsed = json.loads(body)
+        # Extras still overwrite (mirrors the on-chain behaviour); the
+        # warning is the signal.
+        assert parsed["prompt"] == "override"
+        assert parsed["request_context"] == {"x": 1}
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        messages = [r.getMessage() for r in warnings]
+        assert any("extra_attributes override reserved" in m for m in messages)
+        # Both clobbered keys are reported.
+        collision_msg = next(m for m in messages if "reserved request keys" in m)
+        assert "prompt" in collision_msg
+        assert "request_context" in collision_msg
+
+    def test_offchain_matches_onchain_payload_shape(self) -> None:
+        """The off-chain ``ipfs_data`` dict equals the on-chain payload.
+
+        Drift guard for the exact bug this change fixes: both builders
+        must project the same ``MechMetadata`` into the same dict shape
+        so the analytics lake sees one schema regardless of transport.
+        Both paths go through :func:`merge_extra_attributes`, so any
+        future change to the merge/clobber logic is picked up by this
+        test automatically — the off-chain builder must be updated to
+        keep parity, or the assertion fails.
+        """
+        meta = MechMetadata(
+            prompt="q?",
+            tool="prediction-request",
+            nonce="fixed-nonce-1234",
+            request_context={
+                "market_id": "0xabc",
+                "type": "omen",
+                "market_prob": 0.42,
+            },
+            extra_attributes={"max_tokens": 256, "system": "you are…"},
+        )
+        # On-chain path: asdict, pop wrapper, share the merge helper with
+        # `_send_metadata_to_ipfs` (request.py).
+        onchain_payload = asdict(meta)
+        onchain_extras = onchain_payload.pop("extra_attributes", None)
+        merge_extra_attributes(onchain_payload, onchain_extras)
+        # Off-chain path: build_request_metadata forwards every field.
+        _, _, body = build_request_metadata(
+            prompt=meta.prompt,
+            tool=meta.tool,
+            nonce_str=meta.nonce,
+            extra_attributes=meta.extra_attributes,
+            request_context=meta.request_context,
+            schema_version=meta.schema_version,
+        )
+        assert json.loads(body) == onchain_payload
+
+    def test_offchain_matches_onchain_payload_shape_defaults(self) -> None:
+        """Parity also holds for a minimal ``MechMetadata`` (defaults)."""
+        meta = MechMetadata(prompt="q?", tool="t1", nonce="n1")
+        onchain_payload = asdict(meta)
+        onchain_extras = onchain_payload.pop("extra_attributes", None)
+        merge_extra_attributes(onchain_payload, onchain_extras)
+        _, _, body = build_request_metadata(
+            prompt=meta.prompt,
+            tool=meta.tool,
+            nonce_str=meta.nonce,
+            extra_attributes=meta.extra_attributes,
+            request_context=meta.request_context,
+            schema_version=meta.schema_version,
+        )
+        assert json.loads(body) == onchain_payload
 
 
 class TestDeriveRequestIdBytes:
