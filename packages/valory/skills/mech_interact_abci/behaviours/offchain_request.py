@@ -90,6 +90,8 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
+    SCHEMA_VERSION,
+    merge_extra_attributes,
 )
 from packages.valory.skills.mech_interact_abci.states.request import (
     OFFCHAIN_DEPOSIT_TX_SUBMITTER,
@@ -186,7 +188,8 @@ def build_request_metadata(
     extra_attributes: Optional[Dict[str, Any]] = None,
     nonce_str: Optional[str] = None,
     request_context: Optional[Dict[str, Any]] = None,
-    schema_version: str = "2.0",
+    schema_version: str = SCHEMA_VERSION,
+    logger: Optional[logging.Logger] = None,
 ) -> Tuple[str, str, str]:
     """Build the offchain request metadata and its on-chain hash.
 
@@ -201,6 +204,12 @@ def build_request_metadata(
     ``truncated_hash`` is the ``0x`` + 62-hex form the on-chain
     commitment uses and ``ipfs_data`` is the JSON string carried as
     the ``ipfs_data`` form field.
+
+    :param logger: Logger for the clobber warning. Callers on the executor
+        path pass ``self._logger`` so the warning routes through the AEA
+        logging pipeline; passing ``None`` (the module-level default) sends
+        the warning through the module logger instead — used by tests and
+        ad-hoc call sites.
     """
     metadata: Dict[str, Any] = {
         "prompt": prompt,
@@ -209,13 +218,7 @@ def build_request_metadata(
         "schema_version": schema_version,
         "request_context": request_context,
     }
-    if extra_attributes:
-        clobbered = extra_attributes.keys() & metadata.keys()
-        if clobbered:
-            _LOGGER.warning(
-                "extra_attributes override reserved request keys: %s", clobbered
-            )
-        metadata.update(extra_attributes)
+    merge_extra_attributes(metadata, extra_attributes, logger or _LOGGER)
     ipfs_data = json.dumps(metadata)
     cid_bytes = compute_cidv1_bytes(ipfs_data.encode("utf-8"))
     v1_file_hash_hex = "f" + cid_bytes.hex()
@@ -729,6 +732,7 @@ class OffchainRequestExecutor:
             nonce_str=request_meta.nonce,
             request_context=request_meta.request_context,
             schema_version=request_meta.schema_version,
+            logger=self._logger,
         )
 
         chain_id_int = yield from self._resolve_chain_id_int()

@@ -58,6 +58,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
     MechMetadata,
     SERIALIZED_EMPTY_LIST,
+    merge_extra_attributes,
 )
 from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
 from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
@@ -636,13 +637,8 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         # prompt/tool/nonce) so the tool reads them as run() kwargs, and drop
         # the wrapper key. With no extras this is byte-identical to asdict().
         payload = asdict(metadata)
-        extras = payload.pop("extra_attributes", None) or {}
-        clobbered = extras.keys() & payload.keys()
-        if clobbered:
-            self.context.logger.warning(
-                f"extra_attributes override reserved request keys: {clobbered}"
-            )
-        payload.update(extras)
+        extras = payload.pop("extra_attributes", None)
+        merge_extra_attributes(payload, extras, self.context.logger)
         metadata_hash = yield from self.send_to_ipfs(
             self.metadata_filepath, payload, filetype=SupportedFiletype.JSON
         )

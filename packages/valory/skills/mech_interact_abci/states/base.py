@@ -20,6 +20,7 @@
 """This module contains the base functionality for the rounds of the mech interact abci app."""
 
 import json
+import logging
 import math
 import time
 from dataclasses import InitVar, asdict, dataclass, field, is_dataclass
@@ -87,6 +88,9 @@ class Event(Enum):
     OFFCHAIN_ALL_FAILED = "offchain_all_failed"
 
 
+SCHEMA_VERSION = "2.0"
+
+
 @dataclass
 class MechMetadata:
     """A Mech's metadata."""
@@ -94,12 +98,42 @@ class MechMetadata:
     prompt: str
     tool: str
     nonce: str
-    schema_version: str = "2.0"
+    schema_version: str = SCHEMA_VERSION
     request_context: Optional[Dict[str, Any]] = None
     # Extra tool parameters, merged into the request payload top-level (next to
     # prompt/tool/nonce) so the tool receives them as run() kwargs. Mirrors the
     # mech-client `extra_attributes` channel. Defaults to None for back-compat.
     extra_attributes: Optional[Dict[str, Any]] = None
+
+
+def merge_extra_attributes(
+    payload: Dict[str, Any],
+    extras: Optional[Dict[str, Any]],
+    logger: Optional[logging.Logger] = None,
+) -> Dict[str, Any]:
+    """Merge ``extras`` into ``payload`` top-level, logging clobbered reserved keys.
+
+    Shared between the on-chain (``_send_metadata_to_ipfs``) and off-chain
+    (``build_request_metadata``) request paths and the parity test between
+    them, so all three see the same clobber-check and merge behaviour and
+    cannot silently drift. ``payload`` is mutated in place and returned.
+
+    :param payload: Reserved-key dict already populated with the request
+        fields; must not contain the ``extra_attributes`` wrapper key.
+    :param extras: Extra tool parameters. ``None`` or empty is a no-op.
+    :param logger: Logger to route the clobber warning through. Callers
+        that want the warning surfaced in the agent's log pipeline pass
+        their behaviour's ``context.logger`` / ``_logger``; passing
+        ``None`` suppresses the warning entirely.
+    :return: The mutated ``payload`` (returned for chainability).
+    """
+    if not extras:
+        return payload
+    clobbered = extras.keys() & payload.keys()
+    if clobbered and logger is not None:
+        logger.warning("extra_attributes override reserved request keys: %s", clobbered)
+    payload.update(extras)
+    return payload
 
 
 @dataclass

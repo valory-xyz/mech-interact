@@ -57,6 +57,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
+    merge_extra_attributes,
 )
 
 
@@ -196,13 +197,42 @@ class TestBuildRequestMetadata:
         parsed = json.loads(body)
         assert parsed["schema_version"] == "3.0"
 
+    def test_extras_clobber_warning_routes_through_caller_logger(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When the caller passes a logger, the warning fires on it, not the module logger.
+
+        The executor passes ``self._logger`` at the call site so the
+        clobber warning surfaces through the AEA logging pipeline the
+        agent's operators configured, not through Python's root logger
+        (which the deployed agent may not attach handlers to).
+        """
+        caller_logger = logging.getLogger("test.caller.logger")
+        with caplog.at_level(logging.WARNING, logger=caller_logger.name):
+            _, _, _ = build_request_metadata(
+                prompt="p",
+                tool="t",
+                nonce_str="n",
+                extra_attributes={"prompt": "override"},
+                logger=caller_logger,
+            )
+        emitting = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert emitting, "expected a warning on the caller-supplied logger"
+        assert all(
+            r.name == caller_logger.name for r in emitting
+        ), "warning must be emitted on the caller's logger, not the module logger"
+        assert any(
+            "extra_attributes override reserved" in r.getMessage() for r in emitting
+        )
+
     def test_extras_clobber_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Extras colliding with reserved keys emit a warning.
 
         Mirrors the on-chain warning in ``request.py::_send_metadata_to_ipfs``
         so a caller stuffing ``prompt`` or ``request_context`` into
         ``extra_attributes`` no longer silently overwrites the reserved
-        field on the off-chain path.
+        field on the off-chain path. Exercises the module-logger fallback
+        (no ``logger`` kwarg) — used by tests and ad-hoc call sites.
         """
         module_name = (
             "packages.valory.skills.mech_interact_abci.behaviours.offchain_request"
@@ -220,11 +250,10 @@ class TestBuildRequestMetadata:
         assert parsed["prompt"] == "override"
         assert parsed["request_context"] == {"x": 1}
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("extra_attributes override reserved" in r.message for r in warnings)
+        messages = [r.getMessage() for r in warnings]
+        assert any("extra_attributes override reserved" in m for m in messages)
         # Both clobbered keys are reported.
-        collision_msg = next(
-            r.message for r in warnings if "reserved request keys" in r.message
-        )
+        collision_msg = next(m for m in messages if "reserved request keys" in m)
         assert "prompt" in collision_msg
         assert "request_context" in collision_msg
 
@@ -234,6 +263,10 @@ class TestBuildRequestMetadata:
         Drift guard for the exact bug this change fixes: both builders
         must project the same ``MechMetadata`` into the same dict shape
         so the analytics lake sees one schema regardless of transport.
+        Both paths go through :func:`merge_extra_attributes`, so any
+        future change to the merge/clobber logic is picked up by this
+        test automatically — the off-chain builder must be updated to
+        keep parity, or the assertion fails.
         """
         meta = MechMetadata(
             prompt="q?",
@@ -246,9 +279,11 @@ class TestBuildRequestMetadata:
             },
             extra_attributes={"max_tokens": 256, "system": "you are…"},
         )
-        # On-chain path: asdict, pop wrapper, merge extras top-level.
+        # On-chain path: asdict, pop wrapper, share the merge helper with
+        # `_send_metadata_to_ipfs` (request.py).
         onchain_payload = asdict(meta)
-        onchain_payload.update(onchain_payload.pop("extra_attributes", None) or {})
+        onchain_extras = onchain_payload.pop("extra_attributes", None)
+        merge_extra_attributes(onchain_payload, onchain_extras)
         # Off-chain path: build_request_metadata forwards every field.
         _, _, body = build_request_metadata(
             prompt=meta.prompt,
@@ -264,7 +299,8 @@ class TestBuildRequestMetadata:
         """Parity also holds for a minimal ``MechMetadata`` (defaults)."""
         meta = MechMetadata(prompt="q?", tool="t1", nonce="n1")
         onchain_payload = asdict(meta)
-        onchain_payload.update(onchain_payload.pop("extra_attributes", None) or {})
+        onchain_extras = onchain_payload.pop("extra_attributes", None)
+        merge_extra_attributes(onchain_payload, onchain_extras)
         _, _, body = build_request_metadata(
             prompt=meta.prompt,
             tool=meta.tool,
