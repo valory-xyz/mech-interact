@@ -228,7 +228,9 @@ class MechInteractAbciApp(AbciApp[Event]):
         FinishedMechResponseTimeoutRound: set(),
         # Offchain happy path: the request POST got 200. ``mech_requests`` and
         # ``mech_responses`` carry the request_id and the pending response
-        # placeholder so the response round can poll the offchain mech.
+        # placeholder; ``offchain_pending_request`` carries the ``mech_url``
+        # and target ``request_id`` that ``OffchainResponsePoller._load_pending``
+        # reads to actually GET ``/fetch_offchain_info`` from the right mech.
         FinishedOffchainMechRequestRound: {
             get_name(SynchronizedData.mech_requests),
             get_name(SynchronizedData.mech_responses),

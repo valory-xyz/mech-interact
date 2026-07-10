@@ -41,6 +41,8 @@ from packages.valory.skills.transaction_settlement_abci.rounds import (
     SynchronizedData as TxSynchronizedData,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 SERIALIZED_EMPTY_LIST = "[]"
 METADATA_FIELD = "metadata"
 BLOCK_TIMESTAMP_FIELD = "blockTimestamp"
@@ -111,27 +113,43 @@ def merge_extra_attributes(
     extras: Optional[Dict[str, Any]],
     logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
-    """Merge ``extras`` into ``payload`` top-level, logging clobbered reserved keys.
+    """Merge ``extras`` into ``payload`` top-level, rejecting reserved keys.
 
     Shared between the on-chain (``_send_metadata_to_ipfs``) and off-chain
     (``build_request_metadata``) request paths and the parity test between
     them, so all three see the same clobber-check and merge behaviour and
     cannot silently drift. ``payload`` is mutated in place and returned.
 
+    Extras keys that would overwrite an already-populated reserved key
+    raise :class:`ValueError` rather than silently overriding: on the
+    off-chain path this would otherwise let a caller substitute the paid-for
+    ``tool`` (or ``prompt`` / ``nonce`` / ``schema_version`` /
+    ``request_context``) with a value the mech settles against a different
+    tool identifier. Loud-fail is safer than a warn-and-clobber log line
+    that operators can miss.
+
     :param payload: Reserved-key dict already populated with the request
         fields; must not contain the ``extra_attributes`` wrapper key.
     :param extras: Extra tool parameters. ``None`` or empty is a no-op.
-    :param logger: Logger to route the clobber warning through. Callers
-        that want the warning surfaced in the agent's log pipeline pass
-        their behaviour's ``context.logger`` / ``_logger``; passing
-        ``None`` suppresses the warning entirely.
+    :param logger: Logger for diagnostic context on rejection. Callers
+        pass their behaviour's ``context.logger`` / ``_logger`` so the
+        error is attached to the agent's log stream. Optional.
     :return: The mutated ``payload`` (returned for chainability).
+    :raises ValueError: if ``extras`` contains any key already present in
+        ``payload`` (i.e. any of the reserved request fields).
     """
     if not extras:
         return payload
     clobbered = extras.keys() & payload.keys()
-    if clobbered and logger is not None:
-        logger.warning("extra_attributes override reserved request keys: %s", clobbered)
+    if clobbered:
+        if logger is not None:
+            logger.error(
+                "extra_attributes contains reserved request keys: %s", clobbered
+            )
+        raise ValueError(
+            f"extra_attributes may not override reserved request keys: "
+            f"{sorted(clobbered)}"
+        )
     payload.update(extras)
     return payload
 
@@ -558,13 +576,23 @@ class SynchronizedData(TxSynchronizedData):
 
     @property
     def offchain_pending_request(self) -> Optional[Dict[str, Any]]:
-        """Serialized state of the in-flight offchain request awaiting deposit.
+        """Serialized state of an in-flight offchain request.
 
-        Populated when the previous attempt returned a structured 402 and the
-        FSM is now settling the deposit multisend. On re-entry the behaviour
-        reads this to reuse the same ``request_id``, signature, nonce, and
-        target mech for the retry POST, so the original signed binding stays
-        valid against the contract's monotonic ``mapNonces``.
+        Two producers set this in ``_fresh_cycle``:
+
+        * ``DEPOSIT_NEEDED`` — the previous attempt hit a structured 402 and the
+          FSM is now settling the deposit multisend; on re-entry the behaviour
+          reads this to reuse the same ``request_id``, signature, nonce, and
+          target mech for the retry POST, so the original signed binding stays
+          valid against the contract's monotonic ``mapNonces``.
+        * ``DONE`` — every successful request also persists the pending state so
+          ``OffchainResponsePoller._load_pending`` has the ``mech_url`` and
+          ``request_id`` it needs to poll for the delivered result.
+
+        ``json.loads`` is the primary path (payloads are always JSON strings via
+        ``PendingRequest.to_json()``); corrupt-string cases log a warning
+        instead of silently collapsing to ``None``, so a lost paid-for
+        correlation leaves a diagnostic trail.
         """
         raw = self.db.get("offchain_pending_request", None)
         if raw is None:
@@ -573,12 +601,22 @@ class SynchronizedData(TxSynchronizedData):
             try:
                 parsed = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
+                _LOGGER.warning(
+                    "offchain_pending_request present but not valid JSON: %r",
+                    raw,
+                )
                 return None
             if isinstance(parsed, dict):
                 return parsed
+            _LOGGER.warning(
+                "offchain_pending_request parsed to non-dict shape: %r", parsed
+            )
             return None
         if isinstance(raw, dict):
             return raw
+        _LOGGER.warning(
+            "offchain_pending_request has unexpected type %s", type(raw).__name__
+        )
         return None
 
     @property

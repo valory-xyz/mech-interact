@@ -197,65 +197,84 @@ class TestBuildRequestMetadata:
         parsed = json.loads(body)
         assert parsed["schema_version"] == "3.0"
 
-    def test_extras_clobber_warning_routes_through_caller_logger(
+    def test_extras_reserved_key_rejection_routes_through_caller_logger(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """When the caller passes a logger, the warning fires on it, not the module logger.
+        """When the caller passes a logger, the rejection error fires on it.
 
         The executor passes ``self._logger`` at the call site so the
-        clobber warning surfaces through the AEA logging pipeline the
+        rejection is surfaced through the AEA logging pipeline the
         agent's operators configured, not through Python's root logger
         (which the deployed agent may not attach handlers to).
         """
         caller_logger = logging.getLogger("test.caller.logger")
-        with caplog.at_level(logging.WARNING, logger=caller_logger.name):
-            _, _, _ = build_request_metadata(
-                prompt="p",
-                tool="t",
-                nonce_str="n",
-                extra_attributes={"prompt": "override"},
-                logger=caller_logger,
-            )
-        emitting = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert emitting, "expected a warning on the caller-supplied logger"
+        with caplog.at_level(logging.ERROR, logger=caller_logger.name):
+            with pytest.raises(ValueError, match="reserved request keys"):
+                build_request_metadata(
+                    prompt="p",
+                    tool="t",
+                    nonce_str="n",
+                    extra_attributes={"prompt": "override"},
+                    logger=caller_logger,
+                )
+        emitting = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert emitting, "expected an error log on the caller-supplied logger"
         assert all(
             r.name == caller_logger.name for r in emitting
-        ), "warning must be emitted on the caller's logger, not the module logger"
+        ), "error must be emitted on the caller's logger, not the module logger"
         assert any(
-            "extra_attributes override reserved" in r.getMessage() for r in emitting
+            "extra_attributes contains reserved" in r.getMessage() for r in emitting
         )
 
-    def test_extras_clobber_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Extras colliding with reserved keys emit a warning.
+    def test_extras_reserved_keys_hard_rejected(self) -> None:
+        """Extras colliding with reserved keys raise instead of silently overwriting.
 
-        Mirrors the on-chain warning in ``request.py::_send_metadata_to_ipfs``
-        so a caller stuffing ``prompt`` or ``request_context`` into
-        ``extra_attributes`` no longer silently overwrites the reserved
-        field on the off-chain path. Exercises the module-logger fallback
-        (no ``logger`` kwarg) — used by tests and ad-hoc call sites.
+        Under the previous warn-and-clobber behaviour, a caller stuffing
+        ``tool`` into ``extra_attributes`` would silently substitute the
+        paid-for tool with whatever they passed, and the mech would settle
+        the request against the wrong tool identifier. Hard-reject is
+        safer than a warn log the operator can miss.
         """
-        module_name = (
-            "packages.valory.skills.mech_interact_abci.behaviours.offchain_request"
-        )
-        with caplog.at_level(logging.WARNING, logger=module_name):
-            _, _, body = build_request_metadata(
+        with pytest.raises(ValueError, match="reserved request keys"):
+            build_request_metadata(
                 prompt="p",
                 tool="t",
                 nonce_str="n",
                 extra_attributes={"prompt": "override", "request_context": {"x": 1}},
             )
+
+    @pytest.mark.parametrize(
+        "reserved_key",
+        ["prompt", "tool", "nonce", "schema_version", "request_context"],
+    )
+    def test_each_reserved_key_is_rejected(self, reserved_key: str) -> None:
+        """Every reserved payload key is protected.
+
+        Not just the ones the executor happens to populate first.
+        """
+        with pytest.raises(ValueError, match=f".*{reserved_key}.*"):
+            build_request_metadata(
+                prompt="p",
+                tool="t",
+                nonce_str="n",
+                extra_attributes={reserved_key: "attempted-substitution"},
+            )
+
+    def test_benign_extras_still_merge_top_level(self) -> None:
+        """Extras that don't collide with reserved keys still merge normally."""
+        _, _, body = build_request_metadata(
+            prompt="p",
+            tool="t",
+            nonce_str="n",
+            extra_attributes={"max_tokens": 256, "system": "you are…"},
+        )
         parsed = json.loads(body)
-        # Extras still overwrite (mirrors the on-chain behaviour); the
-        # warning is the signal.
-        assert parsed["prompt"] == "override"
-        assert parsed["request_context"] == {"x": 1}
-        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        messages = [r.getMessage() for r in warnings]
-        assert any("extra_attributes override reserved" in m for m in messages)
-        # Both clobbered keys are reported.
-        collision_msg = next(m for m in messages if "reserved request keys" in m)
-        assert "prompt" in collision_msg
-        assert "request_context" in collision_msg
+        assert parsed["max_tokens"] == 256
+        assert parsed["system"] == "you are…"
+        # Reserved fields still present with the expected values.
+        assert parsed["prompt"] == "p"
+        assert parsed["tool"] == "t"
+        assert parsed["nonce"] == "n"
 
     def test_offchain_matches_onchain_payload_shape(self) -> None:
         """The off-chain ``ipfs_data`` dict equals the on-chain payload.
@@ -1473,6 +1492,30 @@ class TestRetryPending:
         result = _drive(executor._retry_pending(pending))
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_402_INSUFFICIENT
+
+    def test_retry_timeout_surfaces_timeout_not_insufficient(self) -> None:
+        """A network-blip TIMEOUT on retry maps to TIMEOUT, not INSUFFICIENT.
+
+        The previous branch hard-coded ``OFFCHAIN_402_INSUFFICIENT`` for
+        every non-DONE outcome, so an operator investigating a retry
+        failure saw "your deposit cap is too small" when the real cause
+        was the mech being unreachable. Distinct labels let the operator
+        route the diagnosis to network/server health vs deposit sizing.
+        """
+        pending = PendingRequest.from_dict(self._pending_raw())
+        assert pending is not None
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            # ``None`` from the HTTP framework helper surfaces as TIMEOUT
+            # in ``_post_signed_request`` -- see the outcome mapping there.
+            http_responses=[None],
+            offchain_pending_request=self._pending_raw(),
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._retry_pending(pending))
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
 
 
 class TestLoadPendingRequestDistinguishesCorruption:

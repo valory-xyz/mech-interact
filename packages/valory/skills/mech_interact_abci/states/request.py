@@ -95,12 +95,21 @@ class MechRequestRound(MechInteractionRound):
         # Offchain dispatch. ``MechRequestBehaviour`` sets ``offchain_result``
         # on the payload when ``use_offchain=True``; the value drives which
         # ``OFFCHAIN_*`` event leaves the round so the FSM routes to the
-        # right final state. ``None`` means the on-chain path ran today's
-        # behaviour and the existing ``DONE`` / ``SKIP_REQUEST`` rules apply.
-        offchain_event = _OFFCHAIN_RESULT_TO_EVENT.get(
-            synced_data.offchain_result or ""
-        )
-        if offchain_event is not None:
+        # right final state. Empty / ``None`` means the on-chain path ran
+        # today's behaviour and the existing ``DONE`` / ``SKIP_REQUEST``
+        # rules apply. A non-empty value that is missing from
+        # ``_OFFCHAIN_RESULT_TO_EVENT`` is a programmer error (executor
+        # emits an outcome the map has not been updated for) and must fail
+        # loudly rather than silently fall through to the on-chain branch.
+        offchain_result = synced_data.offchain_result or ""
+        if offchain_result:
+            offchain_event = _OFFCHAIN_RESULT_TO_EVENT.get(offchain_result)
+            if offchain_event is None:
+                raise ValueError(
+                    f"unknown offchain_result value: {offchain_result!r}; "
+                    f"expected one of "
+                    f"{sorted(_OFFCHAIN_RESULT_TO_EVENT.keys())}"
+                )
             return synced_data, offchain_event
 
         if not (synced_data.mech_requests or synced_data.mech_responses):
