@@ -161,9 +161,14 @@ class OffchainResponsePoller:
 
         * **404** is treated as a permanent "request unknown" (e.g. after a
           mech restart). Polling won't recover; surface immediately.
-        * **5xx** is treated as transient up to ``_MAX_CONSECUTIVE_5XX``
-          consecutive failures, then fast-fails. Any non-5xx response
-          (including a 200 reporting "processing") resets the counter.
+        * **5xx / 600** are treated as transient up to
+          ``_MAX_CONSECUTIVE_5XX`` consecutive failures, then fast-fails.
+          ``600`` is the AEA HTTP client's synthetic code for a connection
+          failure (see ``valory/http_client/connection.py:113``); a dead
+          mech emits it repeatedly and without this bucket the loop would
+          spin the full ``offchain_poll_timeout_seconds`` (~300 s) before
+          giving up. Any non-server-failure response (including a 200
+          reporting "processing") resets the counter.
         """
         interval = self._config.offchain_poll_interval_seconds
         budget = self._config.offchain_poll_timeout_seconds
@@ -198,16 +203,23 @@ class OffchainResponsePoller:
                 )
                 return _PollSnapshot(status="rejected", error="not_found")
 
-            if status_code is not None and 500 <= status_code < 600:
+            # 600 is the AEA http_client's synthetic connection-failure code
+            # (see valory/http_client/connection.py:113). Treat it as a
+            # transient server failure so a dead mech fast-fails instead of
+            # spinning the full poll budget.
+            if status_code is not None and (
+                500 <= status_code < 600 or status_code == 600
+            ):
                 consecutive_5xx += 1
                 self._logger.warning(
                     f"Offchain poll {url} returned {status_code} "
-                    f"(consecutive 5xx={consecutive_5xx}/{_MAX_CONSECUTIVE_5XX})"
+                    f"(consecutive server-failure={consecutive_5xx}/"
+                    f"{_MAX_CONSECUTIVE_5XX})"
                 )
                 if consecutive_5xx >= _MAX_CONSECUTIVE_5XX:
                     self._logger.error(
                         f"Offchain poll {url} returned {_MAX_CONSECUTIVE_5XX} "
-                        "consecutive 5xx responses; fast-failing."
+                        "consecutive server-failure responses; fast-failing."
                     )
                     return _PollSnapshot(status="rejected", error="server_unavailable")
             else:

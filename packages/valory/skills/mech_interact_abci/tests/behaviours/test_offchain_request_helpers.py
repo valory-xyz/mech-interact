@@ -1767,6 +1767,11 @@ class TestAttemptResultPlumbing:
             (200, OffchainAttemptOutcome.DONE),
             (503, OffchainAttemptOutcome.SERVER_BUSY),
             (418, OffchainAttemptOutcome.BAD_RESPONSE),
+            # AEA http_client synthesises 600 on connection failures
+            # (valory/http_client/connection.py:113). Map to TIMEOUT so
+            # failover fires on the next ranked mech instead of the loop
+            # burning the retry budget on a dead-mech ``BAD_RESPONSE``.
+            (600, OffchainAttemptOutcome.TIMEOUT),
         ],
     )
     def test_status_to_outcome(

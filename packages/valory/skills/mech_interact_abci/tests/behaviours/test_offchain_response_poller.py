@@ -129,6 +129,23 @@ class TestPollUntilTerminal:
         assert snapshot.status == "rejected"
         assert snapshot.error == "server_unavailable"
 
+    def test_five_consecutive_600_fast_fails(self) -> None:
+        """5 in a row on the AEA connection-failure code → fast-fail.
+
+        The AEA http_client returns ``status_code=600`` on connection
+        failures (``valory/http_client/connection.py:113``). Without
+        bucketing 600 into the server-failure counter, a permanently
+        unreachable mech would spin the full ``offchain_poll_timeout_seconds``
+        budget (~300s) before the poller surfaces any signal to the FSM.
+        """
+        stub = _StubBehaviour(
+            http_responses=[_http_response(600) for _ in range(5)],
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
+        assert snapshot.status == "rejected"
+        assert snapshot.error == "server_unavailable"
+
     def test_5xx_counter_resets_on_success_status(self) -> None:
         """A 200-"processing" response between 5xx replies resets the counter.
 

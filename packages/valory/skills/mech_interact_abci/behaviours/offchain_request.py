@@ -1107,6 +1107,17 @@ class OffchainRequestExecutor:
                 mech_url=mech_url,
                 status_code=status,
             )
+        if status == 600:
+            # AEA http_client's synthetic connection-failure code (see
+            # valory/http_client/connection.py:113). Route through TIMEOUT
+            # so the failover loop tries the next ranked mech instead of
+            # burning the retry budget on BAD_RESPONSE for a dead mech.
+            return OffchainAttemptResult(
+                outcome=OffchainAttemptOutcome.TIMEOUT,
+                mech_address=mech_address,
+                mech_url=mech_url,
+                status_code=status,
+            )
         return OffchainAttemptResult(
             outcome=OffchainAttemptOutcome.BAD_RESPONSE,
             mech_address=mech_address,
