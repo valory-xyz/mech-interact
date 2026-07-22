@@ -159,16 +159,19 @@ class OffchainResponsePoller:
 
         Fast-fail policy (review C6):
 
-        * **404** is treated as a permanent "request unknown" (e.g. after a
-          mech restart). Polling won't recover; surface immediately.
-        * **5xx / 600** are treated as transient up to
-          ``_MAX_CONSECUTIVE_5XX`` consecutive failures, then fast-fails.
-          ``600`` is the AEA HTTP client's synthetic code for a connection
-          failure (see ``valory/http_client/connection.py:113``); a dead
-          mech emits it repeatedly and without this bucket the loop would
-          spin the full ``offchain_poll_timeout_seconds`` (~300 s) before
-          giving up. Any non-server-failure response (including a 200
-          reporting "processing") resets the counter.
+        * **404 / 5xx / 600** are treated as transient up to
+          ``_MAX_CONSECUTIVE_5XX`` consecutive failures, then fast-fail.
+          A first-attempt 404 previously permanently rejected a paid-for
+          request; a rolling-deploy LB blip or an async
+          registration-visible-after-POST race on the mech would silently
+          throw away real work. Bucketing 404 into the same counter as
+          server-failures lets a mid-rollout blip recover while a
+          persistently-unknown request_id still surfaces cleanly on the
+          fifth consecutive miss. ``600`` is the AEA HTTP client's
+          synthetic code for a connection failure (see
+          ``valory/http_client/connection.py:113``). Any non-failure
+          response (including a 200 reporting "processing") resets the
+          counter.
         """
         interval = self._config.offchain_poll_interval_seconds
         budget = self._config.offchain_poll_timeout_seconds
@@ -176,7 +179,8 @@ class OffchainResponsePoller:
         url = mech_url.rstrip("/") + "/fetch_offchain_info"
         body = self._build_body(request_id_int_str)
 
-        consecutive_5xx = 0
+        consecutive_failures = 0
+        consecutive_404 = 0
         while True:
             try:
                 response = yield from self._b.get_http_response(
@@ -195,35 +199,48 @@ class OffchainResponsePoller:
                 getattr(response, "status_code", None) if response is not None else None
             )
 
+            # 404 is bucketed with server-failures now: a first-attempt 404
+            # used to permanently drop a paid-for request; give it the same
+            # consecutive-failure tolerance so a rolling-deploy blip or a
+            # racy first GET before the mech's enqueue is visible does not
+            # burn the request.
             if status_code == 404:
-                self._logger.error(
-                    f"Offchain poll {url} returned 404 for request_id "
-                    f"{request_id_int_str}; the mech does not know about "
-                    "this request (likely restarted). Fast-failing."
-                )
-                return _PollSnapshot(status="rejected", error="not_found")
-
-            # 600 is the AEA http_client's synthetic connection-failure code
-            # (see valory/http_client/connection.py:113). Treat it as a
-            # transient server failure so a dead mech fast-fails instead of
-            # spinning the full poll budget.
-            if status_code is not None and (
-                500 <= status_code < 600 or status_code == 600
-            ):
-                consecutive_5xx += 1
+                consecutive_404 += 1
                 self._logger.warning(
-                    f"Offchain poll {url} returned {status_code} "
-                    f"(consecutive server-failure={consecutive_5xx}/"
+                    f"Offchain poll {url} returned 404 for request_id "
+                    f"{request_id_int_str} (consecutive 404={consecutive_404}/"
                     f"{_MAX_CONSECUTIVE_5XX})"
                 )
-                if consecutive_5xx >= _MAX_CONSECUTIVE_5XX:
+                if consecutive_404 >= _MAX_CONSECUTIVE_5XX:
+                    self._logger.error(
+                        f"Offchain poll {url} returned {_MAX_CONSECUTIVE_5XX} "
+                        "consecutive 404s; fast-failing as 'not_found'."
+                    )
+                    return _PollSnapshot(status="rejected", error="not_found")
+                consecutive_failures = 0
+            elif status_code is not None and (
+                500 <= status_code < 600 or status_code == 600
+            ):
+                # 600 is the AEA http_client's synthetic connection-failure
+                # code (see valory/http_client/connection.py:113); grouping
+                # it with 5xx so a dead mech fast-fails on the same budget
+                # instead of spinning the full poll timeout.
+                consecutive_failures += 1
+                self._logger.warning(
+                    f"Offchain poll {url} returned {status_code} "
+                    f"(consecutive server-failure={consecutive_failures}/"
+                    f"{_MAX_CONSECUTIVE_5XX})"
+                )
+                if consecutive_failures >= _MAX_CONSECUTIVE_5XX:
                     self._logger.error(
                         f"Offchain poll {url} returned {_MAX_CONSECUTIVE_5XX} "
                         "consecutive server-failure responses; fast-failing."
                     )
                     return _PollSnapshot(status="rejected", error="server_unavailable")
+                consecutive_404 = 0
             else:
-                consecutive_5xx = 0
+                consecutive_failures = 0
+                consecutive_404 = 0
 
             snapshot = self._parse(response)
             if snapshot.status not in _PROCESSING_STATUSES:
@@ -280,36 +297,32 @@ class OffchainResponsePoller:
             # failure the envelope JSON-parses but has no `p_yes`, hitting
             # KeyError in `PredictionResponse.__init__`.
             envelope = payload.get("response")
+            if isinstance(envelope, dict) and "result" in envelope:
+                return _PollSnapshot(
+                    status="ok",
+                    result=self._serialise_result(envelope.get("result")),
+                )
+            # Schema drift: the ``ok`` envelope should always carry a
+            # ``result`` key on a well-formed dict. Route to ``rejected``
+            # with a distinct ``error`` so ``_apply_snapshot`` sets
+            # ``target.error = "envelope_drift"`` — downstream (trader's
+            # ``DecisionReceive``) can now distinguish a mech-side schema
+            # mismatch from a routine tool failure (``error="Unknown"``).
             if isinstance(envelope, dict):
-                if "result" not in envelope:
-                    # Schema drift: the ok envelope should always carry a
-                    # `result` key. Falling through with None would look
-                    # indistinguishable from a routine tool failure
-                    # (target.error becomes "Unknown"); flag it so the
-                    # drift is visible rather than a fake failed prediction.
-                    self._logger.warning(
-                        "Offchain 'ok' envelope missing 'result' key; "
-                        "keys=%s. Treating as a failed poll.",
-                        sorted(envelope.keys()),
-                    )
-                inner_result = envelope.get("result")
+                self._logger.warning(
+                    "Offchain 'ok' envelope missing 'result' key; "
+                    "keys=%s. Surfacing as 'envelope_drift'.",
+                    sorted(envelope.keys()),
+                )
             else:
-                # Same drift bucket: the `response` field is either absent
-                # (envelope is None) or a scalar/list rather than the dict
-                # the mech server contracts to send. Without a warning
-                # the fall-through sets `result` to that value (or None)
-                # and downstream sees `error="Unknown"` -- indistinguishable
-                # from a real tool failure, so the truncated-payload shape
-                # would keep looking like a bad prediction. Flag it.
                 self._logger.warning(
                     "Offchain 'ok' status but 'response' envelope "
-                    "missing/malformed: %r. Treating as a failed poll.",
+                    "missing/malformed: %r. Surfacing as 'envelope_drift'.",
                     envelope,
                 )
-                inner_result = envelope
             return _PollSnapshot(
-                status="ok",
-                result=self._serialise_result(inner_result),
+                status="rejected",
+                error="envelope_drift",
             )
         if status == "rejected":
             return _PollSnapshot(

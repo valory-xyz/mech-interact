@@ -146,6 +146,24 @@ class TestMechMarketplaceConfig:
                 auto_deposit_cap_per_cycle=1_000_000,
             )
 
+    @pytest.mark.parametrize("bad_value", ["true", "false", 1, 0, "yes", None])
+    def test_use_offchain_non_bool_raises(self, bad_value: object) -> None:
+        """Non-bool ``use_offchain`` (e.g. env-var string ``"true"``) fails validation (C6).
+
+        Previously a truthy non-bool passed the truthiness check here,
+        forced the cap to be configured, then silently failed the
+        dispatcher's ``is True`` guard and ran the on-chain path.
+        Failing loud at startup surfaces the misconfiguration directly.
+        """
+        with pytest.raises(ValueError, match="use_offchain must be a real bool"):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                use_offchain=bad_value,  # type: ignore[arg-type]
+                offchain_url="https://mech.example/",
+                auto_deposit_cap_per_cycle=1_000_000,
+            )
+
     def test_use_offchain_without_auto_deposit_cap_raises(self) -> None:
         """``auto_deposit_cap_per_cycle`` is required when ``use_offchain=True``."""
         with pytest.raises(

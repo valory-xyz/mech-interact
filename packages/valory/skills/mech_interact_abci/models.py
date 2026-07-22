@@ -288,6 +288,20 @@ class MechMarketplaceConfig:
         )
         if self.response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
+        # Env-var / yaml overrides that resolve to a truthy non-bool (e.g.
+        # the literal string ``"true"``) previously passed truthiness
+        # validation here, forced ``auto_deposit_cap_per_cycle`` to be
+        # configured, and then failed the ``is True`` dispatch guard in
+        # ``MechRequestBehaviour.async_act`` -- silently routing to the
+        # on-chain path with an unnecessary cap requirement. Fail loud at
+        # startup instead.
+        if not isinstance(self.use_offchain, bool):
+            raise ValueError(
+                "use_offchain must be a real bool (got "
+                f"{type(self.use_offchain).__name__}={self.use_offchain!r}); "
+                "check the service-level override coerces the value before "
+                "instantiation"
+            )
         if (
             self.use_offchain
             and not self.offchain_url

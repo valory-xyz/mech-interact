@@ -1094,6 +1094,36 @@ class TestFreshCycle:
             _state_resp({"max_delivery_rate": 10**16}),
         ]
 
+    def test_oversized_metadata_returns_all_failed(self) -> None:
+        """A prompt over the CID single-block ceiling fails cleanly (C2).
+
+        Pre-fix ``build_request_metadata`` raised ``ValueError`` and
+        nothing on this path caught it, so the FSM re-entered the round
+        every period with the same crash. Now it routes through
+        ``OFFCHAIN_ALL_FAILED`` with ``OFFCHAIN_METADATA_OVERSIZE`` as
+        the failure reason.
+        """
+        from packages.valory.skills.mech_interact_abci.states.base import (
+            MechMetadata,
+            OFFCHAIN_METADATA_OVERSIZE,
+        )
+
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[],
+            http_responses=[],
+            # Well above the 256 KiB single-block ceiling.
+            mech_requests=[
+                MechMetadata(prompt="x" * (300 * 1024), tool="t", nonce="n")
+            ],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_METADATA_OVERSIZE
+        # No mech POST attempted -- rejected before wire access.
+        assert len(stub.posted_urls) == 0
+
     def test_done_first_try(self) -> None:
         """200 on the first mech yields ``OFFCHAIN_DONE`` and a pending blob."""
         mech_addr = "0x" + "aa" * 20
@@ -1564,6 +1594,72 @@ class TestLoadPendingRequestDistinguishesCorruption:
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         assert executor._load_pending_request() is None
         assert warnings == []
+
+    def test_stale_pending_metadata_nonce_mismatch_discards(self) -> None:
+        """Nonce-mismatched pending is discarded (C1).
+
+        A well-formed pending whose nonce differs from the incoming
+        request is dropped instead of resumed. Previously the executor
+        re-POSTed the delivered request and paired the old answer with
+        the new prompt.
+        """
+        from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
+
+        pending = {
+            "request_id": "ab" * 32,
+            "nonce": 7,
+            "mech_address": "0x" + "aa" * 20,
+            "mech_url": "https://mech-aa.example",
+            "sender": "0x" + "cc" * 20,
+            "delivery_rate": 10**16,
+            "ipfs_hash": "0x" + "de" * 32,
+            "ipfs_data": "{}",
+            "metadata_nonce": "prev-nonce",
+        }
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            offchain_pending_request=pending,
+            mech_requests=[MechMetadata(prompt="p", tool="t", nonce="new-nonce")],
+        )
+        infos: List[str] = []
+        stub.context.logger.info = lambda *a, **k: infos.append(a[0] if a else "")
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        assert executor._load_pending_request() is None
+        assert any("stale offchain_pending_request" in msg for msg in infos), infos
+
+    def test_matching_metadata_nonce_resumes(self) -> None:
+        """When the incoming request carries the same nonce, resume normally.
+
+        Guard rail so the C1 stale-discard doesn't accidentally kill the
+        deposit-just-settled retry leg (the retry period re-enters with
+        the same ``mech_requests`` list).
+        """
+        from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
+
+        pending = {
+            "request_id": "ab" * 32,
+            "nonce": 7,
+            "mech_address": "0x" + "aa" * 20,
+            "mech_url": "https://mech-aa.example",
+            "sender": "0x" + "cc" * 20,
+            "delivery_rate": 10**16,
+            "ipfs_hash": "0x" + "de" * 32,
+            "ipfs_data": "{}",
+            "metadata_nonce": "same-nonce",
+        }
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            offchain_pending_request=pending,
+            mech_requests=[MechMetadata(prompt="p", tool="t", nonce="same-nonce")],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = executor._load_pending_request()
+        assert result is not None
+        assert result.metadata_nonce == "same-nonce"
 
 
 class TestComputeDepositAmount:

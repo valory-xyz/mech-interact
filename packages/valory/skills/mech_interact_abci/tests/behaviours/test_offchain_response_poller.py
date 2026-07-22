@@ -100,19 +100,41 @@ def _drive(gen: Any) -> Any:
 class TestPollUntilTerminal:
     """End-to-end behaviour of :meth:`_poll_until_terminal`."""
 
-    def test_404_fast_fails(self) -> None:
-        """404 → terminal "not_found", no further polling.
+    def test_five_consecutive_404_fast_fails(self) -> None:
+        """5 consecutive 404s → terminal "not_found" (post-review C8).
 
-        Previously a 404 (mech restarted and lost the request) was treated
-        as "still processing" and the loop ran the full poll budget.
+        A single first-attempt 404 previously permanently rejected a
+        paid-for request — a rolling-deploy LB blip or a racy first GET
+        landing before the mech's enqueue was visible would silently
+        throw away real work. Bucketing 404 with the same consecutive-
+        failure tolerance as 5xx/600 lets a mid-rollout blip recover
+        while a persistently-unknown request_id still surfaces cleanly.
         """
-        stub = _StubBehaviour(http_responses=[_http_response(404)])
+        stub = _StubBehaviour(
+            http_responses=[_http_response(404) for _ in range(5)],
+        )
         poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
         snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
         assert snapshot.status == "rejected"
         assert snapshot.error == "not_found"
-        # No sleep — fast-fail did not wait for the budget.
-        assert stub.sleep_calls == 0
+
+    def test_single_404_does_not_fast_fail(self) -> None:
+        """A first-attempt 404 is treated as transient, not terminal.
+
+        Guards the C8 regression: covers the async-registration race
+        where the POST 200 returned but the GET hits the mech's
+        pending-tasks index before it's visible.
+        """
+        stub = _StubBehaviour(
+            http_responses=[
+                _http_response(404),
+                _http_response(200, b'{"status":"ok","response":{"result":"ok"}}'),
+            ],
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
+        assert snapshot.status == "ok"
+        assert snapshot.result == "ok"
 
     def test_five_consecutive_5xx_fast_fails(self) -> None:
         """5 in a row → terminal "server_unavailable" (review C6).
@@ -159,7 +181,7 @@ class TestPollUntilTerminal:
                 _http_response(200, b'{"status":"processing"}'),
                 _http_response(503),
                 _http_response(503),
-                _http_response(200, b'{"status":"ok","response":"answer"}'),
+                _http_response(200, b'{"status":"ok","response":{"result":"answer"}}'),
             ],
         )
         poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
@@ -222,13 +244,15 @@ class TestPollUntilTerminal:
         assert snapshot.status == "ok"
         assert snapshot.result == "Invalid response"
 
-    def test_ok_status_envelope_missing_result_key_warns(self) -> None:
-        """Schema drift: an ``ok`` envelope with no ``result`` key logs a warning.
+    def test_ok_status_envelope_missing_result_key_surfaces_drift(self) -> None:
+        """Schema drift: an ``ok`` envelope with no ``result`` key surfaces as rejected (C7).
 
-        Falling through silently would land in ``mech_responses`` as a
-        fake failed prediction (``result=None, error="Unknown"``),
-        indistinguishable from a routine tool failure. Emit a warning
-        so the drift is visible.
+        Pre-fix this fell through with ``status="ok"``, ``result=None`` —
+        indistinguishable from a routine tool failure downstream
+        (``target.error`` became the generic ``"Unknown"``). Now returns
+        ``status="rejected"`` with a distinct ``error="envelope_drift"``
+        so the trader-side receive step can tell a mech-side schema
+        mismatch apart from a real tool failure.
         """
         body = json.dumps(
             {
@@ -244,11 +268,20 @@ class TestPollUntilTerminal:
         stub = _StubBehaviour(http_responses=[_http_response(200, body)])
         poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
         snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
-        assert snapshot.status == "ok"
-        assert snapshot.result is None
+        assert snapshot.status == "rejected"
+        assert snapshot.error == "envelope_drift"
         assert any(
             "missing 'result' key" in msg for msg in stub.warnings
         ), stub.warnings
+
+    def test_ok_status_malformed_response_envelope_surfaces_drift(self) -> None:
+        """A non-dict ``response`` field surfaces as ``envelope_drift`` too (C7)."""
+        body = json.dumps({"status": "ok", "response": "not-a-dict"}).encode()
+        stub = _StubBehaviour(http_responses=[_http_response(200, body)])
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
+        assert snapshot.status == "rejected"
+        assert snapshot.error == "envelope_drift"
 
     def test_ok_status_serialises_non_string_inner_result_to_json(self) -> None:
         """Non-string inner ``result`` values are JSON-encoded for the downstream wire shape.

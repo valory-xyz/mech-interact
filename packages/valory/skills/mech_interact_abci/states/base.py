@@ -66,6 +66,11 @@ OFFCHAIN_402_INSUFFICIENT = "offchain_402_insufficient"
 OFFCHAIN_503_ALL_MECHS = "offchain_503_all_mechs"
 OFFCHAIN_TIMEOUT_ALL_MECHS = "offchain_timeout_all_mechs"
 OFFCHAIN_BAD_RESPONSE = "offchain_bad_response"
+# Emitted when the caller-supplied metadata exceeds the single-block CIDv1
+# ceiling (256 KiB). The on-chain IPFS path chunks these transparently; the
+# off-chain path needs the request to reject cleanly so the FSM doesn't
+# crash-loop the same oversized ``mech_requests`` every period.
+OFFCHAIN_METADATA_OVERSIZE = "offchain_metadata_oversize"
 
 NestedSubgraphItemType = List[Dict[str, Any]]
 

@@ -89,6 +89,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
+    OFFCHAIN_METADATA_OVERSIZE,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     SCHEMA_VERSION,
     merge_extra_attributes,
@@ -724,15 +725,32 @@ class OffchainRequestExecutor:
             return OffchainCycleResult(offchain_result=Event.OFFCHAIN_DONE.value)
 
         request_meta: MechMetadata = requests[0]
-        ipfs_hash, _, ipfs_data = build_request_metadata(
-            prompt=request_meta.prompt,
-            tool=request_meta.tool,
-            extra_attributes=request_meta.extra_attributes,
-            nonce_str=request_meta.nonce,
-            request_context=request_meta.request_context,
-            schema_version=request_meta.schema_version,
-            logger=self._logger,
-        )
+        try:
+            # ``build_request_metadata`` -> ``compute_cidv1_bytes`` raises
+            # ``ValueError`` above the 256 KiB single-block ceiling. The
+            # on-chain IPFS path chunks these transparently, but the
+            # off-chain path has no chunked-DAG shape so the CID cannot be
+            # committed. Route to a clean ``OFFCHAIN_ALL_FAILED`` here so
+            # an oversized prompt fails the consumer once instead of the
+            # FSM re-entering the round every period with the same crash.
+            ipfs_hash, _, ipfs_data = build_request_metadata(
+                prompt=request_meta.prompt,
+                tool=request_meta.tool,
+                extra_attributes=request_meta.extra_attributes,
+                nonce_str=request_meta.nonce,
+                request_context=request_meta.request_context,
+                schema_version=request_meta.schema_version,
+                logger=self._logger,
+            )
+        except ValueError as exc:
+            self._logger.error(
+                "Offchain request metadata rejected as oversized "
+                f"(prompt+extras exceed the single-block CID ceiling): {exc}"
+            )
+            return OffchainCycleResult(
+                offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
+                last_failure_reason=OFFCHAIN_METADATA_OVERSIZE,
+            )
 
         chain_id_int = yield from self._resolve_chain_id_int()
         if chain_id_int is None:
@@ -1759,12 +1777,21 @@ class OffchainRequestExecutor:
         # prefix) for ``safe_tx_hash`` and a ``bytes`` ``data`` (it calls
         # ``.hex()`` internally); base.py:116 stores the same form via
         # ``safe_hash[2:]`` and feeds ``self.multisend_data`` (bytes).
+        #
+        # Always coerce through ``bytes()`` — ``HexBytes`` is itself a
+        # ``bytes`` subclass so ``isinstance(data, bytes)`` is True and a
+        # subclass-preserving guard would skip the conversion. On
+        # ``hexbytes<1`` (still in our resolver range via ``tox.ini``),
+        # some paths surface HexBytes whose ``__str__`` prepends ``0x``,
+        # so any downstream that stringifies via f-string would pack a
+        # literal ``0x`` into the payload and the token-402 deposit's
+        # settlement-side decode raises.
         return hash_payload_to_hex(
             safe_tx_hash[2:],
             value,
             SAFE_GAS,
             to_address,
-            bytes(data) if not isinstance(data, bytes) else data,
+            bytes(data),
             operation,
         )
 
@@ -1842,6 +1869,28 @@ class OffchainRequestExecutor:
                 "cycle instead of resuming.",
                 sorted(raw.keys()) if isinstance(raw, dict) else type(raw).__name__,
             )
+            return None
+        # Guard against resuming a stale pending request that belongs to a
+        # previous period. ``offchain_pending_request`` is persisted on the
+        # DONE path so the response poller can pick up the URL, but the
+        # request behaviour re-enters on the next period with a fresh
+        # ``mech_requests`` list carrying its own metadata nonce. If the
+        # incoming request's nonce does not match the pending's, resuming
+        # would re-POST the already-delivered request and pair the old
+        # answer with the new prompt. Discard and fall through to
+        # ``_fresh_cycle`` instead.
+        incoming = self._synced.mech_requests
+        if incoming:
+            incoming_nonce = incoming[0].nonce
+            if incoming_nonce != pending.metadata_nonce:
+                self._logger.info(
+                    "Discarding stale offchain_pending_request "
+                    "(pending metadata_nonce=%s, incoming=%s); starting a "
+                    "fresh cycle for the new request.",
+                    pending.metadata_nonce,
+                    incoming_nonce,
+                )
+                return None
         return pending
 
     def _safe_address(self) -> str:
