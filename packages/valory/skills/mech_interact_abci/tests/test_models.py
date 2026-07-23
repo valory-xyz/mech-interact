@@ -116,9 +116,11 @@ class TestMechMarketplaceConfig:
             use_offchain=True,
             offchain_url="https://mech.example/",
             use_dynamic_mech_selection=False,
+            auto_deposit_cap_per_cycle=1_000_000,
         )
         assert config.use_offchain is True
         assert config.offchain_url == "https://mech.example/"
+        assert config.auto_deposit_cap_per_cycle == 1_000_000
 
     def test_use_offchain_with_dynamic_selection(self) -> None:
         """Dynamic selection is allowed without a static URL (discovered per-mech)."""
@@ -127,19 +129,140 @@ class TestMechMarketplaceConfig:
             response_timeout=30,
             use_offchain=True,
             use_dynamic_mech_selection=True,
+            auto_deposit_cap_per_cycle=1_000_000,
         )
         assert config.use_offchain is True
         assert config.offchain_url is None
+        assert config.auto_deposit_cap_per_cycle == 1_000_000
 
     def test_use_offchain_without_url_or_dynamic_raises(self) -> None:
         """Off-chain needs either a static URL or dynamic discovery."""
-        with pytest.raises(ValueError, match="use_offchain requires"):
+        with pytest.raises(ValueError, match="use_offchain requires either"):
             MechMarketplaceConfig(
                 mech_marketplace_address="0xmarket",
                 response_timeout=30,
                 use_offchain=True,
                 use_dynamic_mech_selection=False,
+                auto_deposit_cap_per_cycle=1_000_000,
             )
+
+    @pytest.mark.parametrize("bad_value", ["true", "false", 1, 0, "yes", None])
+    def test_use_offchain_non_bool_raises(self, bad_value: object) -> None:
+        """Non-bool ``use_offchain`` (e.g. env-var string ``"true"``) fails validation (C6).
+
+        Previously a truthy non-bool passed the truthiness check here,
+        forced the cap to be configured, then silently failed the
+        dispatcher's ``is True`` guard and ran the on-chain path.
+        Failing loud at startup surfaces the misconfiguration directly.
+        """
+        with pytest.raises(ValueError, match="use_offchain must be a real bool"):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                use_offchain=bad_value,  # type: ignore[arg-type]
+                offchain_url="https://mech.example/",
+                auto_deposit_cap_per_cycle=1_000_000,
+            )
+
+    def test_use_offchain_without_auto_deposit_cap_raises(self) -> None:
+        """``auto_deposit_cap_per_cycle`` is required when ``use_offchain=True``."""
+        with pytest.raises(
+            ValueError, match="use_offchain requires auto_deposit_cap_per_cycle"
+        ):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                use_offchain=True,
+                offchain_url="https://mech.example/",
+            )
+
+    def test_negative_auto_deposit_cap_raises(self) -> None:
+        """A negative cap is rejected even on the on-chain path."""
+        with pytest.raises(
+            ValueError, match="auto_deposit_cap_per_cycle must be non-negative"
+        ):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                auto_deposit_cap_per_cycle=-1,
+            )
+
+    def test_zero_auto_deposit_cap_is_allowed_with_use_offchain(self) -> None:
+        """A zero cap is the explicit ``never auto-deposit`` choice; allowed."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            use_offchain=True,
+            offchain_url="https://mech.example/",
+            auto_deposit_cap_per_cycle=0,
+        )
+        assert config.auto_deposit_cap_per_cycle == 0
+
+    @pytest.mark.parametrize(
+        "field, value, error_match",
+        [
+            ("offchain_poll_interval_seconds", 0.0, "must be positive"),
+            ("offchain_poll_interval_seconds", -1.0, "must be positive"),
+            ("offchain_poll_timeout_seconds", 0.0, "must be positive"),
+            ("offchain_poll_timeout_seconds", -1.0, "must be positive"),
+            ("offchain_failover_max_retries", -1, "must be non-negative"),
+            ("offchain_deposit_target_calls", 0, "must be >= 1"),
+            ("offchain_deposit_target_calls", -1, "must be >= 1"),
+        ],
+    )
+    def test_invalid_offchain_timing_params_raise(
+        self, field: str, value: float, error_match: str
+    ) -> None:
+        """Each offchain timing/retry/sizing param is validated for sensible ranges."""
+        with pytest.raises(ValueError, match=error_match):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                **{field: value},  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.parametrize(
+        "interval_in, timeout_in",
+        [
+            (5, 300),
+            ("5", "300"),
+        ],
+        ids=("int_yaml_values", "quoted_string_yaml_values"),
+    )
+    def test_offchain_poll_values_coerced_to_float(
+        self, interval_in: Any, timeout_in: Any
+    ) -> None:
+        """Int and quoted-string poll values (as yaml delivers them) become floats.
+
+        Readers like ``OffchainResponsePoller`` consume these fields without
+        re-wrapping in ``float()``, so the coercion in ``__post_init__`` is
+        what upholds the annotated types. The string case pins the fix for
+        the boot crash where a quoted override made ``"300" <= 0`` raise
+        ``TypeError`` before coercion existed.
+        """
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            offchain_poll_interval_seconds=interval_in,
+            offchain_poll_timeout_seconds=timeout_in,
+        )
+        assert type(config.offchain_poll_interval_seconds) is float
+        assert config.offchain_poll_interval_seconds == 5.0
+        assert type(config.offchain_poll_timeout_seconds) is float
+        assert config.offchain_poll_timeout_seconds == 300.0
+
+    def test_offchain_deposit_target_calls_default(self) -> None:
+        """Default sizes 10 forward calls per deposit.
+
+        Pinned because the value is the entry guard for the dynamic-sizing
+        formula: a silent change to the default would shift every off-chain
+        deployment's BalanceTracker top-up cadence in lockstep.
+        """
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+        )
+        assert config.offchain_deposit_target_calls == 10
 
 
 class TestSharedStateLastFailureReason:
@@ -149,6 +272,35 @@ class TestSharedStateLastFailureReason:
         """A freshly constructed SharedState has no failure reason."""
         state = SharedState(name="", skill_context=DummyContext())
         assert state.last_failure_reason is None
+
+
+class TestResponseRoundTimeoutEvent:
+    """The response round shares the app-wide ``ROUND_TIMEOUT`` event."""
+
+    def test_response_round_times_out_via_shared_round_timeout(self) -> None:
+        """``MechResponseRound`` must use ``Event.ROUND_TIMEOUT``, not a dedicated event.
+
+        Consumer repos (trader, market-resolver) rebind
+        ``MechInteractEvent.ROUND_TIMEOUT`` in their composed apps; a
+        dedicated response-timeout event would silently escape those
+        overrides. Locks in the revert of the ``RESPONSE_ROUND_TIMEOUT``
+        rename.
+        """
+        from packages.valory.skills.mech_interact_abci.rounds import (
+            MechInteractAbciApp,
+        )
+        from packages.valory.skills.mech_interact_abci.states.base import Event
+        from packages.valory.skills.mech_interact_abci.states.final_states import (
+            FinishedMechResponseTimeoutRound,
+        )
+        from packages.valory.skills.mech_interact_abci.states.response import (
+            MechResponseRound,
+        )
+
+        assert set(MechInteractAbciApp.event_to_timeout) == {Event.ROUND_TIMEOUT}
+        response_events = MechInteractAbciApp.transition_function[MechResponseRound]
+        assert response_events[Event.ROUND_TIMEOUT] is FinishedMechResponseTimeoutRound
+        assert not hasattr(Event, "RESPONSE_ROUND_TIMEOUT")
 
 
 class TestMultisendBatch:

@@ -20,6 +20,9 @@ packages/valory/contracts/gnosis_safe
 packages/valory/contracts/gnosis_safe_proxy_factory
 packages/valory/contracts/multisend
 packages/valory/contracts/service_registry
+packages/valory/contracts/balance_tracker
+packages/valory/contracts/balance_tracker_fixed_price_native
+packages/valory/contracts/mech_marketplace
 packages/valory/protocols/*
 packages/valory/skills/abstract_abci
 packages/valory/skills/abstract_round_abci

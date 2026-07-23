@@ -10,13 +10,13 @@ requires-python = ">=3.10,<3.15"
 readme = "README.md"
 license = "Apache-2.0"
 dependencies = [
-    "open-autonomy==0.21.23",
-    "open-aea==2.2.7",
-    "open-aea-ledger-ethereum==2.2.7",
-    "open-aea-ledger-cosmos==2.2.7",
-    "open-aea-cli-ipfs==2.2.7",
-    "open-aea-test-autonomy==0.21.23",
-    "open-aea-helpers==0.21.23",
+    "open-autonomy==0.21.26",
+    "open-aea==2.2.9",
+    "open-aea-ledger-ethereum==2.2.9",
+    "open-aea-ledger-cosmos==2.2.9",
+    "open-aea-cli-ipfs==2.2.9",
+    "open-aea-test-autonomy==0.21.26",
+    "open-aea-helpers==0.21.26",
     "requests>=2.28.1",
     "aiohttp<4.0.0,>=3.8.5",
     "asn1crypto<1.5.0,>=1.4.0",
@@ -61,6 +61,9 @@ pytest_targets = [
     "packages/valory/contracts/mech/tests",
     "packages/valory/contracts/mech_mm/tests",
     "packages/valory/contracts/mech_marketplace_legacy/tests",
+]
+upstream_pins = [
+    "valory-xyz/mech@v0.34.2-rc2",
 ]
 # TODO: flip to ==0.7.0 once tomte v0.7.0 publishes to PyPI.
 tomte_dep_pin = " @ git+https://github.com/valory-xyz/tomte.git@v0.7.0"

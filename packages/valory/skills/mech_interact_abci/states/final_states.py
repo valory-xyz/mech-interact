@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ------------------------------------------------------------------------------
 #
-#   Copyright 2023-2025 Valory AG
+#   Copyright 2023-2026 Valory AG
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -56,3 +56,34 @@ class FinishedMechResponseRound(DegenerateRound):
 
 class FinishedMechResponseTimeoutRound(DegenerateRound):
     """FinishedMechResponseTimeoutRound"""
+
+
+class FinishedOffchainMechRequestRound(DegenerateRound):
+    """Offchain happy path: request POST got 200; ready to poll.
+
+    The response is ready to be polled via the offchain HTTP poller. The
+    consumer routes this to ``MechResponseRound``.
+    """
+
+
+class FinishedOffchainMechDepositNeededRound(DegenerateRound):
+    """Offchain 402 path: structured 402, deposit multisend pending settlement.
+
+    Carries ``tx_submitter``+``most_voted_tx_hash`` for the consumer's
+    transaction-settlement skill; on ``PostTxSettlement`` the multiplexer
+    routes back to ``MechRequestRound`` to retry the original request_id
+    at the same nonce after the deposit lands.
+    """
+
+
+class FailedOffchainMechRequestRound(DegenerateRound):
+    """Offchain failure path: the cycle exhausted its failover budget.
+
+    Triggered by all timeouts, all 503s, an over-cap 402, a Nevermined
+    402 that cannot be auto-resolved, or a ``BAD_RESPONSE`` outcome (a
+    malformed 402 body, a non-200/402/503 HTTP status, an unknown
+    ``paymentType``, or a failed ``_validate_402_destination``
+    cross-check). The reason is in
+    ``synchronized_data.offchain_last_failure_reason``. The consumer
+    surfaces this to its decision-receive flow as a clean failure.
+    """

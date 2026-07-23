@@ -20,6 +20,7 @@
 """This module contains the base functionality for the rounds of the mech interact abci app."""
 
 import json
+import logging
 import math
 import time
 from dataclasses import InitVar, asdict, dataclass, field, is_dataclass
@@ -39,6 +40,8 @@ from packages.valory.skills.mech_interact_abci.payloads import (
 from packages.valory.skills.transaction_settlement_abci.rounds import (
     SynchronizedData as TxSynchronizedData,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 SERIALIZED_EMPTY_LIST = "[]"
 METADATA_FIELD = "metadata"
@@ -62,6 +65,12 @@ OFFCHAIN_ALL_FAILED = "offchain_all_failed"
 OFFCHAIN_402_INSUFFICIENT = "offchain_402_insufficient"
 OFFCHAIN_503_ALL_MECHS = "offchain_503_all_mechs"
 OFFCHAIN_TIMEOUT_ALL_MECHS = "offchain_timeout_all_mechs"
+OFFCHAIN_BAD_RESPONSE = "offchain_bad_response"
+# Emitted when the caller-supplied metadata exceeds the single-block CIDv1
+# ceiling (256 KiB). The on-chain IPFS path chunks these transparently; the
+# off-chain path needs the request to reject cleanly so the FSM doesn't
+# crash-loop the same oversized ``mech_requests`` every period.
+OFFCHAIN_METADATA_OVERSIZE = "offchain_metadata_oversize"
 
 NestedSubgraphItemType = List[Dict[str, Any]]
 
@@ -78,6 +87,15 @@ class Event(Enum):
     ROUND_TIMEOUT = "round_timeout"
     SKIP_REQUEST = "skip_request"
     BUY_SUBSCRIPTION = "buy_subscription"
+    # Offchain dispatch events. Emitted by ``MechRequestRound.end_block`` when
+    # the request behaviour took the offchain HTTP path (use_offchain=true) and
+    # produced one of the three offchain outcomes.
+    OFFCHAIN_DONE = "offchain_done"
+    OFFCHAIN_DEPOSIT_NEEDED = "offchain_deposit_needed"
+    OFFCHAIN_ALL_FAILED = "offchain_all_failed"
+
+
+SCHEMA_VERSION = "2.0"
 
 
 @dataclass
@@ -87,12 +105,58 @@ class MechMetadata:
     prompt: str
     tool: str
     nonce: str
-    schema_version: str = "2.0"
+    schema_version: str = SCHEMA_VERSION
     request_context: Optional[Dict[str, Any]] = None
     # Extra tool parameters, merged into the request payload top-level (next to
     # prompt/tool/nonce) so the tool receives them as run() kwargs. Mirrors the
     # mech-client `extra_attributes` channel. Defaults to None for back-compat.
     extra_attributes: Optional[Dict[str, Any]] = None
+
+
+def merge_extra_attributes(
+    payload: Dict[str, Any],
+    extras: Optional[Dict[str, Any]],
+    logger: Optional[logging.Logger] = None,
+) -> Dict[str, Any]:
+    """Merge ``extras`` into ``payload`` top-level, rejecting reserved keys.
+
+    Shared between the on-chain (``_send_metadata_to_ipfs``) and off-chain
+    (``build_request_metadata``) request paths and the parity test between
+    them, so all three see the same clobber-check and merge behaviour and
+    cannot silently drift. ``payload`` is mutated in place and returned.
+
+    Extras keys that would overwrite an already-populated reserved key
+    raise :class:`ValueError` rather than silently overriding: on the
+    off-chain path this would otherwise let a caller substitute the paid-for
+    ``tool`` (or ``prompt`` / ``nonce`` / ``schema_version`` /
+    ``request_context``) with a value the mech settles against a different
+    tool identifier. Loud-fail is safer than a warn-and-clobber log line
+    that operators can miss.
+
+    :param payload: Reserved-key dict already populated with the request
+        fields; must not contain the ``extra_attributes`` wrapper key.
+    :param extras: Extra tool parameters. ``None`` or empty is a no-op.
+    :param logger: Logger for diagnostic context on rejection. Callers
+        pass their behaviour's ``context.logger`` / ``_logger`` so the
+        error is attached to the agent's log stream. Optional.
+    :return: The mutated ``payload`` (returned for chainability).
+    :raises ValueError: if ``extras`` contains any key already present in
+        ``payload`` (i.e. any of the reserved request fields).
+    """
+    if not extras:
+        return payload
+    clobbered = extras.keys() & payload.keys()
+    if clobbered:
+        if logger is not None:
+            logger.error(
+                "extra_attributes contains reserved request keys: %s", clobbered
+            )
+        raise ValueError(
+            f"extra_attributes may not override reserved request keys: "
+            f"{sorted(clobbered)}"
+        )
+    payload.update(extras)
+    return payload
 
 
 @dataclass
@@ -197,6 +261,12 @@ class MechInfo:
     self_delivered: int = 0
     max_delivery_rate: int = 0
     relevant_tools: Set[str] = field(default_factory=set)
+    # Offchain HTTP URL published by the mech operator in the IPFS metadata
+    # manifest under the ``url`` key (see mech-deployments ``make
+    # update-metadata`` flow). None for mechs whose manifest predates the
+    # offchain rollout; consumers fall back to the static ``offchain_url``
+    # config when None.
+    http_url: Optional[str] = None
 
     def __post_init__(
         self,
@@ -496,6 +566,75 @@ class SynchronizedData(TxSynchronizedData):
     def is_marketplace_v2(self) -> Optional[bool]:
         """Whether a marketplace V2 is used. True if v2, False if v1, None if no marketplace is used."""
         return self.db.get_strict("is_marketplace_v2")
+
+    @property
+    def offchain_result(self) -> Optional[str]:
+        """Outcome label emitted by the offchain path of the request behaviour.
+
+        One of ``offchain_done``, ``offchain_deposit_needed``,
+        ``offchain_all_failed``, or ``None`` when the on-chain path ran.
+        ``MechRequestRound.end_block`` reads this to dispatch to the right
+        ``Event`` variant. Persisted as a string so the value flows through
+        the standard payload/selection-key path.
+        """
+        return cast(Optional[str], self.db.get("offchain_result", None))
+
+    @property
+    def offchain_pending_request(self) -> Optional[Dict[str, Any]]:
+        """Serialized state of an in-flight offchain request.
+
+        Two producers set this in ``_fresh_cycle``:
+
+        * ``DEPOSIT_NEEDED`` — the previous attempt hit a structured 402 and the
+          FSM is now settling the deposit multisend; on re-entry the behaviour
+          reads this to reuse the same ``request_id``, signature, nonce, and
+          target mech for the retry POST, so the original signed binding stays
+          valid against the contract's monotonic ``mapNonces``.
+        * ``DONE`` — every successful request also persists the pending state so
+          ``OffchainResponsePoller._load_pending`` has the ``mech_url`` and
+          ``request_id`` it needs to poll for the delivered result.
+
+        ``json.loads`` is the primary path (payloads are always JSON strings via
+        ``PendingRequest.to_json()``); corrupt-string cases log a warning
+        instead of silently collapsing to ``None``, so a lost paid-for
+        correlation leaves a diagnostic trail.
+        """
+        raw = self.db.get("offchain_pending_request", None)
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                _LOGGER.warning(
+                    "offchain_pending_request present but not valid JSON: %r",
+                    raw,
+                )
+                return None
+            if isinstance(parsed, dict):
+                return parsed
+            _LOGGER.warning(
+                "offchain_pending_request parsed to non-dict shape: %r", parsed
+            )
+            return None
+        if isinstance(raw, dict):
+            return raw
+        _LOGGER.warning(
+            "offchain_pending_request has unexpected type %s", type(raw).__name__
+        )
+        return None
+
+    @property
+    def offchain_last_failure_reason(self) -> Optional[str]:
+        """Label set when an offchain cycle exhausted its retries.
+
+        Matches one of the module-level ``OFFCHAIN_*`` constants
+        (``OFFCHAIN_ALL_FAILED``, ``OFFCHAIN_402_INSUFFICIENT``,
+        ``OFFCHAIN_503_ALL_MECHS``, ``OFFCHAIN_TIMEOUT_ALL_MECHS``). Used by
+        downstream rounds and consumer agents to surface why the FSM is
+        leaving the offchain branch.
+        """
+        return cast(Optional[str], self.db.get("offchain_last_failure_reason", None))
 
 
 class MechInteractionRound(CollectSameUntilThresholdRound):
