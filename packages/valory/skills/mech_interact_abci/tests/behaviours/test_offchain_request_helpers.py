@@ -533,10 +533,11 @@ class TestComputeSafeMessageHash:
     Because ``MechMarketplace._verifySignedHash`` calls
     ``Safe.isValidSignature(request_id, sig)`` for a Safe requester, the
     signature posted to the mech must be over the digest the Safe's
-    ``CompatibilityFallbackHandler`` (v1.4.1) rehashes internally, not
-    over the raw ``request_id``. These tests pin the wrapping so any
-    drift from Safe v1.4.1's ``getMessageHashForSafe`` would surface as
-    an ``isValidSignature`` revert instead of a silent settlement fail.
+    ``CompatibilityFallbackHandler`` (v1.3.0 and v1.4.1) rehashes
+    internally, not over the raw ``request_id``. These tests pin the
+    wrapping so any drift from ``getMessageHashForSafe`` would surface
+    as an ``isValidSignature`` revert instead of a silent settlement
+    fail.
     """
 
     # Fork-verified vector from anvil (Gnosis mainnet). Reproduce with
@@ -1683,6 +1684,38 @@ class TestRetryPending:
         result = _drive(executor._retry_pending(pending))
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+
+    def test_retry_pending_fails_closed_when_chain_id_unavailable(self) -> None:
+        """A non-STATE ``chainId`` read on retry short-circuits before signing.
+
+        The retry path resolves the chain id fresh so the SafeMessage
+        wrapping is bound to the settlement chain. If that read fails
+        (RPC blip, contract-api ERROR performative), the executor must
+        exit with ``OFFCHAIN_ALL_FAILED`` + ``OFFCHAIN_TIMEOUT_ALL_MECHS``
+        without signing anything or POSTing. Without this test the guard
+        (``if chain_id_int is None``) could be inverted, or the failure
+        reason silently swapped, and CI would still pass.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        pending = PendingRequest.from_dict(self._pending_raw())
+        assert pending is not None
+        bad = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[bad],
+            http_responses=[],
+            offchain_pending_request=self._pending_raw(),
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._retry_pending(pending))
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+        assert stub.signed_request_ids == []
+        assert stub.posted_urls == []
 
 
 class TestLoadPendingRequestDistinguishesCorruption:
