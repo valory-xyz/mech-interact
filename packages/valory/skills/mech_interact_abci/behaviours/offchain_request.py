@@ -17,7 +17,7 @@
 #
 # ------------------------------------------------------------------------------
 
-"""Off-chain request behaviour for the mech-interact skill.
+r"""Off-chain request behaviour for the mech-interact skill.
 
 When ``MechMarketplaceConfig.use_offchain`` is true, ``MechRequestBehaviour``
 hands off to ``OffchainRequestExecutor.run`` instead of building a Safe tx
@@ -30,10 +30,15 @@ for the on-chain marketplace request. The executor:
   (byte-identical to ``mech-client``'s ``fetch_ipfs_hash``), reads the
   requester's on-chain nonce, derives the ``request_id`` per
   ``MechMarketplace.getRequestId``;
-* signs the request_id via the framework's deprecated-mode signing path
-  (raw ECDSA over the 32-byte digest, no EIP-191 prefix, so the mech's
-  later on-chain settlement verifies the same signature the contract
-  expects);
+* wraps the ``request_id`` in the Safe ``SafeMessage`` EIP-712 digest
+  the ``CompatibilityFallbackHandler`` computes internally (v1.3.0 and
+  v1.4.1 use the same wrapping, bound to ``(chainId, safeAddress)``),
+  then signs that wrapped hash via the framework's deprecated-mode
+  signing path so the AEA skips the ``\x19Ethereum Signed Message:\n32``
+  prefix and produces a raw ECDSA ``(r, s, v)``. Signing the raw
+  ``request_id`` directly reverts at settlement with ``GS026`` because
+  ``Safe.isValidSignature(request_id, sig)`` calls
+  ``checkSignatures`` against the wrapped digest;
 * POSTs to ``/send_signed_requests`` with the form-urlencoded body
   ``mech-client`` already speaks;
 * on 200 records the pending response so the polling behaviour can fetch it;
@@ -320,6 +325,70 @@ def derive_request_id_bytes(  # noqa: D417
         )
     )
     return eth_keccak(b"\x19\x01" + domain_separator + inner_hash)
+
+
+# ----------------------------------------------------------------------------
+# Safe EIP-1271 message wrapping — mirrors ``CompatibilityFallbackHandler``
+# (Safe v1.3.0 and v1.4.1) ``getMessageHashForSafe`` / ``isValidSignature``.
+# When the marketplace validates an off-chain-settled delivery via
+# ``Safe.isValidSignature(request_id, signature)``, the fallback handler
+# rehashes the raw ``request_id`` into a ``SafeMessage`` EIP-712 struct
+# bound to ``(chainId, safeAddress)`` and calls ``checkSignatures`` against
+# that wrapped digest. A raw-ECDSA signature over the unwrapped request_id
+# reverts with ``GS026``, so the sig posted to the mech server must be
+# produced over the wrapped hash for Safe requesters. The domain typehash
+# below (``EIP712Domain(uint256 chainId,address verifyingContract)``) was
+# introduced in Safe v1.3.0 (the cross-chain-replay fix) and is unchanged in
+# v1.4.1, so this wrapping is correct for both. Pre-v1.3.0 Safes used a
+# domain that lacked ``chainId`` and are out of scope. Autonolas services
+# deploy Safe v1.3.0 by default, so the common deployment is covered.
+# ----------------------------------------------------------------------------
+
+_SAFE_DOMAIN_TYPEHASH = eth_keccak(
+    text="EIP712Domain(uint256 chainId,address verifyingContract)"
+)
+_SAFE_MESSAGE_TYPEHASH = eth_keccak(text="SafeMessage(bytes message)")
+
+
+def compute_safe_message_hash(
+    request_id_bytes: bytes,
+    safe_address: str,
+    chain_id: int,
+) -> bytes:
+    """Wrap ``request_id`` in the Safe ``SafeMessage`` EIP-712 digest.
+
+    Matches the ``CompatibilityFallbackHandler`` shipped with Safe v1.3.0
+    and v1.4.1. Both versions bind the domain to ``(chainId,
+    verifyingContract)`` and wrap the message as ``SafeMessage(bytes
+    message)``. Pre-v1.3.0 Safes used a domain without ``chainId`` and
+    are out of scope.
+
+    :param request_id_bytes: The 32-byte ``request_id`` the marketplace
+        will pass to ``Safe.isValidSignature`` at settlement.
+    :param safe_address: The Safe contract acting as the requester
+        (address that pays the delivery rate on-chain).
+    :param chain_id: The settlement chain id (bound into the EIP-712
+        domain separator).
+    :return: The 32-byte digest that ``CompatibilityFallbackHandler``
+        would compute for ``abi.encode(request_id)`` and validate the
+        posted signature against.
+    """
+    if len(request_id_bytes) != 32:
+        raise ValueError("request_id_bytes must be 32 bytes")
+    domain_separator = eth_keccak(
+        abi_encode(
+            ["bytes32", "uint256", "address"],
+            [_SAFE_DOMAIN_TYPEHASH, chain_id, safe_address],
+        )
+    )
+    message = abi_encode(["bytes32"], [request_id_bytes])
+    struct_hash = eth_keccak(
+        abi_encode(
+            ["bytes32", "bytes32"],
+            [_SAFE_MESSAGE_TYPEHASH, eth_keccak(message)],
+        )
+    )
+    return eth_keccak(b"\x19\x01" + domain_separator + struct_hash)
 
 
 # ----------------------------------------------------------------------------
@@ -798,7 +867,9 @@ class OffchainRequestExecutor:
                 nonce=on_chain_nonce,
                 chain_id=chain_id_int,
             )
-            signature_hex = yield from self._sign_request_id(request_id_bytes)
+            signature_hex = yield from self._sign_request_id(
+                request_id_bytes, chain_id_int
+            )
             if signature_hex is None:
                 last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                 continue
@@ -941,7 +1012,13 @@ class OffchainRequestExecutor:
         rather than looping into another deposit.
         """
         request_id_bytes = bytes.fromhex(pending.request_id)
-        signature_hex = yield from self._sign_request_id(request_id_bytes)
+        chain_id_int = yield from self._resolve_chain_id_int()
+        if chain_id_int is None:
+            return OffchainCycleResult(
+                offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
+                last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
+            )
+        signature_hex = yield from self._sign_request_id(request_id_bytes, chain_id_int)
         if signature_hex is None:
             return OffchainCycleResult(
                 offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
@@ -1177,19 +1254,37 @@ class OffchainRequestExecutor:
     # ---------- signing -----------------------------------------------------
 
     def _sign_request_id(
-        self, request_id_bytes: bytes
+        self,
+        request_id_bytes: bytes,
+        chain_id: int,
     ) -> Generator[None, None, Optional[str]]:
-        r"""Sign the 32-byte request_id with the raw-ECDSA path.
+        r"""Sign the Safe-wrapped ``request_id`` digest.
+
+        The marketplace validates the posted signature at settlement by
+        calling ``Safe.isValidSignature(request_id, sig)`` on the
+        requester Safe. The Safe ``CompatibilityFallbackHandler``
+        (v1.3.0 and v1.4.1) rehashes the raw ``request_id`` into a
+        ``SafeMessage`` EIP-712 struct bound to the Safe address and
+        chain id, then calls ``checkSignatures`` against that wrapped
+        digest, so an owner-produced signature must be over the wrapped
+        hash, not the raw ``request_id``. See
+        :func:`compute_safe_message_hash`.
 
         ``get_signature(..., is_deprecated_mode=True)`` skips the
-        ``\x19Ethereum Signed Message:\n32`` prefix and signs the raw 32
-        bytes directly. Mech-client uses the same shape via
-        ``crypto.sign_message(..., is_deprecated_mode=True)``; the contract's
-        ``_verifySignedHash`` recovers the same signer at settlement.
+        ``\x19Ethereum Signed Message:\n32`` prefix so the AEA framework
+        signs the passed 32-byte digest verbatim, producing a raw ECDSA
+        ``(r, s, v)`` with ``v`` in ``{27, 28}`` that Safe's
+        ``checkSignatures`` accepts as an owner sig once the wrapped
+        digest recovers a Safe owner.
         """
         try:
-            signature = yield from self._b.get_signature(
+            wrapped = compute_safe_message_hash(
                 request_id_bytes,
+                self._safe_address(),
+                chain_id,
+            )
+            signature = yield from self._b.get_signature(
+                wrapped,
                 is_deprecated_mode=True,
             )
         except Exception as exc:  # pragma: no cover - framework boundary
@@ -1916,6 +2011,7 @@ __all__ = [
     "PendingRequest",
     "build_request_metadata",
     "compute_cidv1_bytes",
+    "compute_safe_message_hash",
     "derive_request_id_bytes",
     "parse_payment_challenge",
 ]

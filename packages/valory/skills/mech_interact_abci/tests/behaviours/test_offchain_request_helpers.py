@@ -48,6 +48,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     _PAYMENT_TYPE_HASH_TOKEN_USDC,
     build_request_metadata,
     compute_cidv1_bytes,
+    compute_safe_message_hash,
     derive_request_id_bytes,
     parse_payment_challenge,
 )
@@ -524,6 +525,84 @@ class TestDeriveRequestIdBytes:
         a = derive_request_id_bytes(data=b'{"prompt":"a"}', **common)
         b = derive_request_id_bytes(data=b'{"prompt":"b"}', **common)
         assert a != b
+
+
+class TestComputeSafeMessageHash:
+    """SafeMessage EIP-712 wrapping mirrors CompatibilityFallbackHandler.
+
+    Because ``MechMarketplace._verifySignedHash`` calls
+    ``Safe.isValidSignature(request_id, sig)`` for a Safe requester, the
+    signature posted to the mech must be over the digest the Safe's
+    ``CompatibilityFallbackHandler`` (v1.3.0 and v1.4.1) rehashes
+    internally, not over the raw ``request_id``. These tests pin the
+    wrapping so any drift from ``getMessageHashForSafe`` would surface
+    as an ``isValidSignature`` revert instead of a silent settlement
+    fail.
+    """
+
+    # Fork-verified vector from anvil (Gnosis mainnet). Reproduce with
+    # ``Safe.getMessageHash(abi.encode(request_id))`` on a threshold-1
+    # Safe deployed via SafeProxyFactory 0x4e1DCf...ec67 + singleton
+    # 0x4167...61a + fallback handler 0xfd07...ec99. Owner-signed sig
+    # over this hash returns MAGIC_VALUE from ``isValidSignature``.
+    _KNOWN_SAFE = "0x56f3a6943924e88e6aeb4278b88dcafbb9c2d7ae"
+    _KNOWN_CHAIN_ID = 100
+    _KNOWN_REQUEST_ID = bytes.fromhex(
+        "1111111111111111111111111111111111111111111111111111111111111111"
+    )
+    _KNOWN_WRAPPED_HEX = (
+        "107f780f314a238408740f6be23069534b1dfc78fca78aa55cd4599c5280b665"
+    )
+
+    def test_matches_fork_verified_vector(self) -> None:
+        """Locks the byte layout against the on-chain reference."""
+        wrapped = compute_safe_message_hash(
+            self._KNOWN_REQUEST_ID,
+            self._KNOWN_SAFE,
+            self._KNOWN_CHAIN_ID,
+        )
+        assert wrapped.hex() == self._KNOWN_WRAPPED_HEX
+
+    def test_domain_binds_to_safe_address(self) -> None:
+        """Same request_id, different Safe → different digest.
+
+        Regression guard for dropping ``safeAddress`` from the domain
+        separator: signature from Safe A would spuriously validate
+        against Safe B otherwise.
+        """
+        other = "0x" + "aa" * 20
+        assert compute_safe_message_hash(
+            self._KNOWN_REQUEST_ID, self._KNOWN_SAFE, self._KNOWN_CHAIN_ID
+        ) != compute_safe_message_hash(
+            self._KNOWN_REQUEST_ID, other, self._KNOWN_CHAIN_ID
+        )
+
+    def test_domain_binds_to_chain_id(self) -> None:
+        """Same request_id + Safe, different chain → different digest.
+
+        Prevents cross-chain replay of a Safe-owner signature.
+        """
+        assert compute_safe_message_hash(
+            self._KNOWN_REQUEST_ID, self._KNOWN_SAFE, 100
+        ) != compute_safe_message_hash(self._KNOWN_REQUEST_ID, self._KNOWN_SAFE, 137)
+
+    def test_struct_hash_binds_to_request_id(self) -> None:
+        """Different request_id → different digest.
+
+        Catches a bug where the message field is dropped from the struct
+        hash (all request_ids would then produce the same wrapped hash).
+        """
+        other = bytes.fromhex("22" * 32)
+        assert compute_safe_message_hash(
+            self._KNOWN_REQUEST_ID, self._KNOWN_SAFE, self._KNOWN_CHAIN_ID
+        ) != compute_safe_message_hash(other, self._KNOWN_SAFE, self._KNOWN_CHAIN_ID)
+
+    def test_rejects_non_32_byte_request_id(self) -> None:
+        """A shorter or longer request_id would produce a silently wrong hash."""
+        with pytest.raises(ValueError):
+            compute_safe_message_hash(b"\x00" * 31, self._KNOWN_SAFE, 100)
+        with pytest.raises(ValueError):
+            compute_safe_message_hash(b"\x00" * 33, self._KNOWN_SAFE, 100)
 
 
 class TestParsePaymentChallenge:
@@ -1082,6 +1161,40 @@ class TestPickNextMechFallback:
         assert executor._pick_next_mech(["0x" + "AB" * 20]) == (None, None)
 
 
+class TestSignRequestIdWrapsForSafeValidation:
+    """Executor-level guard: the AEA boundary receives the wrapped digest.
+
+    The wrapping happens inside ``_sign_request_id`` (not at the AEA
+    boundary), so a regression that reverts to signing the raw
+    ``request_id`` would surface here as ``signed_request_ids`` no
+    longer matching the ``compute_safe_message_hash`` output.
+    """
+
+    def test_sign_request_id_produces_safe_valid_signature(self) -> None:
+        """The digest sent to ``get_signature`` is the SafeMessage wrapping."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        request_id = bytes.fromhex("cd" * 32)
+        chain_id = 100
+        signature = _drive(executor._sign_request_id(request_id, chain_id))
+        assert signature is not None
+        # Only the wrapped digest — never the raw request_id — reached
+        # the framework boundary. A raw-request_id call would let Safe's
+        # ``checkSignatures`` recover the wrong signer and revert with
+        # ``GS026`` at delivery-with-signatures settlement.
+        expected_wrapped = compute_safe_message_hash(
+            request_id,
+            stub.synchronized_data.safe_contract_address,
+            chain_id,
+        )
+        assert stub.signed_request_ids == [expected_wrapped]
+        assert request_id not in stub.signed_request_ids
+
+
 class TestFreshCycle:
     """End-to-end executor cycles with mocked reads + HTTP (review C8)."""
 
@@ -1140,9 +1253,17 @@ class TestFreshCycle:
         pending = PendingRequest.from_dict(json.loads(result.pending_request_json))
         assert pending is not None
         assert pending.mech_address == mech_addr
-        # The signed digest is exactly the locally-derived request_id.
+        # The signed digest is the SafeMessage-wrapped request_id
+        # (chain_id=100 from ``_native_reads``, safe from ``_StubBehaviour``),
+        # not the raw request_id — Safe.isValidSignature would revert with
+        # ``GS026`` on a raw-request_id sig at settlement.
         assert len(stub.signed_request_ids) == 1
-        assert stub.signed_request_ids[0].hex() == pending.request_id
+        expected_wrapped = compute_safe_message_hash(
+            bytes.fromhex(pending.request_id),
+            stub.synchronized_data.safe_contract_address,
+            100,
+        )
+        assert stub.signed_request_ids[0] == expected_wrapped
         # Only one HTTP attempt was made on the happy path.
         assert len(stub.posted_urls) == 1
 
@@ -1279,7 +1400,9 @@ class TestFreshCycle:
 
         retry_stub = _StubBehaviour(
             ranked_mechs=[],
-            contract_api_responses=[],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # _resolve_chain_id_int on retry
+            ],
             http_responses=[_make_http_response(200)],
             mech_requests=retry_mech_requests,
         )
@@ -1497,15 +1620,26 @@ class TestRetryPending:
         assert pending is not None
         stub = _StubBehaviour(
             ranked_mechs=[],
-            contract_api_responses=[],
+            contract_api_responses=[
+                # Retry re-reads chain_id so the SafeMessage wrapping is
+                # bound to the correct settlement chain (mirrors the
+                # fresh-cycle read on `_resolve_chain_id_int`).
+                _state_resp({"data": 100}),
+            ],
             http_responses=[_make_http_response(200)],
             offchain_pending_request=self._pending_raw(),
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._retry_pending(pending))
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        # The signed digest is the cached request_id, not freshly derived.
-        assert stub.signed_request_ids == [bytes.fromhex(pending.request_id)]
+        # The signed digest is the SafeMessage-wrapped cached request_id.
+        # Signing the raw cached hex would revert on-chain with ``GS026``.
+        expected_wrapped = compute_safe_message_hash(
+            bytes.fromhex(pending.request_id),
+            stub.synchronized_data.safe_contract_address,
+            100,
+        )
+        assert stub.signed_request_ids == [expected_wrapped]
         assert result.pending_request_json is not None
 
     def test_retry_second_402_surfaces_insufficient(self) -> None:
@@ -1514,7 +1648,9 @@ class TestRetryPending:
         assert pending is not None
         stub = _StubBehaviour(
             ranked_mechs=[],
-            contract_api_responses=[],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # _resolve_chain_id_int on retry
+            ],
             http_responses=[_make_http_response(402, _make_402_body())],
             offchain_pending_request=self._pending_raw(),
         )
@@ -1536,7 +1672,9 @@ class TestRetryPending:
         assert pending is not None
         stub = _StubBehaviour(
             ranked_mechs=[],
-            contract_api_responses=[],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # _resolve_chain_id_int on retry
+            ],
             # ``None`` from the HTTP framework helper surfaces as TIMEOUT
             # in ``_post_signed_request`` -- see the outcome mapping there.
             http_responses=[None],
@@ -1546,6 +1684,38 @@ class TestRetryPending:
         result = _drive(executor._retry_pending(pending))
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+
+    def test_retry_pending_fails_closed_when_chain_id_unavailable(self) -> None:
+        """A non-STATE ``chainId`` read on retry short-circuits before signing.
+
+        The retry path resolves the chain id fresh so the SafeMessage
+        wrapping is bound to the settlement chain. If that read fails
+        (RPC blip, contract-api ERROR performative), the executor must
+        exit with ``OFFCHAIN_ALL_FAILED`` + ``OFFCHAIN_TIMEOUT_ALL_MECHS``
+        without signing anything or POSTing. Without this test the guard
+        (``if chain_id_int is None``) could be inverted, or the failure
+        reason silently swapped, and CI would still pass.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        pending = PendingRequest.from_dict(self._pending_raw())
+        assert pending is not None
+        bad = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[bad],
+            http_responses=[],
+            offchain_pending_request=self._pending_raw(),
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._retry_pending(pending))
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+        assert stub.signed_request_ids == []
+        assert stub.posted_urls == []
 
 
 class TestLoadPendingRequestDistinguishesCorruption:
