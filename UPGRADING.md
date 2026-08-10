@@ -5,6 +5,17 @@ Below, we describe the additional manual steps required to upgrade between diffe
 ## Unreleased (built with `open-aea@2.2.6` and `open-autonomy@0.21.22`)
 
 #### Breaking Changes
+- `use_offchain` and `offchain_deposit_target_calls` have moved out of
+  `mech_marketplace_config` and are now top-level `mech_interact_abci`
+  params (`USE_OFFCHAIN`, `OFFCHAIN_DEPOSIT_TARGET_CALLS`). Every overlay
+  (`skill.yaml`, `aea-config.yaml`, `service.yaml`) and every deploy-time
+  `MECH_MARKETPLACE_CONFIG` value (env vars, Propel envs) must drop the
+  two nested keys and declare them at the top level; both are required
+  (`_ensure`), so a composed skill that omits them fails at startup with
+  `AEAEnforceError`. Stale nested keys inside `MECH_MARKETPLACE_CONFIG`
+  are detected explicitly and raise a `ValueError` naming the replacement
+  env vars rather than the bare frozen-dataclass `TypeError` you'd
+  otherwise see.
 - The `valid_tools` operator allowlist has been removed from
   `mech_interact_abci`. The skill no longer filters per-mech
   `relevant_tools` against an operator-curated set; each mech's

@@ -453,9 +453,7 @@ class TestOffchainPollBudgetGuard:
         guard out of the off-chain branches would go unnoticed.
         """
         behaviour = _make_response_behaviour()
-        behaviour._context.params.mech_marketplace_config = SimpleNamespace(
-            use_offchain=False
-        )
+        behaviour._context.params.use_offchain = False
 
         mock_synced = MagicMock()
         # Falsy final_tx_hash keeps the on-chain branch off the

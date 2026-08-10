@@ -638,7 +638,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
     def async_act(self) -> Generator:  # pragma: no cover
         """Do the action."""
 
-        if self.mech_marketplace_config.use_offchain is True:
+        if self.params.use_offchain is True:
             yield from self._run_offchain_response_cycle()
             return
 

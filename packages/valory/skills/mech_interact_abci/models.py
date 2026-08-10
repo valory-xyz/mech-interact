@@ -235,30 +235,11 @@ class MechMarketplaceConfig:
     priority_mech_service_id: int = 975
     requester_staking_instance_address: Optional[str] = NULL_ADDRESS
     use_dynamic_mech_selection: bool = True
-    # Off-chain dispatch (ships dark). False = today's on-chain MechMarketplace
-    # request, bit-for-bit unchanged. True engages the off-chain branch: the
-    # request is HTTP-POSTed to the mech and the response is polled, instead of
-    # being submitted/settled on-chain. ``offchain_url`` is the static fallback
-    # endpoint; when unset the URL is discovered per-mech from the on-chain
-    # manifest (see OFFCHAIN follow-up).
-    use_offchain: bool = False
+    # Static fallback URL for the off-chain branch (top-level
+    # ``MechParams.use_offchain``). When unset the URL is discovered per-mech
+    # from the on-chain manifest via ``use_dynamic_mech_selection``.
     offchain_url: Optional[str] = None
-    # Operator-set cap on a single auto-deposit triggered by a structured 402.
-    # Units: smallest denomination of the payment asset (wei for native,
-    # token's smallest unit for ERC20). Required when ``use_offchain=True``;
-    # no default to force the operator to choose explicitly during rollout.
-    # If the 402 shortfall exceeds the cap, the behaviour refuses the
-    # deposit and surfaces ``OFFCHAIN_402_INSUFFICIENT`` to the consumer.
     auto_deposit_cap_per_cycle: Optional[int] = None
-    # Number of forward requests the off-chain auto-deposit should cover at the
-    # live on-chain ``delivery_rate``. The actual deposit amount is computed
-    # dynamically as ``offchain_deposit_target_calls × delivery_rate`` (clamped
-    # by the cap and the 402 shortfall), so the deposit tracks any mech-price
-    # changes without operator action. Operators raise this for high-volume
-    # services (fewer on-chain trips, more Safe USDC at rest in the
-    # BalanceTracker) and lower for bursty ones (less USDC at rest, more 402
-    # round-trips).
-    offchain_deposit_target_calls: int = 10
     # Polling cadence for ``/fetch_offchain_info``. Mirrors mech-client's
     # ``WAIT_SLEEP``; intentionally generous to let LLM-bound responses
     # finish without burning agent cycles.
@@ -288,50 +269,58 @@ class MechMarketplaceConfig:
         )
         if self.response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
-        # Env-var / yaml overrides that resolve to a truthy non-bool (e.g.
-        # the literal string ``"true"``) previously passed truthiness
-        # validation here, forced ``auto_deposit_cap_per_cycle`` to be
-        # configured, and then failed the ``is True`` dispatch guard in
-        # ``MechRequestBehaviour.async_act`` -- silently routing to the
-        # on-chain path with an unnecessary cap requirement. Fail loud at
-        # startup instead.
-        if not isinstance(self.use_offchain, bool):
-            raise ValueError(
-                "use_offchain must be a real bool (got "
-                f"{type(self.use_offchain).__name__}={self.use_offchain!r}); "
-                "check the service-level override coerces the value before "
-                "instantiation"
-            )
-        if (
-            self.use_offchain
-            and not self.offchain_url
-            and not self.use_dynamic_mech_selection
-        ):
-            raise ValueError(
-                "use_offchain requires either offchain_url or "
-                "use_dynamic_mech_selection (to discover the mech's URL)"
-            )
-        if self.use_offchain and self.auto_deposit_cap_per_cycle is None:
-            raise ValueError(
-                "use_offchain requires auto_deposit_cap_per_cycle to be set "
-                "(operator-required cap on a single 402-triggered deposit, "
-                "in the payment asset's smallest denomination)"
-            )
         if (
             self.auto_deposit_cap_per_cycle is not None
             and self.auto_deposit_cap_per_cycle < 0
         ):
             raise ValueError("auto_deposit_cap_per_cycle must be non-negative")
-        if self.offchain_deposit_target_calls < 1:
-            # ``< 1`` is meaningless: the deposit must at least cover the
-            # current request's shortfall, which is one call's worth.
-            raise ValueError("offchain_deposit_target_calls must be >= 1")
         if self.offchain_poll_interval_seconds <= 0:
             raise ValueError("offchain_poll_interval_seconds must be positive")
         if self.offchain_poll_timeout_seconds <= 0:
             raise ValueError("offchain_poll_timeout_seconds must be positive")
         if self.offchain_failover_max_retries < 0:
             raise ValueError("offchain_failover_max_retries must be non-negative")
+
+
+_LEGACY_MARKETPLACE_KEYS = frozenset({"use_offchain", "offchain_deposit_target_calls"})
+
+
+def validate_offchain_params(
+    use_offchain: bool,
+    marketplace_config: "MechMarketplaceConfig",
+    offchain_deposit_target_calls: int,
+) -> None:
+    """Validate the hoisted off-chain params against the marketplace config.
+
+    Called from ``MechParams.validate_configuration``; kept as a module-
+    level function (not a method) so unit tests can exercise it directly
+    without wiring the full ``skill_context`` harness `_ensure` needs.
+
+    :param use_offchain: whether off-chain dispatch is enabled.
+    :param marketplace_config: the surrounding marketplace config; the
+        ``offchain_url`` / ``use_dynamic_mech_selection`` / ``auto_deposit_cap_per_cycle``
+        fields co-govern the off-chain flow.
+    :param offchain_deposit_target_calls: forward-call count the auto-deposit
+        should size for; must be ``>= 1``.
+    :raises ValueError: on any inconsistency between the fields.
+    """
+    if (
+        use_offchain
+        and not marketplace_config.offchain_url
+        and not marketplace_config.use_dynamic_mech_selection
+    ):
+        raise ValueError(
+            "use_offchain requires either offchain_url or "
+            "use_dynamic_mech_selection (to discover the mech's URL)"
+        )
+    if use_offchain and marketplace_config.auto_deposit_cap_per_cycle is None:
+        raise ValueError(
+            "use_offchain requires auto_deposit_cap_per_cycle to be set "
+            "(operator-required cap on a single 402-triggered deposit, "
+            "in the payment asset's smallest denomination)"
+        )
+    if offchain_deposit_target_calls < 1:
+        raise ValueError("offchain_deposit_target_calls must be >= 1")
 
 
 class MechParams(BaseParams):
@@ -379,8 +368,22 @@ class MechParams(BaseParams):
         self.use_mech_marketplace: bool = self._ensure(
             "use_mech_marketplace", kwargs, bool
         )
+        marketplace_kwargs = dict(kwargs["mech_marketplace_config"])
+        legacy = sorted(_LEGACY_MARKETPLACE_KEYS & set(marketplace_kwargs))
+        if legacy:
+            raise ValueError(
+                f"{legacy} moved out of `mech_marketplace_config` into "
+                "top-level `mech_interact_abci` params; drop them from "
+                "the `MECH_MARKETPLACE_CONFIG` value (env or yaml) and "
+                "set `USE_OFFCHAIN` / `OFFCHAIN_DEPOSIT_TARGET_CALLS` "
+                "at the top level instead"
+            )
         self.mech_marketplace_config: MechMarketplaceConfig = MechMarketplaceConfig(
-            **kwargs["mech_marketplace_config"]
+            **marketplace_kwargs
+        )
+        self.use_offchain: bool = self._ensure("use_offchain", kwargs, bool)
+        self.offchain_deposit_target_calls: int = self._ensure(
+            "offchain_deposit_target_calls", kwargs, int
         )
         agent_registry_address = kwargs.get("agent_registry_address")
         enforce(
@@ -482,6 +485,14 @@ class MechParams(BaseParams):
             # Validate batch size
             if self.multisend_batch_size <= 0:
                 raise ValueError("multisend_batch_size must be positive")
+
+            # Validate hoisted off-chain params (pure function, testable
+            # without a skill_context harness — see tests/test_models.py).
+            validate_offchain_params(
+                use_offchain=self.use_offchain,
+                marketplace_config=self.mech_marketplace_config,
+                offchain_deposit_target_calls=self.offchain_deposit_target_calls,
+            )
 
         except Exception as e:
             raise ValueError(f"Configuration validation failed: {e}") from e

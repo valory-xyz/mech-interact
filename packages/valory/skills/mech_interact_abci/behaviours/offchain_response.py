@@ -19,7 +19,7 @@
 
 """Off-chain response polling for the mech-interact skill.
 
-When ``MechMarketplaceConfig.use_offchain`` is true, ``MechResponseBehaviour``
+When ``MechParams.use_offchain`` is true, ``MechResponseBehaviour``
 hands off to :class:`OffchainResponsePoller` instead of scanning the on-chain
 ``Deliver`` event log.
 

@@ -1050,10 +1050,10 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         """Do the action."""
 
         # ``is True`` not bool() so unrelated truthy mocks in unit tests
-        # never accidentally take the offchain branch; the config validator
-        # already enforces the value is a real bool when ``use_offchain``
-        # is enabled at deploy time.
-        if self.mech_marketplace_config.use_offchain is True:
+        # never accidentally take the offchain branch; ``_ensure`` on the
+        # top-level ``use_offchain`` param already enforces a real bool
+        # at deploy time.
+        if self.params.use_offchain is True:
             yield from self._run_offchain_request_cycle()
             return
 
