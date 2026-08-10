@@ -241,24 +241,8 @@ class MechMarketplaceConfig:
     # being submitted/settled on-chain. ``offchain_url`` is the static fallback
     # endpoint; when unset the URL is discovered per-mech from the on-chain
     # manifest (see OFFCHAIN follow-up).
-    use_offchain: bool = False
     offchain_url: Optional[str] = None
-    # Operator-set cap on a single auto-deposit triggered by a structured 402.
-    # Units: smallest denomination of the payment asset (wei for native,
-    # token's smallest unit for ERC20). Required when ``use_offchain=True``;
-    # no default to force the operator to choose explicitly during rollout.
-    # If the 402 shortfall exceeds the cap, the behaviour refuses the
-    # deposit and surfaces ``OFFCHAIN_402_INSUFFICIENT`` to the consumer.
     auto_deposit_cap_per_cycle: Optional[int] = None
-    # Number of forward requests the off-chain auto-deposit should cover at the
-    # live on-chain ``delivery_rate``. The actual deposit amount is computed
-    # dynamically as ``offchain_deposit_target_calls × delivery_rate`` (clamped
-    # by the cap and the 402 shortfall), so the deposit tracks any mech-price
-    # changes without operator action. Operators raise this for high-volume
-    # services (fewer on-chain trips, more Safe USDC at rest in the
-    # BalanceTracker) and lower for bursty ones (less USDC at rest, more 402
-    # round-trips).
-    offchain_deposit_target_calls: int = 10
     # Polling cadence for ``/fetch_offchain_info``. Mirrors mech-client's
     # ``WAIT_SLEEP``; intentionally generous to let LLM-bound responses
     # finish without burning agent cycles.
@@ -288,44 +272,11 @@ class MechMarketplaceConfig:
         )
         if self.response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
-        # Env-var / yaml overrides that resolve to a truthy non-bool (e.g.
-        # the literal string ``"true"``) previously passed truthiness
-        # validation here, forced ``auto_deposit_cap_per_cycle`` to be
-        # configured, and then failed the ``is True`` dispatch guard in
-        # ``MechRequestBehaviour.async_act`` -- silently routing to the
-        # on-chain path with an unnecessary cap requirement. Fail loud at
-        # startup instead.
-        if not isinstance(self.use_offchain, bool):
-            raise ValueError(
-                "use_offchain must be a real bool (got "
-                f"{type(self.use_offchain).__name__}={self.use_offchain!r}); "
-                "check the service-level override coerces the value before "
-                "instantiation"
-            )
-        if (
-            self.use_offchain
-            and not self.offchain_url
-            and not self.use_dynamic_mech_selection
-        ):
-            raise ValueError(
-                "use_offchain requires either offchain_url or "
-                "use_dynamic_mech_selection (to discover the mech's URL)"
-            )
-        if self.use_offchain and self.auto_deposit_cap_per_cycle is None:
-            raise ValueError(
-                "use_offchain requires auto_deposit_cap_per_cycle to be set "
-                "(operator-required cap on a single 402-triggered deposit, "
-                "in the payment asset's smallest denomination)"
-            )
         if (
             self.auto_deposit_cap_per_cycle is not None
             and self.auto_deposit_cap_per_cycle < 0
         ):
             raise ValueError("auto_deposit_cap_per_cycle must be non-negative")
-        if self.offchain_deposit_target_calls < 1:
-            # ``< 1`` is meaningless: the deposit must at least cover the
-            # current request's shortfall, which is one call's worth.
-            raise ValueError("offchain_deposit_target_calls must be >= 1")
         if self.offchain_poll_interval_seconds <= 0:
             raise ValueError("offchain_poll_interval_seconds must be positive")
         if self.offchain_poll_timeout_seconds <= 0:
@@ -382,6 +333,37 @@ class MechParams(BaseParams):
         self.mech_marketplace_config: MechMarketplaceConfig = MechMarketplaceConfig(
             **kwargs["mech_marketplace_config"]
         )
+        self.use_offchain: bool = self._ensure("use_offchain", kwargs, bool)
+        if not isinstance(self.use_offchain, bool):
+            raise ValueError(
+                "use_offchain must be a real bool (got "
+                f"{type(self.use_offchain).__name__}={self.use_offchain!r}); "
+                "check the service-level override coerces the value before "
+                "instantiation"
+            )
+        if (
+            self.use_offchain
+            and not self.mech_marketplace_config.offchain_url
+            and not self.mech_marketplace_config.use_dynamic_mech_selection
+        ):
+            raise ValueError(
+                "use_offchain requires either offchain_url or "
+                "use_dynamic_mech_selection (to discover the mech's URL)"
+            )
+        if (
+            self.use_offchain
+            and self.mech_marketplace_config.auto_deposit_cap_per_cycle is None
+        ):
+            raise ValueError(
+                "use_offchain requires auto_deposit_cap_per_cycle to be set "
+                "(operator-required cap on a single 402-triggered deposit, "
+                "in the payment asset's smallest denomination)"
+            )
+        self.offchain_deposit_target_calls: int = self._ensure(
+            "offchain_deposit_target_calls", kwargs, int
+        )
+        if self.offchain_deposit_target_calls < 1:
+            raise ValueError("offchain_deposit_target_calls must be >= 1")
         agent_registry_address = kwargs.get("agent_registry_address")
         enforce(
             agent_registry_address is not None,

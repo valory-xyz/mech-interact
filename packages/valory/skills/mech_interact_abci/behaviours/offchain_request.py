@@ -19,7 +19,7 @@
 
 r"""Off-chain request behaviour for the mech-interact skill.
 
-When ``MechMarketplaceConfig.use_offchain`` is true, ``MechRequestBehaviour``
+When ``MechInteractBaseParams.use_offchain`` is true, ``MechRequestBehaviour``
 hands off to ``OffchainRequestExecutor.run`` instead of building a Safe tx
 for the on-chain marketplace request. The executor:
 
@@ -1703,7 +1703,7 @@ class OffchainRequestExecutor:
         clamp is always at least the shortfall (the deposit succeeds for
         the current request).
         """
-        target_calls = self._config.offchain_deposit_target_calls
+        target_calls = self._b.params.offchain_deposit_target_calls
         cap = self._config.auto_deposit_cap_per_cycle or 0
         desired = target_calls * delivery_rate
         needed = max(shortfall, desired - current_balance)

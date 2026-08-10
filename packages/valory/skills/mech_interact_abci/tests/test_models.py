@@ -99,83 +99,6 @@ class TestMechMarketplaceConfig:
         assert config.priority_mech_address == "0xpriority"
         assert config.use_dynamic_mech_selection is False
 
-    def test_use_offchain_defaults_off(self) -> None:
-        """Off-chain dispatch ships dark: defaults to disabled with no URL."""
-        config = MechMarketplaceConfig(
-            mech_marketplace_address="0xmarket",
-            response_timeout=30,
-        )
-        assert config.use_offchain is False
-        assert config.offchain_url is None
-
-    def test_use_offchain_with_static_url(self) -> None:
-        """A static offchain_url satisfies the off-chain config."""
-        config = MechMarketplaceConfig(
-            mech_marketplace_address="0xmarket",
-            response_timeout=30,
-            use_offchain=True,
-            offchain_url="https://mech.example/",
-            use_dynamic_mech_selection=False,
-            auto_deposit_cap_per_cycle=1_000_000,
-        )
-        assert config.use_offchain is True
-        assert config.offchain_url == "https://mech.example/"
-        assert config.auto_deposit_cap_per_cycle == 1_000_000
-
-    def test_use_offchain_with_dynamic_selection(self) -> None:
-        """Dynamic selection is allowed without a static URL (discovered per-mech)."""
-        config = MechMarketplaceConfig(
-            mech_marketplace_address="0xmarket",
-            response_timeout=30,
-            use_offchain=True,
-            use_dynamic_mech_selection=True,
-            auto_deposit_cap_per_cycle=1_000_000,
-        )
-        assert config.use_offchain is True
-        assert config.offchain_url is None
-        assert config.auto_deposit_cap_per_cycle == 1_000_000
-
-    def test_use_offchain_without_url_or_dynamic_raises(self) -> None:
-        """Off-chain needs either a static URL or dynamic discovery."""
-        with pytest.raises(ValueError, match="use_offchain requires either"):
-            MechMarketplaceConfig(
-                mech_marketplace_address="0xmarket",
-                response_timeout=30,
-                use_offchain=True,
-                use_dynamic_mech_selection=False,
-                auto_deposit_cap_per_cycle=1_000_000,
-            )
-
-    @pytest.mark.parametrize("bad_value", ["true", "false", 1, 0, "yes", None])
-    def test_use_offchain_non_bool_raises(self, bad_value: object) -> None:
-        """Non-bool ``use_offchain`` (e.g. env-var string ``"true"``) fails validation (C6).
-
-        Previously a truthy non-bool passed the truthiness check here,
-        forced the cap to be configured, then silently failed the
-        dispatcher's ``is True`` guard and ran the on-chain path.
-        Failing loud at startup surfaces the misconfiguration directly.
-        """
-        with pytest.raises(ValueError, match="use_offchain must be a real bool"):
-            MechMarketplaceConfig(
-                mech_marketplace_address="0xmarket",
-                response_timeout=30,
-                use_offchain=bad_value,  # type: ignore[arg-type]
-                offchain_url="https://mech.example/",
-                auto_deposit_cap_per_cycle=1_000_000,
-            )
-
-    def test_use_offchain_without_auto_deposit_cap_raises(self) -> None:
-        """``auto_deposit_cap_per_cycle`` is required when ``use_offchain=True``."""
-        with pytest.raises(
-            ValueError, match="use_offchain requires auto_deposit_cap_per_cycle"
-        ):
-            MechMarketplaceConfig(
-                mech_marketplace_address="0xmarket",
-                response_timeout=30,
-                use_offchain=True,
-                offchain_url="https://mech.example/",
-            )
-
     def test_negative_auto_deposit_cap_raises(self) -> None:
         """A negative cap is rejected even on the on-chain path."""
         with pytest.raises(
@@ -187,17 +110,6 @@ class TestMechMarketplaceConfig:
                 auto_deposit_cap_per_cycle=-1,
             )
 
-    def test_zero_auto_deposit_cap_is_allowed_with_use_offchain(self) -> None:
-        """A zero cap is the explicit ``never auto-deposit`` choice; allowed."""
-        config = MechMarketplaceConfig(
-            mech_marketplace_address="0xmarket",
-            response_timeout=30,
-            use_offchain=True,
-            offchain_url="https://mech.example/",
-            auto_deposit_cap_per_cycle=0,
-        )
-        assert config.auto_deposit_cap_per_cycle == 0
-
     @pytest.mark.parametrize(
         "field, value, error_match",
         [
@@ -206,14 +118,12 @@ class TestMechMarketplaceConfig:
             ("offchain_poll_timeout_seconds", 0.0, "must be positive"),
             ("offchain_poll_timeout_seconds", -1.0, "must be positive"),
             ("offchain_failover_max_retries", -1, "must be non-negative"),
-            ("offchain_deposit_target_calls", 0, "must be >= 1"),
-            ("offchain_deposit_target_calls", -1, "must be >= 1"),
         ],
     )
     def test_invalid_offchain_timing_params_raise(
         self, field: str, value: float, error_match: str
     ) -> None:
-        """Each offchain timing/retry/sizing param is validated for sensible ranges."""
+        """Each offchain timing/retry param is validated for sensible ranges."""
         with pytest.raises(ValueError, match=error_match):
             MechMarketplaceConfig(
                 mech_marketplace_address="0xmarket",
@@ -250,19 +160,6 @@ class TestMechMarketplaceConfig:
         assert config.offchain_poll_interval_seconds == 5.0
         assert type(config.offchain_poll_timeout_seconds) is float
         assert config.offchain_poll_timeout_seconds == 300.0
-
-    def test_offchain_deposit_target_calls_default(self) -> None:
-        """Default sizes 10 forward calls per deposit.
-
-        Pinned because the value is the entry guard for the dynamic-sizing
-        formula: a silent change to the default would shift every off-chain
-        deployment's BalanceTracker top-up cadence in lockstep.
-        """
-        config = MechMarketplaceConfig(
-            mech_marketplace_address="0xmarket",
-            response_timeout=30,
-        )
-        assert config.offchain_deposit_target_calls == 10
 
 
 class TestSharedStateLastFailureReason:

@@ -1009,9 +1009,9 @@ class _StubBehaviour:
                 offchain_url=offchain_url,
                 priority_mech_address=priority_mech_address,
                 auto_deposit_cap_per_cycle=auto_deposit_cap,
-                offchain_deposit_target_calls=deposit_target_calls,
                 use_dynamic_mech_selection=use_dynamic_mech_selection,
             ),
+            offchain_deposit_target_calls=deposit_target_calls,
             multisend_address="0x" + "ee" * 20,
             mech_chain_id="gnosis",
         )

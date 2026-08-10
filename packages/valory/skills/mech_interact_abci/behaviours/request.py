@@ -1053,7 +1053,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         # never accidentally take the offchain branch; the config validator
         # already enforces the value is a real bool when ``use_offchain``
         # is enabled at deploy time.
-        if self.mech_marketplace_config.use_offchain is True:
+        if self.params.use_offchain is True:
             yield from self._run_offchain_request_cycle()
             return
 
