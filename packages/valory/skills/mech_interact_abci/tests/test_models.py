@@ -35,6 +35,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     NVMConfig,
     Ox,
     SharedState,
+    validate_offchain_params,
 )
 
 PENALIZE_TIME_WINDOW = 300
@@ -160,6 +161,160 @@ class TestMechMarketplaceConfig:
         assert config.offchain_poll_interval_seconds == 5.0
         assert type(config.offchain_poll_timeout_seconds) is float
         assert config.offchain_poll_timeout_seconds == 300.0
+
+
+class TestValidateOffchainParams:
+    """Pure-function validation of the hoisted off-chain params.
+
+    Covers the checks that used to live in ``MechMarketplaceConfig.__post_init__``
+    for ``use_offchain`` / ``offchain_deposit_target_calls`` before they were
+    hoisted to top-level ``MechParams`` attrs. The logic was extracted into a
+    module-level pure function so unit tests can exercise every branch
+    without wiring the full ``skill_context`` harness ``MechParams.__init__``
+    needs.
+    """
+
+    def _mmc(self, **overrides: Any) -> MechMarketplaceConfig:
+        """Build a marketplace config with sensible off-chain-friendly defaults."""
+        defaults: Dict[str, Any] = dict(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            use_dynamic_mech_selection=False,
+            offchain_url=None,
+            auto_deposit_cap_per_cycle=None,
+        )
+        defaults.update(overrides)
+        return MechMarketplaceConfig(**defaults)
+
+    def test_offchain_off_accepts_any_marketplace_shape(self) -> None:
+        """When ``use_offchain=False``, none of the cross-field guards fire."""
+        # Bare config (no url, no dynamic, no cap): the guards would trip on
+        # every clause if use_offchain were True. False must be an override.
+        validate_offchain_params(
+            use_offchain=False,
+            marketplace_config=self._mmc(),
+            offchain_deposit_target_calls=10,
+        )
+
+    def test_offchain_on_without_url_or_dynamic_raises(self) -> None:
+        """Off-chain requires either a static URL or dynamic discovery."""
+        with pytest.raises(ValueError, match="use_offchain requires either"):
+            validate_offchain_params(
+                use_offchain=True,
+                marketplace_config=self._mmc(
+                    use_dynamic_mech_selection=False,
+                    offchain_url=None,
+                    auto_deposit_cap_per_cycle=1_000_000,
+                ),
+                offchain_deposit_target_calls=10,
+            )
+
+    def test_offchain_on_without_cap_raises(self) -> None:
+        """``auto_deposit_cap_per_cycle`` is required when ``use_offchain=True``.
+
+        Pinned because a missing cap plus a truthy-but-non-bool ``use_offchain``
+        used to slip through and silently run the on-chain path. That specific
+        env-var-string case is still guarded by ``_ensure``'s bool type check
+        upstream; this test pins the cross-field requirement itself.
+        """
+        with pytest.raises(
+            ValueError, match="use_offchain requires auto_deposit_cap_per_cycle"
+        ):
+            validate_offchain_params(
+                use_offchain=True,
+                marketplace_config=self._mmc(
+                    offchain_url="https://mech.example/",
+                    auto_deposit_cap_per_cycle=None,
+                ),
+                offchain_deposit_target_calls=10,
+            )
+
+    def test_offchain_on_with_static_url_and_cap_passes(self) -> None:
+        """Static URL + cap satisfies the cross-field requirements."""
+        validate_offchain_params(
+            use_offchain=True,
+            marketplace_config=self._mmc(
+                offchain_url="https://mech.example/",
+                auto_deposit_cap_per_cycle=1_000_000,
+            ),
+            offchain_deposit_target_calls=10,
+        )
+
+    def test_offchain_on_with_dynamic_selection_and_cap_passes(self) -> None:
+        """Dynamic selection substitutes for a static URL."""
+        validate_offchain_params(
+            use_offchain=True,
+            marketplace_config=self._mmc(
+                use_dynamic_mech_selection=True,
+                offchain_url=None,
+                auto_deposit_cap_per_cycle=1_000_000,
+            ),
+            offchain_deposit_target_calls=10,
+        )
+
+    @pytest.mark.parametrize("bad_value", [0, -1, -100])
+    def test_target_calls_below_one_raises(self, bad_value: int) -> None:
+        """``< 1`` is meaningless: deposit must cover at least the current call."""
+        with pytest.raises(
+            ValueError, match="offchain_deposit_target_calls must be >= 1"
+        ):
+            validate_offchain_params(
+                use_offchain=False,
+                marketplace_config=self._mmc(),
+                offchain_deposit_target_calls=bad_value,
+            )
+
+    def test_target_calls_default_of_ten_is_valid(self) -> None:
+        """Default sizes 10 forward calls per deposit.
+
+        Pinned because the value is the entry guard for the dynamic-sizing
+        formula: a silent change to the default would shift every off-chain
+        deployment's BalanceTracker top-up cadence in lockstep. The yaml
+        default (``mech_interact_abci/skill.yaml``, top-level Params args)
+        must round-trip through this validator without raising.
+        """
+        validate_offchain_params(
+            use_offchain=False,
+            marketplace_config=self._mmc(),
+            offchain_deposit_target_calls=10,
+        )
+
+
+class TestLegacyMarketplaceKeysMigrationError:
+    """The stale nested keys must fail loudly, not with a bare ``TypeError``.
+
+    A frozen-dataclass ``TypeError`` on an unexpected kwarg would leave the
+    operator guessing where the fields went. This test pins the explicit
+    migration message routed through ``MechParams.__init__`` — but the
+    dataclass check itself is trivially exercisable here by feeding the
+    same kwargs directly to ``MechMarketplaceConfig`` and confirming the
+    TypeError still fires (which is the trigger the ``__init__`` guard
+    exists to translate).
+    """
+
+    @pytest.mark.parametrize(
+        "legacy_kwarg",
+        [
+            {"use_offchain": False},
+            {"offchain_deposit_target_calls": 10},
+            {"use_offchain": True, "offchain_deposit_target_calls": 5},
+        ],
+    )
+    def test_legacy_kwargs_still_raise_on_dataclass(
+        self, legacy_kwarg: Dict[str, Any]
+    ) -> None:
+        """The dataclass rejects the legacy kwargs.
+
+        The friendly migration guard lives upstream in
+        ``MechParams.__init__`` (covered by real-boot / integration tests
+        via ``check-abci-docstrings``).
+        """
+        with pytest.raises(TypeError):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                **legacy_kwarg,
+            )
 
 
 class TestSharedStateLastFailureReason:

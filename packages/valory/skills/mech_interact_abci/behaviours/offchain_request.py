@@ -19,7 +19,7 @@
 
 r"""Off-chain request behaviour for the mech-interact skill.
 
-When ``MechInteractBaseParams.use_offchain`` is true, ``MechRequestBehaviour``
+When ``MechParams.use_offchain`` is true, ``MechRequestBehaviour``
 hands off to ``OffchainRequestExecutor.run`` instead of building a Safe tx
 for the on-chain marketplace request. The executor:
 
