@@ -514,7 +514,7 @@ _LEDGER_BALANCE_KEY = "get_balance_result"
 
 # ERC20 ``check_balance`` returns ``{"token": ..., "wallet": ...}`` — we only
 # consume the token slot for the requester Safe's ERC20 balance.
-_ERC20_TOKEN_BALANCE_KEY = "token"
+_ERC20_TOKEN_BALANCE_KEY = "token"  # nosec B105
 
 
 class OffchainAttemptOutcome(enum.Enum):
