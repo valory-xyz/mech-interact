@@ -527,6 +527,200 @@ class TestDeriveRequestIdBytes:
         assert a != b
 
 
+class TestExecutorDerivesRequestIdAgainstIpfsHashBytes:
+    """Regression: the executor must hash the 32-byte ipfs multihash, not JSON.
+
+    The marketplace computes ``keccak256(requestData)`` inside
+    ``getRequestId``, and at settlement the mech submits the 32-byte
+    ipfs multihash as ``requestData``. If the trader computes the
+    request_id over ``ipfs_data.encode("utf-8")`` (the JSON body sent
+    on the HTTP form), the signature is over a different digest than
+    the Safe validates on chain, and ``checkSignatures`` reverts with
+    ``GS026``. This bug went undetected in prod for months (1626
+    requests, 0 settled) because no test exercised the call site's
+    ``data=`` argument.
+    """
+
+    def _native_reads(self) -> List[Any]:
+        """Match ``TestFreshCycle._native_reads`` — one happy-path attempt."""
+        return [
+            _state_resp({"data": 100}),  # _resolve_chain_id_int
+            _state_resp({"data": 7}),  # _read_on_chain_nonce
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def test_request_id_matches_derivation_over_ipfs_hash_bytes(self) -> None:
+        """Executor's request_id must equal derive_request_id_bytes(data=hash_bytes).
+
+        Drives a real ``_fresh_cycle``, then independently reconstructs
+        the request_id by rebuilding the same metadata blob to recover
+        the ipfs_hash, decoding it to bytes, and passing those bytes as
+        ``data`` to ``derive_request_id_bytes``. The two must match.
+
+        The pre-fix implementation passed ``ipfs_data.encode("utf-8")``
+        as ``data``, which produced a different keccak and thus a
+        different request_id — this test would have failed against that
+        code.
+        """
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=self._native_reads(),
+            http_responses=[_make_http_response(200)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert result.pending_request_json is not None
+        pending = PendingRequest.from_dict(json.loads(result.pending_request_json))
+        assert pending is not None
+
+        # Independently reconstruct what the executor should have derived:
+        # the 32-byte ipfs multihash, hashed by the marketplace's EIP-712.
+        # ``pending.ipfs_hash`` is the ``"0x"``+62-hex form emitted by
+        # ``build_request_metadata`` — 32 bytes when decoded.
+        ipfs_hash_bytes = bytes.fromhex(
+            pending.ipfs_hash[2:]
+            if pending.ipfs_hash.startswith("0x")
+            else pending.ipfs_hash
+        )
+        assert len(ipfs_hash_bytes) == 32
+        expected_request_id = derive_request_id_bytes(
+            marketplace_address=stub.params.mech_marketplace_config.mech_marketplace_address,
+            mech_address=mech_addr,
+            requester=stub.synchronized_data.safe_contract_address,
+            data=ipfs_hash_bytes,
+            delivery_rate=10**16,
+            payment_type=_NATIVE_PAYMENT_TYPE,
+            nonce=7,
+            chain_id=100,
+        )
+        assert bytes.fromhex(pending.request_id) == expected_request_id
+
+    def test_request_id_does_not_match_derivation_over_json_body(self) -> None:
+        """Negative pin: the request_id must NOT equal derive(data=json_bytes).
+
+        This is the exact regression path: pre-fix, the executor passed
+        ``ipfs_data.encode("utf-8")`` as ``data``. If a future refactor
+        reintroduces that, this assertion flips.
+
+        Guards against ``keccak(json_bytes) == keccak(hash_bytes)`` being
+        somehow coincidentally equal (it is not — 32-byte multihash vs
+        multi-hundred-byte JSON), so the divergence is real.
+        """
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=self._native_reads(),
+            http_responses=[_make_http_response(200)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.pending_request_json is not None
+        pending = PendingRequest.from_dict(json.loads(result.pending_request_json))
+        assert pending is not None
+
+        wrong_request_id = derive_request_id_bytes(
+            marketplace_address=stub.params.mech_marketplace_config.mech_marketplace_address,
+            mech_address=mech_addr,
+            requester=stub.synchronized_data.safe_contract_address,
+            data=pending.ipfs_data.encode("utf-8"),
+            delivery_rate=10**16,
+            payment_type=_NATIVE_PAYMENT_TYPE,
+            nonce=7,
+            chain_id=100,
+        )
+        assert bytes.fromhex(pending.request_id) != wrong_request_id
+
+    def test_matches_mech_client_reference_derivation(self) -> None:
+        """Cross-check against a hand-computed reference of the marketplace formula.
+
+        Mirrors what ``mech-client`` sees when it calls the contract's
+        ``getRequestId(mech, sender, data_hash, delivery_rate, payment_type,
+        nonce)`` view: ``data_hash`` is the 32-byte truncated ipfs multihash
+        (see ``mech_client/services/marketplace_service.py:290``). Rebuilds
+        the EIP-712 domain + inner hash from primitives and asserts the
+        executor's request_id matches.
+        """
+        from eth_abi import encode as _abi_encode  # type: ignore[import-not-found]
+        from eth_utils import keccak as _keccak  # type: ignore[import-not-found]
+
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=self._native_reads(),
+            http_responses=[_make_http_response(200)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.pending_request_json is not None
+        pending = PendingRequest.from_dict(json.loads(result.pending_request_json))
+        assert pending is not None
+
+        marketplace = stub.params.mech_marketplace_config.mech_marketplace_address
+        requester = stub.synchronized_data.safe_contract_address
+        chain_id = 100
+        delivery_rate = 10**16
+        nonce = 7
+        data_hash = bytes.fromhex(
+            pending.ipfs_hash[2:]
+            if pending.ipfs_hash.startswith("0x")
+            else pending.ipfs_hash
+        )
+
+        # Domain separator (mirrors MechMarketplace._computeDomainSeparator).
+        domain_typehash = _keccak(
+            text=(
+                "EIP712Domain(string name,string version,uint256 chainId,"
+                "address verifyingContract)"
+            )
+        )
+        name_hash = _keccak(text="MechMarketplace")
+        version_hash = _keccak(_abi_encode(["string"], ["1.1.0"]))
+        domain_separator = _keccak(
+            _abi_encode(
+                ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+                [
+                    domain_typehash,
+                    name_hash,
+                    version_hash,
+                    chain_id,
+                    marketplace,
+                ],
+            )
+        )
+
+        # Inner hash: keccak of abi.encode(mp, mech, requester, keccak(data),
+        # delivery_rate, payment_type, nonce). ``data`` is the 32-byte hash,
+        # NOT the JSON.
+        inner = _keccak(
+            _abi_encode(
+                [
+                    "address",
+                    "address",
+                    "address",
+                    "bytes32",
+                    "uint256",
+                    "bytes32",
+                    "uint256",
+                ],
+                [
+                    marketplace,
+                    mech_addr,
+                    requester,
+                    _keccak(data_hash),
+                    delivery_rate,
+                    _NATIVE_PAYMENT_TYPE,
+                    nonce,
+                ],
+            )
+        )
+        expected_request_id = _keccak(b"\x19\x01" + domain_separator + inner)
+
+        assert bytes.fromhex(pending.request_id) == expected_request_id
+
+
 class TestComputeSafeMessageHash:
     """SafeMessage EIP-712 wrapping mirrors CompatibilityFallbackHandler.
 
