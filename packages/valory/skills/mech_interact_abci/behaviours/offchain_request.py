@@ -288,8 +288,13 @@ def derive_request_id_bytes(  # noqa: D417
     :param marketplace_address: ``address(this)`` on the settlement chain.
     :param mech_address: The mech the request targets.
     :param requester: The Safe (or EOA) that owns the prepaid balance.
-    :param data: The raw bytes of the request metadata (the same bytes the
-        ``ipfs_data`` form field carries; the contract takes ``keccak256(data)``).
+    :param data: The 32-byte ipfs multihash the mech will submit as
+        ``requestData`` at settlement (i.e. ``bytes.fromhex(ipfs_hash[2:])``,
+        NOT the JSON body carried on the ``ipfs_data`` form field). The
+        contract takes ``keccak256(data)`` inside the EIP-712 struct, and
+        ``requestData`` submitted at ``deliverMarketplaceWithSignatures``
+        time is the 32-byte hash, so the trader must hash the same bytes
+        to arrive at the same ``request_id``.
     :param delivery_rate: Per-request charge (matches the on-chain
         ``deliveryRate`` argument).
     :param payment_type: 32-byte ``paymentType`` constant for the mech's
@@ -857,11 +862,22 @@ class OffchainRequestExecutor:
                 last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                 continue
 
+            # ``data`` must be the 32-byte ipfs multihash the mech will
+            # submit as ``requestData`` at settlement, not the JSON body.
+            # The marketplace computes ``keccak256(requestData)`` inside
+            # ``getRequestId``; if the trader hashes the JSON here instead,
+            # the settlement digest differs from the one the Safe validated
+            # and ``checkSignatures`` reverts with ``GS026``. Mirrors
+            # mech-client's ``fetch_ipfs_hash`` -> ``data_hash`` handoff
+            # (see ``mech_client/services/marketplace_service.py``).
+            ipfs_hash_bytes = bytes.fromhex(
+                ipfs_hash[2:] if ipfs_hash.startswith("0x") else ipfs_hash
+            )
             request_id_bytes = derive_request_id_bytes(
                 marketplace_address=self._config.mech_marketplace_address,
                 mech_address=mech_address,
                 requester=self._safe_address(),
-                data=ipfs_data.encode("utf-8"),
+                data=ipfs_hash_bytes,
                 delivery_rate=delivery_rate,
                 payment_type=payment_type_bytes,
                 nonce=on_chain_nonce,
