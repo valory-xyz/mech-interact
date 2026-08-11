@@ -86,6 +86,7 @@ from packages.valory.contracts.multisend.contract import (
     MultiSendOperation,
 )
 from packages.valory.protocols.contract_api import ContractApiMessage
+from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
@@ -505,6 +506,15 @@ def parse_payment_challenge(body: bytes) -> Optional[PaymentChallenge]:
 
 _ZERO_ADDRESS = "0x" + "0" * 40
 _NATIVE_ASSET = _ZERO_ADDRESS
+
+# Ledger-API ``get_balance`` returns the account balance under this body key
+# (see ``LedgerApiMessage.Performative.STATE`` handling in
+# ``request.py:_get_native_balance``).
+_LEDGER_BALANCE_KEY = "get_balance_result"
+
+# ERC20 ``check_balance`` returns ``{"token": ..., "wallet": ...}`` — we only
+# consume the token slot for the requester Safe's ERC20 balance.
+_ERC20_TOKEN_BALANCE_KEY = "token"
 
 
 class OffchainAttemptOutcome(enum.Enum):
@@ -1725,12 +1735,95 @@ class OffchainRequestExecutor:
         needed = max(shortfall, desired - current_balance)
         return min(needed, cap) if cap else needed
 
+    def _read_safe_native_balance(self) -> Generator[None, None, Optional[int]]:
+        """Read the requester Safe's native balance on ``mech_chain_id``.
+
+        Returns the balance in wei on success. Returns ``None`` if the ledger
+        read failed or produced an unexpected shape — the caller treats that
+        the same way it treats a missing balance so the current cycle is
+        skipped and the next tick can retry the read.
+        """
+        response = yield from self._b.get_ledger_api_response(
+            performative=LedgerApiMessage.Performative.GET_STATE,
+            ledger_callable="get_balance",
+            block_identifier="latest",
+            account=self._safe_address(),
+            chain_id=self._b.params.mech_chain_id,
+        )
+        if response.performative != LedgerApiMessage.Performative.STATE:
+            self._logger.warning(
+                "Safe native balance read failed: "
+                f"performative={response.performative}"
+            )
+            return None
+        body = response.state.body or {}
+        raw = body.get(_LEDGER_BALANCE_KEY)
+        if raw is None:
+            self._logger.warning(
+                "Safe native balance response missing "
+                f"{_LEDGER_BALANCE_KEY!r}; body keys={sorted(body.keys())}"
+            )
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError) as exc:
+            self._logger.warning(
+                f"Safe native balance value {raw!r} is not numeric: {exc}"
+            )
+            return None
+
+    def _read_safe_token_balance(
+        self, token_address: str
+    ) -> Generator[None, None, Optional[int]]:
+        """Read the requester Safe's ERC20 balance for ``token_address``.
+
+        Uses ``ERC20.check_balance``'s ``token`` slot (the ``balanceOf``
+        result). Returns ``None`` on any read failure so the caller can
+        skip this cycle and retry on the next tick.
+        """
+        raw = yield from self._read_contract_state(
+            contract_address=token_address,
+            contract_id=str(ERC20TokenContract.contract_id),
+            contract_callable="check_balance",
+            error_label=f"ERC20.check_balance at {token_address}",
+            result_key=_ERC20_TOKEN_BALANCE_KEY,
+            account=self._safe_address(),
+        )
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError) as exc:
+            self._logger.warning(
+                f"ERC20.check_balance at {token_address} returned a "
+                f"non-numeric token balance {raw!r}: {exc}"
+            )
+            return None
+
     def _build_native_deposit_tx(
         self,
         challenge: PaymentChallenge,
         deposit_amount: int,
     ) -> Generator[None, None, Optional[str]]:
         """Single Safe tx: ``BalanceTracker.depositFor(safe)`` with ``value=deposit_amount``."""
+        # Confirm the Safe holds the native amount the tx will forward as
+        # ``value``. If the read fails or the Safe is short, skip the
+        # build; the caller surfaces ``OFFCHAIN_402_INSUFFICIENT`` to the
+        # consumer and the next tick retries.
+        safe_balance = yield from self._read_safe_native_balance()
+        if safe_balance is None:
+            self._logger.warning(
+                f"Skipping native deposit build for Safe {self._safe_address()}: "
+                "balance read failed."
+            )
+            return None
+        if safe_balance < deposit_amount:
+            self._logger.warning(
+                f"Skipping native deposit build for Safe {self._safe_address()}: "
+                f"native balance {safe_balance} is below the deposit amount "
+                f"{deposit_amount} required by {challenge.pay_to}."
+            )
+            return None
         # Encode the depositFor selector — value is supplied by the Safe
         # tx envelope, not by the calldata, mirroring mech-client's native
         # ``deposit_native`` path.
@@ -1767,6 +1860,24 @@ class OffchainRequestExecutor:
         deposit_amount: int,
     ) -> Generator[None, None, Optional[str]]:
         """Two-call multisend: ``ERC20.approve(deposit_amount)`` + ``BalanceTracker.depositFor(deposit_amount)``."""
+        # Confirm the Safe holds the token the multisend will approve and
+        # forward. If the read fails or the Safe is short, skip the build;
+        # the caller surfaces ``OFFCHAIN_402_INSUFFICIENT`` to the
+        # consumer and the next tick retries.
+        safe_balance = yield from self._read_safe_token_balance(challenge.asset)
+        if safe_balance is None:
+            self._logger.warning(
+                f"Skipping token deposit build for Safe {self._safe_address()}: "
+                f"balance read failed for token {challenge.asset}."
+            )
+            return None
+        if safe_balance < deposit_amount:
+            self._logger.warning(
+                f"Skipping token deposit build for Safe {self._safe_address()}: "
+                f"token {challenge.asset} balance {safe_balance} is below the "
+                f"deposit amount {deposit_amount} required by {challenge.pay_to}."
+            )
+            return None
         approve_data = yield from self._read_contract_state(
             contract_address=challenge.asset,
             contract_id=str(ERC20TokenContract.contract_id),
