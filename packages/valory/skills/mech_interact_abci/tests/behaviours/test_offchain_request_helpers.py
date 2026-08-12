@@ -41,6 +41,8 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     OffchainRequestExecutor,
     PaymentChallenge,
     PendingRequest,
+    _BALANCE_READ_FAILED,
+    _BALANCE_SHORT,
     _PAYMENT_TYPE_HASH_NATIVE,
     _PAYMENT_TYPE_HASH_NVM_NATIVE,
     _PAYMENT_TYPE_HASH_NVM_TOKEN,
@@ -1164,6 +1166,58 @@ def _state_resp(body: Dict[str, Any]) -> Any:
     )
 
 
+def _ledger_balance_resp(balance: int) -> Any:
+    """Build a ledger-api ``get_balance`` response that passes the STATE check."""
+    from packages.valory.protocols.ledger_api.message import LedgerApiMessage
+
+    return SimpleNamespace(
+        performative=LedgerApiMessage.Performative.STATE,
+        state=SimpleNamespace(body={"get_balance_result": balance}),
+    )
+
+
+def _ledger_error_resp() -> Any:
+    """Build a ledger-api ERROR response for RPC-failure paths."""
+    from packages.valory.protocols.ledger_api.message import LedgerApiMessage
+
+    return SimpleNamespace(
+        performative=LedgerApiMessage.Performative.ERROR,
+        state=SimpleNamespace(body={}),
+    )
+
+
+def _ledger_missing_key_resp() -> Any:
+    """Build a ledger-api STATE response with an empty body.
+
+    Simulates an RPC that returned a well-formed envelope but no
+    ``get_balance_result`` field (e.g. an upstream schema drift). The
+    balance reader must classify this as ``_BALANCE_READ_FAILED`` so the
+    caller does not treat it as an underfunded Safe.
+    """
+    from packages.valory.protocols.ledger_api.message import LedgerApiMessage
+
+    return SimpleNamespace(
+        performative=LedgerApiMessage.Performative.STATE,
+        state=SimpleNamespace(body={}),
+    )
+
+
+def _ledger_non_numeric_resp(value: Any) -> Any:
+    """Build a ledger-api STATE response whose balance value is not numeric.
+
+    Guards the ``int(raw)`` coercion branch in ``_read_safe_native_balance``:
+    a malformed value (``"not-a-number"``, a list, a dict) must be
+    classified as ``_BALANCE_READ_FAILED`` rather than crashing the
+    executor with an uncaught ``ValueError``.
+    """
+    from packages.valory.protocols.ledger_api.message import LedgerApiMessage
+
+    return SimpleNamespace(
+        performative=LedgerApiMessage.Performative.STATE,
+        state=SimpleNamespace(body={"get_balance_result": value}),
+    )
+
+
 class _StubBehaviour:
     """Minimal stub of the parent behaviour the executor talks back to.
 
@@ -1187,6 +1241,7 @@ class _StubBehaviour:
         failover_retries: int = 2,
         mech_requests: Optional[List[Any]] = None,
         use_dynamic_mech_selection: bool = True,
+        ledger_api_responses: Optional[List[Any]] = None,
     ) -> None:
         self.context = SimpleNamespace(
             logger=SimpleNamespace(
@@ -1223,6 +1278,7 @@ class _StubBehaviour:
         )
         self._contract_api_responses = list(contract_api_responses)
         self._http_responses = list(http_responses)
+        self._ledger_api_responses = list(ledger_api_responses or [])
         self._signature = signature
         # Record of calls (lets tests assert what the executor did).
         self.posted_urls: List[str] = []
@@ -1233,6 +1289,9 @@ class _StubBehaviour:
         # _get_safe_tx_hash).
         self.contract_api_calls: List[Dict[str, Any]] = []
         self.safe_tx_calls: List[Dict[str, Any]] = []
+        # Record of every ledger-api call so tests can assert the account
+        # and chain the Safe-balance guard queried.
+        self.ledger_api_calls: List[Dict[str, Any]] = []
 
     # Required kwargs per canonical contract callable, on top of the framework-
     # supplied set (performative, contract_address, contract_id, chain_id).
@@ -1250,6 +1309,7 @@ class _StubBehaviour:
         "get_token_address": set(),
         "build_deposit_for_data": {"account", "amount"},
         "build_approval_tx": {"spender", "amount"},
+        "check_balance": {"account"},
         "get_tx_data": {"multi_send_txs"},
         # Safe-tx-hash build sits on every settlement path; a dropped kwarg
         # here silently produces a wrong tx hash and the deposit / delivery
@@ -1285,6 +1345,12 @@ class _StubBehaviour:
             yield
         self.posted_urls.append(kwargs.get("url", ""))
         return self._http_responses.pop(0)
+
+    def get_ledger_api_response(self, **kwargs: Any) -> Any:
+        if False:
+            yield  # make this a generator
+        self.ledger_api_calls.append(kwargs)
+        return self._ledger_api_responses.pop(0)
 
     def get_signature(self, digest: bytes, is_deprecated_mode: bool = True) -> Any:
         if False:
@@ -1495,6 +1561,9 @@ class TestFreshCycle:
                     _make_402_body(pay_to=canonical_tracker, required=500, current=0),
                 ),
             ],
+            # Safe holds enough native to fund the sized deposit; the
+            # balance guard passes and the deposit tx is built.
+            ledger_api_responses=[_ledger_balance_resp(10 * 10**18)],
             auto_deposit_cap=10**18,
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
@@ -1553,9 +1622,7 @@ class TestFreshCycle:
         first leg so the second leg's serialised result still names the
         original request.
         """
-        from packages.valory.skills.mech_interact_abci.states.base import (
-            MechMetadata,
-        )
+        from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
 
         # First leg: fresh cycle returns DEPOSIT_NEEDED.
         mech_addr = "0x" + "aa" * 20
@@ -1576,6 +1643,7 @@ class TestFreshCycle:
                     _make_402_body(pay_to=canonical_tracker, required=500, current=0),
                 ),
             ],
+            ledger_api_responses=[_ledger_balance_resp(10 * 10**18)],
             auto_deposit_cap=10**18,
             mech_requests=[request_meta],
         )
@@ -1767,9 +1835,7 @@ class TestFreshCycle:
         (``str(request_meta.nonce or "")``) restores the graceful
         happy-path completion.
         """
-        from packages.valory.skills.mech_interact_abci.states.base import (
-            MechMetadata,
-        )
+        from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
 
         mech_addr = "0x" + "aa" * 20
         # ``MechMetadata.nonce`` is typed ``str`` but the dataclass has
@@ -2142,6 +2208,9 @@ class TestDepositScalesWithDeliveryRate:
                 # _validate_402_destination → tracker + token
                 _state_resp({"data": self._CANONICAL_TRACKER}),
                 _state_resp({"token_address": self._CANONICAL_TOKEN}),
+                # _read_safe_token_balance → Safe holds enough token to
+                # cover any deposit sized within the auto-deposit cap.
+                _state_resp({"token": 10 * 10**18}),
                 # token deposit multisend: approve + depositFor + multisend
                 _state_resp({"data": b"\xaa"}),
                 _state_resp({"data": b"\xbb"}),
@@ -2183,6 +2252,567 @@ class TestDepositScalesWithDeliveryRate:
         # target_calls=10 in both cycles; deposit = 10 × delivery_rate.
         assert self._approve_amount(low) == 1000
         assert self._approve_amount(high) == 2000
+
+
+class TestDepositBuilderSafeBalancePrecheck:
+    """The deposit builders refuse to build when the Safe cannot fund the tx.
+
+    Both ``_build_native_deposit_tx`` and ``_build_token_deposit_multisend``
+    read the requester Safe's on-chain balance for the asset the tx will
+    forward and skip the build if the balance is short of ``shortfall``.
+    This keeps the downstream tx-settlement path from submitting an
+    execTransaction that the Safe cannot fulfil. When the balance covers
+    ``shortfall`` but not the full sized ``deposit_amount`` (a prebuy),
+    the deposit is clamped so this request still lands.
+
+    The fixture sets ``shortfall`` and ``deposit_amount`` to distinct
+    values (shortfall much smaller than deposit_amount) so the tests
+    pin the guard's operand: swapping ``< shortfall`` for ``<
+    deposit_amount`` would flip test results. Under the previous
+    fixture (``current_balance=0, required=deposit_amount``) the two
+    quantities were equal and the guard's operand was invisible.
+    """
+
+    _NATIVE_PAY_TO = "0x" + "11" * 20
+    _TOKEN_PAY_TO = "0x" + "11" * 20
+    _TOKEN_ASSET = "0x" + "22" * 20
+    # Distinct constants so the guard's operand (shortfall vs deposit_amount)
+    # is pinned. Numbers picked so ``shortfall`` (100) << ``deposit_amount``
+    # (10_000) with ``current_balance`` (900) proving ``shortfall`` is
+    # ``required - current_balance``, not just ``required``.
+    _CURRENT_BALANCE = 900
+    _REQUIRED = 1000
+    _SHORTFALL = _REQUIRED - _CURRENT_BALANCE  # 100
+    _DEPOSIT_AMOUNT = 10_000
+
+    @staticmethod
+    def _capture_warnings(stub: _StubBehaviour) -> List[str]:
+        """Route logger.warning through a list so tests can assert log content."""
+        collected: List[str] = []
+
+        def _warn(msg: str, *args: Any, **kwargs: Any) -> None:
+            collected.append(str(msg))
+
+        stub.context.logger.warning = _warn  # type: ignore[assignment]
+        return collected
+
+    @classmethod
+    def _native_challenge(cls) -> PaymentChallenge:
+        return PaymentChallenge(
+            pay_to=cls._NATIVE_PAY_TO,
+            asset="0x" + "00" * 20,
+            chain_id=100,
+            current_balance=cls._CURRENT_BALANCE,
+            required=cls._REQUIRED,
+            error="",
+        )
+
+    @classmethod
+    def _token_challenge(cls) -> PaymentChallenge:
+        return PaymentChallenge(
+            pay_to=cls._TOKEN_PAY_TO,
+            asset=cls._TOKEN_ASSET,
+            chain_id=100,
+            current_balance=cls._CURRENT_BALANCE,
+            required=cls._REQUIRED,
+            error="",
+        )
+
+    def test_native_short_balance_returns_short_and_warns(self) -> None:
+        """Native Safe balance < shortfall → skip with ``_BALANCE_SHORT`` reason.
+
+        Pins the guard against ``shortfall`` (not ``deposit_amount``): the
+        Safe holds one wei less than ``shortfall`` while still holding far
+        less than ``deposit_amount`` in absolute terms. Swapping the guard
+        to compare against ``deposit_amount`` would still classify this as
+        short (correctly), but combined with the clamp test below, the
+        pair pins the shortfall semantics.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            # Safe holds one wei less than the current-request shortfall.
+            ledger_api_responses=[_ledger_balance_resp(self._SHORTFALL - 1)],
+        )
+        warnings = self._capture_warnings(stub)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_SHORT
+        # No contract-api call is made past the balance guard: the deposit
+        # calldata and Safe-tx builders never ran.
+        assert stub.contract_api_calls == []
+        # Warning names the Safe, the shortfall, and the (short) balance.
+        assert any(
+            "native balance" in w
+            and str(self._SHORTFALL) in w
+            and str(self._SHORTFALL - 1) in w
+            and stub.synchronized_data.safe_contract_address in w
+            for w in warnings
+        )
+
+    def test_native_balance_between_shortfall_and_deposit_amount_clamps(
+        self,
+    ) -> None:
+        """Safe holds >= shortfall but < deposit_amount → build with clamp.
+
+        This is the fixture-differentiated test: Safe balance sits
+        strictly between ``shortfall`` and ``deposit_amount``. If the
+        guard had been kept against ``deposit_amount``, the build would
+        be skipped and this request would never land. Comparing against
+        ``shortfall`` and clamping ``deposit_amount = min(deposit_amount,
+        safe_balance)`` lets the current 402 settle while cutting the
+        prebuy to what the Safe actually holds.
+        """
+        clamped_amount = 5_000  # shortfall (100) < 5_000 < deposit_amount (10_000)
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
+                _state_resp({"data": b"\x01\x02\x03"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
+            ],
+            http_responses=[],
+            ledger_api_responses=[_ledger_balance_resp(clamped_amount)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is not None
+        assert result.reason is None
+        # The depositFor calldata was built with the clamped amount, not
+        # the operator-configured prebuy. Pins the clamp end-to-end.
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        assert deposit_call["amount"] == clamped_amount
+        # And the Safe envelope's ether_value equals the clamped amount
+        # too (native path forwards value on the outer tx).
+        safe_tx_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "get_raw_safe_transaction_hash"
+        )
+        assert safe_tx_call["value"] == clamped_amount
+
+    def test_native_sufficient_balance_builds_tx_at_full_amount(self) -> None:
+        """Native Safe balance >= deposit_amount → build at full prebuy."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
+                _state_resp({"data": b"\x01\x02\x03"}),
+                # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
+            ],
+            http_responses=[],
+            ledger_api_responses=[_ledger_balance_resp(self._DEPOSIT_AMOUNT * 10)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is not None
+        assert result.reason is None
+        # No clamp: the depositFor calldata uses the full prebuy amount.
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        assert deposit_call["amount"] == self._DEPOSIT_AMOUNT
+        # The ledger call queried the requester Safe on the mech chain.
+        assert len(stub.ledger_api_calls) == 1
+        assert stub.ledger_api_calls[0]["account"] == (
+            stub.synchronized_data.safe_contract_address
+        )
+        assert stub.ledger_api_calls[0]["chain_id"] == "gnosis"
+        # Both downstream contract reads ran (deposit calldata + safe tx hash).
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == [
+            "build_deposit_for_data",
+            "get_raw_safe_transaction_hash",
+        ]
+
+    def test_token_short_balance_returns_short_and_skips_multisend(self) -> None:
+        """Token Safe balance < shortfall → skip with ``_BALANCE_SHORT`` reason."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                # _read_safe_token_balance → ERC20.check_balance returns short balance.
+                _state_resp({"token": self._SHORTFALL - 1}),
+            ],
+            http_responses=[],
+        )
+        warnings = self._capture_warnings(stub)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_token_deposit_multisend(
+                self._token_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_SHORT
+        # The only contract-api call was the balance check; approve /
+        # depositFor / multisend never ran.
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == ["check_balance"]
+        assert "build_approval_tx" not in callables
+        assert "build_deposit_for_data" not in callables
+        assert any(
+            "token" in w
+            and self._TOKEN_ASSET in w
+            and str(self._SHORTFALL) in w
+            and str(self._SHORTFALL - 1) in w
+            for w in warnings
+        )
+
+    def test_token_balance_between_shortfall_and_deposit_amount_clamps(
+        self,
+    ) -> None:
+        """Token Safe balance in the clamp band → both approve and depositFor use the clamped amount.
+
+        The multisend must ship a single amount to both legs; if either
+        the approve or depositFor uses a different value, the settlement
+        reverts or the deposit under-credits. Pin them together.
+        """
+        clamped_amount = 500  # shortfall (100) < 500 < deposit_amount (10_000)
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": clamped_amount}),
+                _state_resp({"data": b"\xaa"}),
+                _state_resp({"data": b"\xbb"}),
+                _state_resp({"data": "0xcc"}),
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
+            ],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_token_deposit_multisend(
+                self._token_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is not None
+        assert result.reason is None
+        approve_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_approval_tx"
+        )
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        assert approve_call["amount"] == clamped_amount
+        assert deposit_call["amount"] == clamped_amount
+
+    def test_token_sufficient_balance_builds_multisend_at_full_amount(self) -> None:
+        """Token Safe balance >= deposit_amount → multisend at full prebuy."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                _state_resp({"data": b"\xaa"}),
+                _state_resp({"data": b"\xbb"}),
+                _state_resp({"data": "0xcc"}),
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
+            ],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_token_deposit_multisend(
+                self._token_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is not None
+        assert result.reason is None
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        # Balance check runs first, then the standard multisend sequence.
+        assert callables == [
+            "check_balance",
+            "build_approval_tx",
+            "build_deposit_for_data",
+            "get_tx_data",
+            "get_raw_safe_transaction_hash",
+        ]
+        # No clamp: both approve and depositFor use the full amount.
+        approve_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_approval_tx"
+        )
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        assert approve_call["amount"] == self._DEPOSIT_AMOUNT
+        assert deposit_call["amount"] == self._DEPOSIT_AMOUNT
+        # The check_balance call was scoped to the requester Safe.
+        assert stub.contract_api_calls[0]["account"] == (
+            stub.synchronized_data.safe_contract_address
+        )
+
+    def test_native_balance_read_failure_returns_read_failed_reason(self) -> None:
+        """Ledger-API ERROR on the native balance read → ``_BALANCE_READ_FAILED``.
+
+        Retry depends on the consumer re-entering with a fresh request;
+        the alternative — building an execTransaction against an unknown
+        balance — is worse. Tagging as ``_BALANCE_READ_FAILED`` lets the
+        caller route to ``OFFCHAIN_TIMEOUT_ALL_MECHS`` rather than
+        surfacing a spurious "top up your Safe" signal to the consumer.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            ledger_api_responses=[_ledger_error_resp()],
+        )
+        warnings = self._capture_warnings(stub)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+        # Nothing downstream ran.
+        assert stub.contract_api_calls == []
+        # Both the low-level "read failed" warning and the builder-level
+        # "skipping … balance read failed" warning surface, so operators
+        # can distinguish an RPC blip from a short-balance skip.
+        assert any("Safe native balance read failed" in w for w in warnings)
+        assert any(
+            "Skipping native deposit build" in w and "balance read failed" in w
+            for w in warnings
+        )
+
+    def test_native_balance_missing_key_classified_as_read_failed(self) -> None:
+        """STATE response with empty body → ``_BALANCE_READ_FAILED``.
+
+        Directly exercises the missing-``get_balance_result`` branch of
+        ``_read_safe_native_balance``. Under a pre-fix reader that
+        returned bare ``None`` for every failure mode, this shape was
+        indistinguishable from a genuinely short balance and would have
+        surfaced ``OFFCHAIN_402_INSUFFICIENT`` on an RPC schema drift.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            ledger_api_responses=[_ledger_missing_key_resp()],
+        )
+        warnings = self._capture_warnings(stub)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        balance, reason = _drive(executor._read_safe_native_balance())
+        assert balance is None
+        assert reason == _BALANCE_READ_FAILED
+        assert any(
+            "Safe native balance response missing" in w and "get_balance_result" in w
+            for w in warnings
+        )
+
+    @pytest.mark.parametrize(
+        "bad_value",
+        ["not-a-number", [1, 2, 3], {"nested": "dict"}],
+    )
+    def test_native_balance_non_numeric_classified_as_read_failed(
+        self, bad_value: Any
+    ) -> None:
+        """Non-numeric balance value → ``_BALANCE_READ_FAILED``, not a raise.
+
+        Guards the ``int(raw)`` coercion so a malformed body from a
+        degraded RPC surfaces as a failover-eligible outcome rather than
+        crashing the executor with an uncaught ``ValueError``.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+            ledger_api_responses=[_ledger_non_numeric_resp(bad_value)],
+        )
+        warnings = self._capture_warnings(stub)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        balance, reason = _drive(executor._read_safe_native_balance())
+        assert balance is None
+        assert reason == _BALANCE_READ_FAILED
+        assert any("is not numeric" in w for w in warnings)
+
+    def test_token_balance_read_failure_returns_read_failed_reason(self) -> None:
+        """ERC20 balance read failure → ``_BALANCE_READ_FAILED`` (companion to native).
+
+        Without this coverage the token path could silently regress to
+        emitting ``_BALANCE_SHORT`` on an RPC blip and the caller would
+        map to ``OFFCHAIN_402_INSUFFICIENT`` instead of the
+        failover-eligible timeout label.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        error_resp = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[error_resp],
+            http_responses=[],
+        )
+        warnings = self._capture_warnings(stub)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_token_deposit_multisend(
+                self._token_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+        # Only the failing check_balance call ran; the multisend legs did not.
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == ["check_balance"]
+        assert any(
+            "Skipping token deposit build" in w and "balance read failed" in w
+            for w in warnings
+        )
+
+    def test_token_balance_non_numeric_classified_as_read_failed(self) -> None:
+        """ERC20 ``token`` slot returning a non-numeric value → ``_BALANCE_READ_FAILED``.
+
+        Directly exercises the ``int(raw)`` coercion branch in
+        ``_read_safe_token_balance``: a mech-side wrapper returning a
+        string that isn't parseable as an int must surface as
+        ``_BALANCE_READ_FAILED`` so the caller failovers rather than
+        crashing on an uncaught ValueError.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[_state_resp({"token": "abc"})],
+            http_responses=[],
+        )
+        warnings = self._capture_warnings(stub)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        balance, reason = _drive(executor._read_safe_token_balance(self._TOKEN_ASSET))
+        assert balance is None
+        assert reason == _BALANCE_READ_FAILED
+        assert any("non-numeric token balance" in w for w in warnings)
+
+
+class TestFreshCycleSafeBalanceGuard:
+    """End-to-end ``_fresh_cycle`` wiring for the Safe-balance precheck.
+
+    The direct-builder tests in ``TestDepositBuilderSafeBalancePrecheck``
+    pin the reader / builder return shapes; these tests drive a full
+    cycle so the caller-side outcome mapping at
+    ``offchain_request.py:_fresh_cycle`` (``build.reason ==
+    _BALANCE_READ_FAILED`` → ``OFFCHAIN_TIMEOUT_ALL_MECHS`` vs everything
+    else → ``OFFCHAIN_402_INSUFFICIENT``) is exercised. Without this an
+    accidental swap of the two labels — or a change from ``==`` to
+    ``!=`` on the reason check — would still pass the direct-builder
+    suite but ship the wrong signal to the consumer.
+    """
+
+    _CANONICAL_TRACKER = "0x" + "11" * 20
+
+    def _native_pre_402_reads(self) -> List[Any]:
+        return [
+            _state_resp({"data": 100}),  # _resolve_chain_id_int
+            _state_resp({"data": 7}),  # _read_on_chain_nonce
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def test_short_safe_balance_surfaces_402_insufficient(self) -> None:
+        """Safe balance below shortfall → OFFCHAIN_ALL_FAILED + OFFCHAIN_402_INSUFFICIENT.
+
+        Failover to another ranked mech would charge the same Safe
+        balance and reach the same result, so the executor short-circuits
+        to the consumer with the "top up your Safe" label rather than
+        burning the failover budget on certain failures.
+        """
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(mech_addr, "https://mech-aa.example"),
+                _FakeMechInfo("0x" + "bb" * 20, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                *self._native_pre_402_reads(),
+                # _validate_402_destination → canonical tracker read
+                _state_resp({"data": self._CANONICAL_TRACKER}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402,
+                    _make_402_body(
+                        pay_to=self._CANONICAL_TRACKER,
+                        required=1000,
+                        current=0,
+                    ),
+                ),
+            ],
+            # Safe holds one wei less than the current-request shortfall.
+            ledger_api_responses=[_ledger_balance_resp(999)],
+            auto_deposit_cap=10**18,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_402_INSUFFICIENT
+        # Only one mech POST attempted: the balance-short label short-
+        # circuits before the second ranked mech is tried.
+        assert len(stub.posted_urls) == 1
+
+    def test_balance_read_failure_surfaces_timeout_all_mechs(self) -> None:
+        """Ledger-API ERROR on the balance read → OFFCHAIN_ALL_FAILED + OFFCHAIN_TIMEOUT_ALL_MECHS.
+
+        Companion to the balance-short test above. The reason tag must
+        route the RPC-blip case to the failover-eligible timeout label
+        so operators see a network/RPC label rather than a spurious
+        "top up your Safe" signal. A future refactor that collapses
+        ``build.reason`` back to a bare ``None`` (losing the
+        distinction) is caught here.
+        """
+        mech_addr = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                *self._native_pre_402_reads(),
+                _state_resp({"data": self._CANONICAL_TRACKER}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402,
+                    _make_402_body(
+                        pay_to=self._CANONICAL_TRACKER,
+                        required=1000,
+                        current=0,
+                    ),
+                ),
+            ],
+            ledger_api_responses=[_ledger_error_resp()],
+            auto_deposit_cap=10**18,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
 
 
 class TestClassifyPaymentType:
@@ -2404,6 +3034,9 @@ class TestValidate402Destination:
                 # validation: both tracker and token match
                 _state_resp({"data": self._CANONICAL_TRACKER}),
                 _state_resp({"token_address": self._CANONICAL_TOKEN}),
+                # _read_safe_token_balance → ERC20.check_balance (Safe holds
+                # enough of the token to fund the sized deposit).
+                _state_resp({"token": 10 * 10**18}),
                 # token deposit multisend reads: approve, depositFor, multisend
                 _state_resp({"data": b"\xaa"}),
                 _state_resp({"data": b"\xbb"}),
