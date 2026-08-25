@@ -2197,8 +2197,13 @@ class OffchainRequestExecutor:
             spender=challenge.pay_to,
             amount=deposit_amount,
         )
+        # Route contract-read failures on any inner leg (approve
+        # calldata, deposit calldata, multisend pack) as
+        # ``_BALANCE_READ_FAILED`` so the caller retries a transient
+        # RPC blip rather than mislabelling the Safe as underfunded.
+        # Mirrors the native path's classification.
         if approve_data is None:
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
 
         deposit_data = yield from self._read_contract_state(
             contract_address=challenge.pay_to,
@@ -2211,20 +2216,20 @@ class OffchainRequestExecutor:
             amount=deposit_amount,
         )
         if deposit_data is None:
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
 
         if not isinstance(approve_data, (bytes, bytearray)):
             self._logger.warning(
                 "ERC20.build_approval_tx returned a non-bytes payload "
                 f"{type(approve_data).__name__}"
             )
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
         if not isinstance(deposit_data, (bytes, bytearray)):
             self._logger.warning(
                 "BalanceTracker.build_deposit_for_data returned "
                 f"a non-bytes payload {type(deposit_data).__name__}"
             )
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
 
         data = yield from self._read_contract_state(
             contract_address=self._b.params.multisend_address,
@@ -2247,13 +2252,13 @@ class OffchainRequestExecutor:
             ],
         )
         if data is None:
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
         if not isinstance(data, str):
             self._logger.warning(
                 f"MultiSend.get_tx_data returned a non-string payload "
                 f"{type(data).__name__}"
             )
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
 
         tx_hex = yield from self._build_safe_tx_for_single_call(
             to_address=self._b.params.multisend_address,

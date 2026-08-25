@@ -3253,6 +3253,102 @@ class TestNativeDepositWithWrappedNativeFallback:
             "get_tx_data",
         ]
 
+    def test_multisend_withdraw_non_bytes_surfaces_read_failed(self) -> None:
+        """Withdraw calldata returns a non-bytes payload → ``_BALANCE_READ_FAILED``.
+
+        Sibling to ``test_multisend_withdraw_calldata_failure_surfaces_read_failed``:
+        that one covers the ``is None`` branch (contract-api ERROR),
+        this one covers the ``not isinstance(..., (bytes, bytearray))``
+        branch. A future refactor of ``_read_contract_state`` that
+        returns a sentinel instead of ``None`` on failure would
+        silently bypass the ``is None`` branch and leave the isinstance
+        guards as the sole discriminator; without this test that
+        regression would ship untested.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                # withdraw calldata: wrong shape (int instead of bytes)
+                _state_resp({"data": 42}),
+            ],
+            http_responses=[],
+            ledger_api_responses=[
+                _ledger_balance_resp(self._SHORTFALL - 1),
+            ],
+            mech_wrapped_native_token_address=self._WRAPPED_ADDR,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+
+    def test_multisend_deposit_non_bytes_surfaces_read_failed(self) -> None:
+        """Deposit calldata returns a non-bytes payload → ``_BALANCE_READ_FAILED``.
+
+        Sibling isinstance-guard case for the deposit-calldata read.
+        Same regression risk as the withdraw non-bytes test.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                _state_resp({"data": b"\xaa"}),
+                # deposit calldata: wrong shape
+                _state_resp({"data": 42}),
+            ],
+            http_responses=[],
+            ledger_api_responses=[
+                _ledger_balance_resp(self._SHORTFALL - 1),
+            ],
+            mech_wrapped_native_token_address=self._WRAPPED_ADDR,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+
+    def test_multisend_pack_non_string_surfaces_read_failed(self) -> None:
+        """MultiSend.get_tx_data returns a non-string payload → ``_BALANCE_READ_FAILED``.
+
+        Sibling isinstance-guard case for the multisend pack. The
+        wrapper is contracted to return a hex string here; wrapping a
+        non-string payload in ``HexBytes`` would fail deep in the
+        settlement path, so the isinstance guard's routing has to
+        survive future refactors.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                _state_resp({"data": b"\xaa"}),
+                _state_resp({"data": b"\xbb"}),
+                # multisend pack: wrong shape (bytes instead of str)
+                _state_resp({"data": b"\xcc"}),
+            ],
+            http_responses=[],
+            ledger_api_responses=[
+                _ledger_balance_resp(self._SHORTFALL - 1),
+            ],
+            mech_wrapped_native_token_address=self._WRAPPED_ADDR,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+
     def test_wrapped_zero_and_native_covers_shortfall_clamps_to_native(
         self,
     ) -> None:
