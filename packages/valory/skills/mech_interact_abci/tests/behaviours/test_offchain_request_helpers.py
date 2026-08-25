@@ -3123,6 +3123,136 @@ class TestNativeDepositWithWrappedNativeFallback:
         # Deposit clamps to native (= shortfall) since wrapped=0.
         assert deposit_call["amount"] == self._SHORTFALL
 
+    def test_multisend_withdraw_calldata_failure_surfaces_read_failed(
+        self,
+    ) -> None:
+        """Withdraw calldata read failure in the multisend path → ``_BALANCE_READ_FAILED``.
+
+        Pins the routing of the first of three inner reads: a
+        contract-api ERROR when building the unwrap leg's calldata is a
+        transient RPC issue, not an underfunded Safe. Regressing this
+        return to ``(None, None)`` would mislabel the cycle as
+        ``OFFCHAIN_402_INSUFFICIENT``.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        error_resp = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                # wxDAI check_balance: enough to enter the multisend path
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                # withdraw calldata read: contract-api ERROR
+                error_resp,
+            ],
+            http_responses=[],
+            ledger_api_responses=[
+                _ledger_balance_resp(self._SHORTFALL - 1),
+            ],
+            mech_wrapped_native_token_address=self._WRAPPED_ADDR,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == ["check_balance", "build_withdraw_tx"]
+
+    def test_multisend_deposit_calldata_failure_surfaces_read_failed(
+        self,
+    ) -> None:
+        """Deposit calldata read failure in the multisend path → ``_BALANCE_READ_FAILED``.
+
+        Pins the routing of the second inner read. Withdraw succeeded,
+        but the depositFor calldata build failed; same reasoning as the
+        withdraw case.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        error_resp = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                _state_resp({"data": b"\xaa"}),
+                # deposit calldata read: contract-api ERROR
+                error_resp,
+            ],
+            http_responses=[],
+            ledger_api_responses=[
+                _ledger_balance_resp(self._SHORTFALL - 1),
+            ],
+            mech_wrapped_native_token_address=self._WRAPPED_ADDR,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == [
+            "check_balance",
+            "build_withdraw_tx",
+            "build_deposit_for_data",
+        ]
+
+    def test_multisend_pack_failure_surfaces_read_failed(self) -> None:
+        """MultiSend.get_tx_data failure in the multisend path → ``_BALANCE_READ_FAILED``.
+
+        Pins the routing of the third inner read. Both leg calldatas
+        succeeded, but packing them into the multisend envelope failed;
+        same reasoning as the withdraw case.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        error_resp = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                _state_resp({"data": b"\xaa"}),
+                _state_resp({"data": b"\xbb"}),
+                # multisend pack read: contract-api ERROR
+                error_resp,
+            ],
+            http_responses=[],
+            ledger_api_responses=[
+                _ledger_balance_resp(self._SHORTFALL - 1),
+            ],
+            mech_wrapped_native_token_address=self._WRAPPED_ADDR,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == [
+            "check_balance",
+            "build_withdraw_tx",
+            "build_deposit_for_data",
+            "get_tx_data",
+        ]
+
     def test_wrapped_zero_and_native_covers_shortfall_clamps_to_native(
         self,
     ) -> None:

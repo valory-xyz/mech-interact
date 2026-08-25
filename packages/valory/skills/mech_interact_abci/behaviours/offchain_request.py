@@ -1997,14 +1997,18 @@ class OffchainRequestExecutor:
                 account=self._safe_address(),
                 amount=deposit_amount,
             )
+            # Route contract-read failures on the deposit calldata as
+            # ``_BALANCE_READ_FAILED`` (retry-eligible), matching the
+            # multisend sibling below. Same failure shape, same
+            # classification.
             if data is None:
-                return _DepositBuildResult(None, None)
+                return _DepositBuildResult(None, _BALANCE_READ_FAILED)
             if not isinstance(data, (bytes, bytearray)):
                 self._logger.warning(
                     "BalanceTrackerFixedPriceNative.build_deposit_for_data "
                     f"returned a non-bytes payload {type(data).__name__}"
                 )
-                return _DepositBuildResult(None, None)
+                return _DepositBuildResult(None, _BALANCE_READ_FAILED)
             tx_hex = yield from self._build_safe_tx_for_single_call(
                 to_address=challenge.pay_to,
                 data=bytes(data),
@@ -2055,6 +2059,12 @@ class OffchainRequestExecutor:
         transient RPC blip rather than mislabelling the Safe as
         underfunded.
         """
+        # ``wrapped_addr`` is typed ``str`` because the caller only
+        # enters this branch after ``if wrapped_addr and balance <
+        # ...``, but the runtime guard is invisible to mypy. Assert to
+        # narrow the type at the callee's boundary and to catch a
+        # future call site that forgets the guard.
+        assert wrapped_addr, "wrapped_addr must be set to build the unwrap leg"
         # Each inner build read that fails surfaces as
         # ``_BALANCE_READ_FAILED`` so the caller routes the cycle to
         # ``OFFCHAIN_TIMEOUT_ALL_MECHS`` (retry-eligible) rather than
