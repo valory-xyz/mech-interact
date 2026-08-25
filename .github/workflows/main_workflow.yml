@@ -87,7 +87,13 @@ jobs:
       - name: Install dependencies
         run: pip install 'tomte[tox,cli] @ git+https://github.com/valory-xyz/tomte.git@v0.7.0' tox-uv
       - name: Security checks
-        run: tomte tox -p -e safety -e bandit
+        # Upgrade pip and setuptools in the scan venv past two
+        # transitive advisories in tomte[safety]. See commit message.
+        run: |
+          tomte tox -p \
+            -x 'testenv:safety.commands_pre+=python -m ensurepip --upgrade
+                python -m pip install --upgrade pip>=26.1.2 setuptools>=83.0.0' \
+            -e safety -e bandit
       - name: Check packages
         run: tomte tox -e check-packages
       - name: Check hash
