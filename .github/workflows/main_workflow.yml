@@ -87,7 +87,22 @@ jobs:
       - name: Install dependencies
         run: pip install 'tomte[tox,cli] @ git+https://github.com/valory-xyz/tomte.git@v0.7.0' tox-uv
       - name: Security checks
-        run: tomte tox -p -e safety -e bandit
+        # The ``-x`` overrides (a) bootstrap+upgrade ``pip`` inside the
+        # safety tox venv past SFTY-20260601-69199 (pip Path Traversal
+        # in ``<26.1.2``) before ``safety check`` runs, and (b) replace
+        # tomte's default safety policy file with the repo-level
+        # ``.safety-policy.yml`` so per-repo ignores for transitive
+        # advisories we cannot pin (setuptools inside tomte[safety], see
+        # the policy file for the ID) land in the scan. ``tox-uv``
+        # creates venvs without a bootstrap ``pip``, so ``ensurepip``
+        # runs first to install one, then the upgrade lands a patched
+        # version.
+        run: |
+          tomte tox -p \
+            -x 'testenv:safety.commands_pre+=python -m ensurepip --upgrade
+                python -m pip install --upgrade pip>=26.1.2' \
+            -x 'testenv:safety.commands=safety check --policy-file .safety-policy.yml' \
+            -e safety -e bandit
       - name: Check packages
         run: tomte tox -e check-packages
       - name: Check hash
