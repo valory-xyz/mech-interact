@@ -1900,14 +1900,21 @@ class OffchainRequestExecutor:
 
         Skip paths:
 
-        * ``_BALANCE_READ_FAILED`` — the RPC native balance read (or the
-          wrapped-native ERC20 read, when the fallback is being
-          consulted) failed, so the cycle is surfaced to the consumer
-          rather than submitting a tx against an unknown balance; a
-          retry depends on the consumer re-requesting.
+        * ``_BALANCE_READ_FAILED`` — the RPC native balance read
+          failed, or the wrapped-native ERC20 read failed while native
+          alone is below ``challenge.shortfall`` (we cannot decide the
+          outcome without the wrapped read), so the cycle is surfaced
+          to the consumer rather than submitting a tx against an
+          unknown balance; a retry depends on the consumer re-requesting.
         * ``_BALANCE_SHORT`` — the Safe is genuinely underfunded for
           the current request; even after unwrapping every wrapped-native
           token held, ``native + wrapped_native < challenge.shortfall``.
+
+        A wrapped-native read that fails while native alone already
+        covers ``challenge.shortfall`` is not fatal: the build falls
+        through to the single-call path (clamped to native), so a
+        transient wrapped-read blip doesn't block deposits the Safe
+        could fund without unwrapping.
 
         When the Safe holds at least ``challenge.shortfall`` (native
         alone, or native + wrapped-native combined) but less than the
@@ -1976,7 +1983,6 @@ class OffchainRequestExecutor:
             deposit_amount = reachable
 
         if balance >= deposit_amount:
-            # Single-call happy path: native alone funds the deposit.
             # Encode the depositFor selector — value is supplied by the
             # Safe tx envelope, not by the calldata, mirroring
             # mech-client's native ``deposit_native`` path.
@@ -2038,11 +2044,22 @@ class OffchainRequestExecutor:
         each leg's inner CALL uses ``msg.sender=Safe``. Leg 1's
         ``WrappedNative.withdraw`` sends ``unwrap_amount`` native to the
         Safe (the msg.sender), incrementing the Safe's native balance
-        mid-tx. Leg 2 then draws ``deposit_amount = balance +
-        unwrap_amount`` from that freshly-incremented balance as its
-        inner ``value`` parameter, so the two legs settle atomically:
+        mid-tx. Leg 2's inner ``value`` was pre-sized by the caller to
+        ``balance + unwrap_amount`` so it lines up with the Safe's
+        post-unwrap native balance; the two legs settle atomically,
         either both land or neither does.
+
+        A build-time contract-read failure on any of the three inner
+        reads (withdraw calldata, deposit calldata, multisend pack) is
+        surfaced as ``_BALANCE_READ_FAILED`` so the caller can retry a
+        transient RPC blip rather than mislabelling the Safe as
+        underfunded.
         """
+        # Each inner build read that fails surfaces as
+        # ``_BALANCE_READ_FAILED`` so the caller routes the cycle to
+        # ``OFFCHAIN_TIMEOUT_ALL_MECHS`` (retry-eligible) rather than
+        # ``OFFCHAIN_402_INSUFFICIENT`` (top-up-your-Safe). These are
+        # RPC / contract-wrapper failures, not underfunded Safes.
         withdraw_data = yield from self._read_contract_state(
             contract_address=wrapped_addr,
             contract_id=str(ERC20TokenContract.contract_id),
@@ -2051,13 +2068,13 @@ class OffchainRequestExecutor:
             amount=unwrap_amount,
         )
         if withdraw_data is None:
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
         if not isinstance(withdraw_data, (bytes, bytearray)):
             self._logger.warning(
                 "ERC20.build_withdraw_tx returned a non-bytes payload "
                 f"{type(withdraw_data).__name__}"
             )
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
 
         deposit_data = yield from self._read_contract_state(
             contract_address=challenge.pay_to,
@@ -2071,13 +2088,13 @@ class OffchainRequestExecutor:
             amount=deposit_amount,
         )
         if deposit_data is None:
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
         if not isinstance(deposit_data, (bytes, bytearray)):
             self._logger.warning(
                 "BalanceTrackerFixedPriceNative.build_deposit_for_data "
                 f"returned a non-bytes payload {type(deposit_data).__name__}"
             )
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
 
         data = yield from self._read_contract_state(
             contract_address=self._b.params.multisend_address,
@@ -2100,13 +2117,13 @@ class OffchainRequestExecutor:
             ],
         )
         if data is None:
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
         if not isinstance(data, str):
             self._logger.warning(
                 f"MultiSend.get_tx_data returned a non-string payload "
                 f"{type(data).__name__}"
             )
-            return _DepositBuildResult(None, None)
+            return _DepositBuildResult(None, _BALANCE_READ_FAILED)
 
         tx_hex = yield from self._build_safe_tx_for_single_call(
             to_address=self._b.params.multisend_address,

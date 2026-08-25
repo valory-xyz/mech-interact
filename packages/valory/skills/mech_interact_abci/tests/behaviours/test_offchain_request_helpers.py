@@ -2719,20 +2719,11 @@ class TestDepositBuilderSafeBalancePrecheck:
 class TestNativeDepositWithWrappedNativeFallback:
     """Native deposit path folds in the wrapped-native balance as a fallback.
 
-    Mirrors the on-chain mech-request unwrap pattern
-    (:meth:`_build_unwrap_tokens_tx` in ``request.py``): when the Safe
-    holds less native than the current 402 shortfall but enough
-    wrapped-native (e.g. wxDAI on Gnosis) to make up the difference, the
-    offchain path builds a Safe multisend of ``WrappedNative.withdraw``
-    + ``BalanceTracker.depositFor`` so both legs settle atomically. This
-    keeps operators whose Safe drifted into a wrapped-native-heavy /
-    native-light state from getting stuck in a silent OFFCHAIN_ALL_FAILED
-    loop.
-
-    The tests here pin: which reads happen in each shape (native alone,
-    native+wrapped, wrapped-unset), the deposit-amount clamp when
-    wrapped is only a partial top-up, and the read-failure handling
-    (wrapped-read failure surfaces only when native alone can't cover).
+    Pins: which reads happen in each shape (native alone, native+wrapped,
+    wrapped-unset), the deposit-amount clamp when wrapped is only a
+    partial top-up, the exact-shortfall boundary, the zero-wrapped
+    branch, and the read-failure handling (wrapped-read failure
+    surfaces only when native alone can't cover the shortfall).
     """
 
     _NATIVE_PAY_TO = "0x" + "11" * 20
@@ -3096,6 +3087,87 @@ class TestNativeDepositWithWrappedNativeFallback:
             "wrapped-native read failed" in w and str(self._SHORTFALL) in w
             for w in warnings
         )
+
+    def test_native_exact_shortfall_boundary_proceeds_to_build(self) -> None:
+        """Native == shortfall boundary → proceeds (guard is strict ``<``).
+
+        Pins the operand of the ``reachable < shortfall`` guard: an
+        accidental swap to ``<=`` would flip this exact-boundary case
+        from a successful (clamped) build to a spurious
+        ``_BALANCE_SHORT``.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": 0}),
+                _state_resp({"data": b"\x01\x02\x03"}),
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
+            ],
+            http_responses=[],
+            ledger_api_responses=[_ledger_balance_resp(self._SHORTFALL)],
+            mech_wrapped_native_token_address=self._WRAPPED_ADDR,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is not None
+        assert result.reason is None
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        # Deposit clamps to native (= shortfall) since wrapped=0.
+        assert deposit_call["amount"] == self._SHORTFALL
+
+    def test_wrapped_zero_and_native_covers_shortfall_clamps_to_native(
+        self,
+    ) -> None:
+        """Wrapped read succeeds with 0 balance, native covers shortfall → single-call clamp.
+
+        Distinct from ``test_wrapped_read_failed_but_native_covers_shortfall``:
+        here the read succeeds and returns a genuine zero (no wrapped
+        collateral). The build must not try to unwrap 0 tokens; instead
+        it should clamp to native and take the single-call path.
+        """
+        native_balance = 5_000
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": 0}),
+                _state_resp({"data": b"\x01\x02\x03"}),
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
+            ],
+            http_responses=[],
+            ledger_api_responses=[_ledger_balance_resp(native_balance)],
+            mech_wrapped_native_token_address=self._WRAPPED_ADDR,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_native_deposit_tx(
+                self._native_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is not None
+        assert result.reason is None
+        # Single-call path: check_balance (returning 0) then deposit
+        # calldata + Safe envelope. No unwrap calldata, no multisend
+        # pack — a zero-amount unwrap leg would encode a wasted call.
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == [
+            "check_balance",
+            "build_deposit_for_data",
+            "get_raw_safe_transaction_hash",
+        ]
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        assert deposit_call["amount"] == native_balance
 
 
 class TestFreshCycleSafeBalanceGuard:
