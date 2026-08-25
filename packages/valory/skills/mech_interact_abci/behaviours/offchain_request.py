@@ -1012,12 +1012,15 @@ class OffchainRequestExecutor:
                     # underfunded signal.
                     #
                     # Every other ``None`` — NVM (not on-chain auto-
-                    # resolvable), unknown ``paymentType``, contract
-                    # calldata read failure, or ``_BALANCE_SHORT`` —
-                    # cannot be fixed by trying another ranked mech
-                    # (they would charge the same Safe balance), so
-                    # surface to the consumer as
-                    # ``OFFCHAIN_402_INSUFFICIENT``.
+                    # resolvable), unknown ``paymentType``, or
+                    # ``_BALANCE_SHORT`` — cannot be fixed by trying
+                    # another ranked mech (they would charge the same
+                    # Safe balance), so surface to the consumer as
+                    # ``OFFCHAIN_402_INSUFFICIENT``. Calldata / Safe-tx
+                    # build failures no longer land here; the three
+                    # deposit builders classify them as
+                    # ``_BALANCE_READ_FAILED`` so they route to the
+                    # retry branch above.
                     failure_reason = (
                         OFFCHAIN_TIMEOUT_ALL_MECHS
                         if build.reason == _BALANCE_READ_FAILED
@@ -1882,52 +1885,7 @@ class OffchainRequestExecutor:
         challenge: PaymentChallenge,
         deposit_amount: int,
     ) -> Generator[None, None, _DepositBuildResult]:
-        """Native deposit path: single Safe tx or unwrap+deposit multisend.
-
-        Reads the requester Safe's native balance first, then decides:
-
-        * Native alone covers ``deposit_amount`` -> single Safe tx
-          ``BalanceTracker.depositFor(safe)`` with ``value=deposit_amount``.
-        * Native is short but a wrapped-native token address is configured
-          (``params.mech_wrapped_native_token_address``) and the Safe
-          holds enough wrapped-native to reach ``challenge.shortfall``
-          -> Safe multisend that unwraps just enough wrapped-native to
-          fund the deposit and then calls ``depositFor`` in the same
-          atomic Safe transaction. Mirrors the on-chain mech-request
-          path's :meth:`_build_unwrap_tokens_tx`, so operators whose
-          Safes drift into a wrapped-native-heavy / native-light state
-          keep landing offchain deposits without a native top-up.
-
-        Skip paths:
-
-        * ``_BALANCE_READ_FAILED`` — the RPC native balance read
-          failed, or the wrapped-native ERC20 read failed while native
-          alone is below ``challenge.shortfall`` (we cannot decide the
-          outcome without the wrapped read), so the cycle is surfaced
-          to the consumer rather than submitting a tx against an
-          unknown balance; a retry depends on the consumer re-requesting.
-        * ``_BALANCE_SHORT`` — the Safe is genuinely underfunded for
-          the current request; even after unwrapping every wrapped-native
-          token held, ``native + wrapped_native < challenge.shortfall``.
-
-        A wrapped-native read that fails while native alone already
-        covers ``challenge.shortfall`` is not fatal: the build falls
-        through to the single-call path (clamped to native), so a
-        transient wrapped-read blip doesn't block deposits the Safe
-        could fund without unwrapping.
-
-        When the Safe holds at least ``challenge.shortfall`` (native
-        alone, or native + wrapped-native combined) but less than the
-        sized ``deposit_amount`` (the operator-configured prebuy), the
-        deposit is clamped to the reachable balance so this request
-        still lands. Since ``_compute_deposit_amount`` upstream
-        guarantees ``shortfall <= cap``, the clamp is always at least
-        the shortfall.
-
-        Balance reads are per-agent, so an operator top-up between two
-        agents' reads can transiently split the round's vote; consensus
-        resolves on the next period.
-        """
+        """Native deposit: single Safe tx, or unwrap+deposit multisend when wxDAI covers the gap."""
         balance, reason = yield from self._read_safe_native_balance()
         if balance is None:
             self._logger.warning(
@@ -1947,8 +1905,15 @@ class OffchainRequestExecutor:
                 if balance >= challenge.shortfall:
                     # Wrapped-native read failed but native alone covers
                     # the current shortfall; proceed with the single-call
-                    # path (below), clamped to native.
-                    self._logger.info(
+                    # path (below), clamped to native. Warn (not info):
+                    # ``build_withdraw_tx`` is pure ABI encoding, so a
+                    # misconfigured wrapped-native address (e.g. Gnosis
+                    # default inherited on the wrong chain) passes every
+                    # local build step cleanly and only reverts the atomic
+                    # multisend at settlement. A steady stream of small
+                    # requests landing on native alone would keep a
+                    # permanently broken address invisible at ``info``.
+                    self._logger.warning(
                         f"Wrapped-native read failed for {wrapped_addr}; "
                         f"proceeding without unwrap (native {balance} "
                         f"covers shortfall {challenge.shortfall})."
@@ -2014,7 +1979,7 @@ class OffchainRequestExecutor:
                 data=bytes(data),
                 value=deposit_amount,
             )
-            return _DepositBuildResult(tx_hex, None)
+            return _DepositBuildResult(tx_hex, None if tx_hex else _BALANCE_READ_FAILED)
 
         # Native alone doesn't cover the (clamped) deposit_amount but
         # native + wrapped-native does — build the unwrap + deposit
@@ -2041,30 +2006,12 @@ class OffchainRequestExecutor:
         unwrap_amount: int,
         wrapped_addr: str,
     ) -> Generator[None, None, _DepositBuildResult]:
-        """Two-leg multisend: ``WrappedNative.withdraw(unwrap_amount)`` + ``BalanceTracker.depositFor(safe)`` with ``value=deposit_amount``.
-
-        The outer Safe transaction is a DELEGATECALL to MultiSend with
-        ``value=0``. MultiSend runs in the Safe's storage context, so
-        each leg's inner CALL uses ``msg.sender=Safe``. Leg 1's
-        ``WrappedNative.withdraw`` sends ``unwrap_amount`` native to the
-        Safe (the msg.sender), incrementing the Safe's native balance
-        mid-tx. Leg 2's inner ``value`` was pre-sized by the caller to
-        ``balance + unwrap_amount`` so it lines up with the Safe's
-        post-unwrap native balance; the two legs settle atomically,
-        either both land or neither does.
-
-        A build-time contract-read failure on any of the three inner
-        reads (withdraw calldata, deposit calldata, multisend pack) is
-        surfaced as ``_BALANCE_READ_FAILED`` so the caller can retry a
-        transient RPC blip rather than mislabelling the Safe as
-        underfunded.
-        """
-        # ``wrapped_addr`` is typed ``str`` because the caller only
-        # enters this branch after ``if wrapped_addr and balance <
-        # ...``, but the runtime guard is invisible to mypy. Assert to
-        # narrow the type at the callee's boundary and to catch a
-        # future call site that forgets the guard.
-        assert wrapped_addr, "wrapped_addr must be set to build the unwrap leg"
+        """Two-leg multisend: ``WrappedNative.withdraw`` + ``BalanceTracker.depositFor``."""
+        # Invariant guard against a future call site that skips the
+        # ``if wrapped_addr and ...`` at the caller. ``raise`` (not
+        # ``assert``) so the check survives ``python -O``.
+        if not wrapped_addr:
+            raise ValueError("wrapped_addr must be set to build the unwrap leg")
         # Each inner build read that fails surfaces as
         # ``_BALANCE_READ_FAILED`` so the caller routes the cycle to
         # ``OFFCHAIN_TIMEOUT_ALL_MECHS`` (retry-eligible) rather than
@@ -2141,7 +2088,7 @@ class OffchainRequestExecutor:
             value=0,
             operation=MultiSendOperation.DELEGATE_CALL.value,
         )
-        return _DepositBuildResult(tx_hex, None)
+        return _DepositBuildResult(tx_hex, None if tx_hex else _BALANCE_READ_FAILED)
 
     def _build_token_deposit_multisend(
         self,
@@ -2266,7 +2213,7 @@ class OffchainRequestExecutor:
             value=0,
             operation=MultiSendOperation.DELEGATE_CALL.value,
         )
-        return _DepositBuildResult(tx_hex, None)
+        return _DepositBuildResult(tx_hex, None if tx_hex else _BALANCE_READ_FAILED)
 
     def _build_safe_tx_for_single_call(
         self,

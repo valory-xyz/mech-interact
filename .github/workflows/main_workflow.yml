@@ -87,21 +87,8 @@ jobs:
       - name: Install dependencies
         run: pip install 'tomte[tox,cli] @ git+https://github.com/valory-xyz/tomte.git@v0.7.0' tox-uv
       - name: Security checks
-        # The ``-x commands_pre+=`` chain bootstraps a ``pip`` inside
-        # the safety tox venv (``tox-uv`` creates venvs without one)
-        # and then upgrades both ``pip`` and ``setuptools`` past two
-        # transitive advisories that tomte[safety]'s pinned tox venv
-        # would otherwise carry:
-        #
-        # * SFTY-20260601-69199 — pip Path Traversal in ``<26.1.2``
-        # * SFTY-20260721-58460 — setuptools Info Disclosure in
-        #   ``<83.0.0`` (CVE-2026-59890)
-        #
-        # Both live in the scan venv, not in the mech-interact runtime,
-        # and are not pinnable from this repo. Upgrading them in place
-        # is preferred over adding to ``.safety-policy.yml`` because
-        # safety's policy-file numeric ID for these hasn't matched
-        # reliably across the versions tomte pins.
+        # Upgrade pip and setuptools in the scan venv past two
+        # transitive advisories in tomte[safety]. See commit message.
         run: |
           tomte tox -p \
             -x 'testenv:safety.commands_pre+=python -m ensurepip --upgrade

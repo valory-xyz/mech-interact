@@ -2715,6 +2715,121 @@ class TestDepositBuilderSafeBalancePrecheck:
         assert reason == _BALANCE_READ_FAILED
         assert any("non-numeric token balance" in w for w in warnings)
 
+    def test_token_multisend_approve_calldata_failure_surfaces_read_failed(
+        self,
+    ) -> None:
+        """Approve calldata read failure in the token multisend → ``_BALANCE_READ_FAILED``.
+
+        Sibling to the native multisend inner-failure tests. A
+        contract-api ERROR when building the ``approve`` leg's
+        calldata is a transient RPC issue, not an underfunded Safe.
+        Regressing this return to ``(None, None)`` would mislabel the
+        cycle as ``OFFCHAIN_402_INSUFFICIENT`` and tell operators to
+        top up a funded Safe.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        error_resp = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                # check_balance: enough to reach the multisend build
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                # approve calldata: contract-api ERROR
+                error_resp,
+            ],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_token_deposit_multisend(
+                self._token_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == ["check_balance", "build_approval_tx"]
+
+    def test_token_multisend_deposit_calldata_failure_surfaces_read_failed(
+        self,
+    ) -> None:
+        """Deposit calldata read failure in the token multisend → ``_BALANCE_READ_FAILED``.
+
+        Sibling to the native path's deposit-calldata failure test.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        error_resp = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                _state_resp({"data": b"\xaa"}),
+                # depositFor calldata: contract-api ERROR
+                error_resp,
+            ],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_token_deposit_multisend(
+                self._token_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == [
+            "check_balance",
+            "build_approval_tx",
+            "build_deposit_for_data",
+        ]
+
+    def test_token_multisend_pack_failure_surfaces_read_failed(self) -> None:
+        """MultiSend.get_tx_data failure in the token multisend → ``_BALANCE_READ_FAILED``.
+
+        Sibling to the native path's multisend-pack failure test.
+        """
+        from packages.valory.protocols.contract_api import ContractApiMessage
+
+        error_resp = SimpleNamespace(
+            performative=ContractApiMessage.Performative.ERROR,
+            state=SimpleNamespace(body={}),
+        )
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[
+                _state_resp({"token": self._DEPOSIT_AMOUNT * 10}),
+                _state_resp({"data": b"\xaa"}),
+                _state_resp({"data": b"\xbb"}),
+                # multisend pack: contract-api ERROR
+                error_resp,
+            ],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(
+            executor._build_token_deposit_multisend(
+                self._token_challenge(), self._DEPOSIT_AMOUNT
+            )
+        )
+        assert result.tx_hex is None
+        assert result.reason == _BALANCE_READ_FAILED
+        callables = [c.get("contract_callable") for c in stub.contract_api_calls]
+        assert callables == [
+            "check_balance",
+            "build_approval_tx",
+            "build_deposit_for_data",
+            "get_tx_data",
+        ]
+
 
 class TestNativeDepositWithWrappedNativeFallback:
     """Native deposit path folds in the wrapped-native balance as a fallback.
