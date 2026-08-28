@@ -50,7 +50,7 @@ make all-linters
 # Regenerate ABCI docstrings, copyright headers, and package hashes
 make generators
 
-# Check package hashes and doc hashes
+# Check copyright headers, doc links, package hashes and doc hashes.
 make common-checks-1
 
 # Fix ABCI app FSM specs
@@ -101,3 +101,28 @@ Before pushing, run in order:
 3. `make code-checks`
 4. `make generators` (if packages modified)
 5. `make common-checks-1` (if packages modified)
+
+Run these through `uv run` (e.g. `uv run make code-checks`). The Makefile invokes `tomte`
+and `tox` directly and neither is on `PATH` outside the project venv.
+
+`make common-checks-1` bundles an external link checker, so it needs network access and can
+fail because a third-party site is down rather than because of anything you changed.
+
+## Repository Conventions
+
+**Keep this section updated, and keep it general.** Record what stays true about this repo -
+its structure, its workflow, its deliberate choices. Specifics about how a given tool version
+currently behaves rot quickly and are better placed in the commit message that changed them.
+
+- **Use `tomte tox`, never bare `tox`.** This repo's `tox.ini` defines no `[testenv:*]`
+  sections by design; every env comes from tomte's rendered config.
+- **This repo defines no services.** Tooling and checks that operate on services do not apply
+  here.
+- **A synced working tree accumulates gitignored artifacts under `packages/`** - third-party
+  packages pulled from IPFS, caches, and empty `__init__.py` files among them. They exist
+  only locally; CI checks out clean and never sees them, and they must not be committed. A
+  local check complaining about a file you did not write is usually one of these.
+- **Do not regenerate the protocol code**, and do not add a protocol-regeneration check to
+  CI. This was investigated and rejected.
+- **The release workflow's `run:` block opens with `set -eu`.** It is there so that a failing
+  `cd /work` cannot let `autonomy init --reset` run against the wrong directory.

@@ -47,8 +47,7 @@ Repository = "https://github.com/valory-xyz/mech-interact"
 
 [dependency-groups]
 dev = [
-    # TODO: flip to ==0.7.0 once tomte v0.7.0 publishes to PyPI.
-    "tomte[cli, tests] @ git+https://github.com/valory-xyz/tomte.git@v0.7.0",
+    "tomte[cli, tests]==0.7.2",
 ]
 
 [tool.uv]
@@ -65,8 +64,7 @@ pytest_targets = [
 upstream_pins = [
     "valory-xyz/mech@v0.34.2-rc2",
 ]
-# TODO: flip to ==0.7.0 once tomte v0.7.0 publishes to PyPI.
-tomte_dep_pin = " @ git+https://github.com/valory-xyz/tomte.git@v0.7.0"
+tomte_dep_pin = "==0.7.2"
 
 [tool.uv.build-backend]
 module-name = ["packages"]
