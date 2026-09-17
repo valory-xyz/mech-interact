@@ -35,6 +35,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     NVMConfig,
     Ox,
     SharedState,
+    terms_notice,
     validate_offchain_params,
 )
 
@@ -618,3 +619,42 @@ class TestIsPermanentError:
             _classifier().is_permanent_error(_http_response(500, b"cid not found"))
             is True
         )
+
+
+class TestTermsNotice:
+    """The startup notice states the terms without speaking for other operators."""
+
+    def test_notice_anchors_agreement_to_submitting_a_request(self) -> None:
+        """A requester agrees by submitting, so the notice must say exactly that."""
+        # Wording is fixed: anything that reads as asking the operator to
+        # accept ("by proceeding you agree") would misstate how a requester
+        # becomes bound.
+        notice = terms_notice()
+        assert "By submitting a request to a Mech" in notice
+        assert "proceeding" not in notice
+
+    def test_notice_names_the_valory_terms_and_version(self) -> None:
+        """The Valory terms are named with their version and URL."""
+        notice = terms_notice()
+        assert "Valory AG's Mech Terms (v1.0)" in notice
+        assert "https://www.valory.xyz/terms/mechs" in notice
+
+    def test_notice_does_not_state_another_operator_s_terms(self) -> None:
+        """Only Valory's terms are named; others are referred to, not stated."""
+        # This skill can call any mech. Naming a third party's terms here
+        # would state something on behalf of an operator we have no
+        # relationship with.
+        notice = terms_notice()
+        assert "that Mech operator's terms" in notice
+
+    def test_notice_says_how_to_tell_which_mechs_are_valory_operated(self) -> None:
+        """The notice is only actionable if it says which mechs it covers."""
+        notice = terms_notice()
+        assert "mechs.valory.xyz" in notice
+
+    def test_notice_needs_no_network(self) -> None:
+        """Building the notice must not touch the network at agent boot."""
+        # Identification is an HTTP request. Doing it here would block boot on
+        # a remote endpoint just to write a log line, so the notice is static.
+        with patch("requests.get", side_effect=AssertionError("network at boot")):
+            assert terms_notice()
