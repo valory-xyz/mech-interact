@@ -650,7 +650,7 @@ class TestTermsNotice:
     def test_notice_says_how_to_tell_which_mechs_are_valory_operated(self) -> None:
         """The notice is only actionable if it says which mechs it covers."""
         notice = terms_notice()
-        assert "mechs.valory.xyz" in notice
+        assert "mech.valory.xyz" in notice
 
     def test_notice_needs_no_network(self) -> None:
         """Building the notice must not touch the network at agent boot."""

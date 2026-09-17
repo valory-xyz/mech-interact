@@ -328,7 +328,7 @@ def validate_offchain_params(
 # anyone to accept anything.
 MECH_TERMS_VERSION = "v1.0"
 MECH_TERMS_URL = "https://www.valory.xyz/terms/mechs"
-IDENTIFICATION_ZONE = "mechs.valory.xyz"
+IDENTIFICATION_ZONE = "mech.valory.xyz"
 
 
 def terms_notice() -> str:
