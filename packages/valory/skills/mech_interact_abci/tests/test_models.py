@@ -655,6 +655,8 @@ class TestTermsNotice:
         # so the test holds even while a Valory mech is down.
         assert "resolves" in notice
         assert "answers" not in notice
+        # One label per mech, so a single wildcard certificate covers them all.
+        assert "a hyphen, then the chain id" in notice
 
     def test_notice_needs_no_network(self) -> None:
         """Building the notice must not touch the network at agent boot."""

@@ -346,8 +346,8 @@ def terms_notice() -> str:
         "Mech operator's terms. Mechs operated by Valory are subject to "
         f"Valory AG's Mech Terms ({MECH_TERMS_VERSION}), available at "
         f"{MECH_TERMS_URL}. A Mech is operated by Valory if its own name "
-        f"under {IDENTIFICATION_ZONE} resolves, built from the Mech address "
-        "without '0x' and the chain id."
+        f"under {IDENTIFICATION_ZONE} resolves: the Mech address without "
+        "'0x', a hyphen, then the chain id."
     )
 
 

@@ -6,10 +6,10 @@ An Open Autonomy skill that implements interactions with mechs.
 
 Each Mech is run by its own operator, and you agree to that operator's terms by submitting a request to their Mech. Mechs operated by Valory are subject to the [Valory Mech Terms](https://www.valory.xyz/terms/mechs). The skill logs this once at startup.
 
-Valory creates one DNS record under `mech.valory.xyz` for each Mech it operates, so a Mech is operated by Valory if its own name there resolves. The name is the Mech address without `0x`, then the chain id:
+Valory creates one DNS record under `mech.valory.xyz` for each Mech it operates, so a Mech is operated by Valory if its own name there resolves. The name is the Mech address without `0x`, a hyphen, then the chain id:
 
 ```bash
-dig +short c05e7412439bd7e91730a6880e18d5d5873f632c.100.mech.valory.xyz
+dig +short c05e7412439bd7e91730a6880e18d5d5873f632c-100.mech.valory.xyz
 ```
 
 An address back means Valory operates that Mech, and no answer means it does not. The answer does not depend on the Mech being up. If a name you make up at random also resolves, the zone is answering every name and the result tells you nothing.
