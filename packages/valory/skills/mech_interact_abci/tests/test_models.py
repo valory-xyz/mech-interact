@@ -651,6 +651,10 @@ class TestTermsNotice:
         """The notice is only actionable if it says which mechs it covers."""
         notice = terms_notice()
         assert "mech.valory.xyz" in notice
+        # Identification is by DNS: the name resolving, not the mech replying,
+        # so the test holds even while a Valory mech is down.
+        assert "resolves" in notice
+        assert "answers" not in notice
 
     def test_notice_needs_no_network(self) -> None:
         """Building the notice must not touch the network at agent boot."""

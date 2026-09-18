@@ -334,7 +334,7 @@ IDENTIFICATION_ZONE = "mech.valory.xyz"
 def terms_notice() -> str:
     """Build the Mech Terms notice logged once at startup.
 
-    Deliberately static: identifying a Mech means an HTTP request to its own
+    Deliberately static: identifying a Mech means a DNS lookup of its own
     name, and an agent must not block its boot on the network to write a log
     line. The notice names Valory's terms and how to check which Mechs they
     cover, without stating any other operator's terms on their behalf.
@@ -346,7 +346,7 @@ def terms_notice() -> str:
         "Mech operator's terms. Mechs operated by Valory are subject to "
         f"Valory AG's Mech Terms ({MECH_TERMS_VERSION}), available at "
         f"{MECH_TERMS_URL}. A Mech is operated by Valory if its own name "
-        f"under {IDENTIFICATION_ZONE} answers, built from the Mech address "
+        f"under {IDENTIFICATION_ZONE} resolves, built from the Mech address "
         "without '0x' and the chain id."
     )
 
