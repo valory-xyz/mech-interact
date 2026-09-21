@@ -660,7 +660,14 @@ class TestTermsNotice:
 
     def test_notice_needs_no_network(self) -> None:
         """Building the notice must not touch the network at agent boot."""
-        # Identification is an HTTP request. Doing it here would block boot on
-        # a remote endpoint just to write a log line, so the notice is static.
-        with patch("requests.get", side_effect=AssertionError("network at boot")):
+        # Identification is a DNS lookup of the mech's own name. Doing it here
+        # would block boot on a resolver just to write a log line, so the
+        # notice is static. HTTP is blocked too, so neither kind of call slips in.
+        no_network = AssertionError("network at boot")
+        with (
+            patch("socket.getaddrinfo", side_effect=no_network) as lookup,
+            patch("requests.get", side_effect=no_network) as get,
+        ):
             assert terms_notice()
+        lookup.assert_not_called()
+        get.assert_not_called()
