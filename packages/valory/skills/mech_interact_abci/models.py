@@ -323,9 +323,8 @@ def validate_offchain_params(
         raise ValueError("offchain_deposit_target_calls must be >= 1")
 
 
-# Mech Terms. A requester agrees to a Mech operator's terms by submitting a
-# request, so the notice states what submitting means rather than asking
-# anyone to accept anything.
+# Mech Terms. The notice is the approved Valory sentence, with "this Mech"
+# read as "a Mech operated by Valory": no single Mech is known at startup.
 MECH_TERMS_VERSION = "v1.0"
 MECH_TERMS_URL = "https://www.valory.xyz/terms/mechs"
 IDENTIFICATION_ZONE = "mech.valory.xyz"
@@ -334,20 +333,14 @@ IDENTIFICATION_ZONE = "mech.valory.xyz"
 def terms_notice() -> str:
     """Build the Mech Terms notice logged once at startup.
 
-    Deliberately static: identifying a Mech means a DNS lookup of its own
-    name, and an agent must not block its boot on the network to write a log
-    line. The notice names Valory's terms and how to check which Mechs they
-    cover, without stating any other operator's terms on their behalf.
-
     :return: the notice text.
     """
     return (
-        "By submitting a request to a Mech, you agree to be bound by that "
-        "Mech operator's terms. Mechs operated by Valory are subject to "
-        f"Valory AG's Mech Terms ({MECH_TERMS_VERSION}), available at "
-        f"{MECH_TERMS_URL}. A Mech is operated by Valory if its own name "
-        f"under {IDENTIFICATION_ZONE} resolves: the Mech address without "
-        "'0x', a hyphen, then the chain id."
+        "By submitting a request to a Mech operated by Valory, you agree to be "
+        f"bound by Valory AG's Mech Terms ({MECH_TERMS_VERSION}), available at "
+        f"{MECH_TERMS_URL}. A Mech is operated by Valory if its own name under "
+        f"{IDENTIFICATION_ZONE} resolves: the Mech address without '0x', a "
+        "hyphen, then the chain id."
     )
 
 

@@ -21,15 +21,17 @@
 
 from contextlib import contextmanager
 from typing import Any, Dict, Generator
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 
 from packages.valory.contracts.multisend.contract import MultiSendOperation
+from packages.valory.skills.abstract_round_abci.models import BaseParams
 from packages.valory.skills.abstract_round_abci.test_tools.base import DummyContext
 from packages.valory.skills.mech_interact_abci.models import (
     CHAIN_TO_NVM_CONFIG,
     MechMarketplaceConfig,
+    MechParams,
     MechToolsSpecs,
     MultisendBatch,
     NVMConfig,
@@ -621,42 +623,35 @@ class TestIsPermanentError:
         )
 
 
+APPROVED_NOTICE = (
+    "By submitting a request to a Mech operated by Valory, you agree to be "
+    "bound by Valory AG's Mech Terms (v1.0), available at "
+    "https://www.valory.xyz/terms/mechs. A Mech is operated by Valory if its "
+    "own name under mech.valory.xyz resolves: the Mech address without '0x', "
+    "a hyphen, then the chain id."
+)
+
+
 class TestTermsNotice:
-    """The startup notice states the terms without speaking for other operators."""
+    """The startup notice is the approved wording, and needs no network."""
 
-    def test_notice_anchors_agreement_to_submitting_a_request(self) -> None:
-        """A requester agrees by submitting, so the notice must say exactly that."""
-        # Wording is fixed: anything that reads as asking the operator to
-        # accept ("by proceeding you agree") would misstate how a requester
-        # becomes bound.
-        notice = terms_notice()
-        assert "By submitting a request to a Mech" in notice
-        assert "proceeding" not in notice
+    def test_notice_is_the_approved_wording(self) -> None:
+        """A legal notice: any change to the sentence must fail here."""
+        assert terms_notice() == APPROVED_NOTICE
 
-    def test_notice_names_the_valory_terms_and_version(self) -> None:
-        """The Valory terms are named with their version and URL."""
-        notice = terms_notice()
-        assert "Valory AG's Mech Terms (v1.0)" in notice
-        assert "https://www.valory.xyz/terms/mechs" in notice
+    def test_agreement_is_anchored_to_submitting_a_request_to_a_valory_mech(
+        self,
+    ) -> None:
+        """Submitting is what binds a requester, and only to Valory's terms."""
+        assert terms_notice().startswith(
+            "By submitting a request to a Mech operated by Valory, you agree"
+        )
 
-    def test_notice_does_not_state_another_operator_s_terms(self) -> None:
-        """Only Valory's terms are named; others are referred to, not stated."""
-        # This skill can call any mech. Naming a third party's terms here
-        # would state something on behalf of an operator we have no
-        # relationship with.
+    def test_notice_says_identification_is_by_the_name_resolving(self) -> None:
+        """The notice names the zone, the name format and resolution as the test."""
         notice = terms_notice()
-        assert "that Mech operator's terms" in notice
-
-    def test_notice_says_how_to_tell_which_mechs_are_valory_operated(self) -> None:
-        """The notice is only actionable if it says which mechs it covers."""
-        notice = terms_notice()
-        assert "mech.valory.xyz" in notice
-        # Identification is by DNS: the name resolving, not the mech replying,
-        # so the test holds even while a Valory mech is down.
-        assert "resolves" in notice
-        assert "answers" not in notice
-        # One label per mech, so a single wildcard certificate covers them all.
-        assert "a hyphen, then the chain id" in notice
+        assert "own name under mech.valory.xyz resolves" in notice
+        assert "the Mech address without '0x', a hyphen, then the chain id" in notice
 
     def test_notice_needs_no_network(self) -> None:
         """Building the notice must not touch the network at agent boot."""
@@ -671,3 +666,50 @@ class TestTermsNotice:
             assert terms_notice()
         lookup.assert_not_called()
         get.assert_not_called()
+
+
+class TestMechParamsLogsTermsNotice:
+    """MechParams logs the notice once when the skill's params are built."""
+
+    def test_the_notice_is_logged_once_at_startup(self) -> None:
+        """The headline behaviour: building the params logs the notice exactly once."""
+        # MechParams.__init__ is excluded from coverage, so only a test that
+        # runs it can catch the log line being dropped. The base class and
+        # the final validation are stubbed; everything else runs for real.
+        context = MagicMock()
+        kwargs: Dict[str, Any] = {
+            "skill_context": context,
+            "multisend_address": "0x" + "1" * 40,
+            "multisend_batch_size": 50,
+            "mech_contract_address": "0x" + "2" * 40,
+            "ipfs_address": "https://gateway.test/ipfs/",
+            "mech_chain_id": "gnosis",
+            "mech_wrapped_native_token_address": "0x" + "3" * 40,
+            "mech_interaction_sleep_time": 10,
+            "use_mech_marketplace": True,
+            "mech_marketplace_config": {
+                "mech_marketplace_address": "0x" + "4" * 40,
+                "response_timeout": 300,
+                "priority_mech_address": "0x" + "5" * 40,
+                "use_dynamic_mech_selection": False,
+            },
+            "use_offchain": False,
+            "offchain_deposit_target_calls": 10,
+            "agent_registry_address": "0x" + "6" * 40,
+            "use_acn_for_delivers": False,
+            "valid_mechs": [],
+            "penalize_mech_time_window": 3600,
+            "deliveries_lookback_days": 30,
+        }
+        params = MechParams.__new__(MechParams)
+        with (
+            patch.object(MechParams, "context", new_callable=PropertyMock) as ctx,
+            patch.object(BaseParams, "__init__", return_value=None),
+            patch.object(MechParams, "validate_configuration"),
+        ):
+            ctx.return_value = context
+            MechParams.__init__(params, **kwargs)
+        notices = [
+            c for c in context.logger.info.call_args_list if c == call(APPROVED_NOTICE)
+        ]
+        assert len(notices) == 1
