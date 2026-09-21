@@ -323,6 +323,27 @@ def validate_offchain_params(
         raise ValueError("offchain_deposit_target_calls must be >= 1")
 
 
+# Mech Terms. The notice is the approved Valory sentence, with "this Mech"
+# read as "a Mech operated by Valory": no single Mech is known at startup.
+MECH_TERMS_VERSION = "v1.0"
+MECH_TERMS_URL = "https://www.valory.xyz/terms/mechs"
+IDENTIFICATION_ZONE = "mech.valory.xyz"
+
+
+def terms_notice() -> str:
+    """Build the Mech Terms notice logged once at startup.
+
+    :return: the notice text.
+    """
+    return (
+        "By submitting a request to a Mech operated by Valory, you agree to be "
+        f"bound by Valory AG's Mech Terms ({MECH_TERMS_VERSION}), available at "
+        f"{MECH_TERMS_URL}. A Mech is operated by Valory if its own name under "
+        f"{IDENTIFICATION_ZONE} resolves: the Mech address without '0x', a "
+        "hyphen, then the chain id."
+    )
+
+
 class MechParams(BaseParams):
     """The mech interact abci skill's parameters.
 
@@ -405,6 +426,8 @@ class MechParams(BaseParams):
         )
 
         super().__init__(*args, **kwargs)
+
+        self.context.logger.info(terms_notice())
 
         if (
             self.mech_marketplace_config.use_dynamic_mech_selection
