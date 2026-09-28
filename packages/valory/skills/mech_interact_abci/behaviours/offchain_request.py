@@ -96,6 +96,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
     OFFCHAIN_METADATA_OVERSIZE,
+    OFFCHAIN_NONCE_TAKEN,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     SCHEMA_VERSION,
     merge_extra_attributes,
@@ -554,6 +555,36 @@ class _DepositBuildResult(NamedTuple):
     reason: Optional[str]
 
 
+# ``reason`` values the mech sends when it refuses the slot: below its
+# next expected one (401) or above it (503). Matched as substrings so a
+# trailing detail on either side does not break the check.
+_NONCE_REJECTION_REASONS = (
+    "wire nonce below sender's next expected slot",
+    "wire nonce above sender's next expected slot",
+)
+
+
+def _is_nonce_rejection(body: Optional[bytes]) -> bool:
+    """Return True when the mech refused the slot rather than the request.
+
+    :param body: the rejection response body.
+    :return: whether ``reason`` names a nonce refusal.
+
+    Unparseable bodies are not nonce refusals: a mech that answers with
+    something we cannot read is a misbehaving mech, and treating it as a
+    stale slot would retry it until the budget ran out.
+    """
+    if not body:
+        return False
+    try:
+        reason = json.loads(body).get("reason", "")
+    except (ValueError, AttributeError):
+        return False
+    if not isinstance(reason, str):
+        return False
+    return any(known in reason for known in _NONCE_REJECTION_REASONS)
+
+
 class OffchainAttemptOutcome(enum.Enum):
     """Terminal state of a single ``/send_signed_requests`` POST."""
 
@@ -579,6 +610,18 @@ class OffchainAttemptOutcome(enum.Enum):
 
     SERVER_BUSY = "server_busy"
     """The mech returned 503 (counts toward failover budget)."""
+
+    NONCE_TAKEN = "nonce_taken"
+    """The mech refused the slot this request was signed at.
+
+    The marketplace consumes one slot per delivery per requester, and the
+    mech works the next free one out from the on-chain counter plus its
+    own unsettled requests. Anything else paying from the same Safe, an
+    on-chain request or another off-chain service, takes slots it cannot
+    see, so the signed slot can be stale or ahead through no fault of
+    this request. Re-read the counter and sign again; moving to another
+    mech would carry the same dead slot.
+    """
 
     BAD_RESPONSE = "bad_response"
     """The mech returned a non-handled status, or a 402 with a malformed body.
@@ -891,7 +934,12 @@ class OffchainRequestExecutor:
         last_failure: Optional[str] = None
         last_outcome: Optional[OffchainAttemptOutcome] = None
 
-        for _ in range(self._config.offchain_failover_max_retries + 1):
+        failovers_left = self._config.offchain_failover_max_retries + 1
+        nonce_retries_left = self._config.offchain_nonce_retry_max
+        while failovers_left > 0:
+            # Spent up front so every way out of the body is bounded; the
+            # nonce path is the one exception and refunds it below.
+            failovers_left -= 1
             mech_address, mech_url = self._pick_next_mech(attempted)
             if mech_address is None or mech_url is None:
                 last_failure = self._failure_label_for(last_outcome)
@@ -1066,6 +1114,29 @@ class OffchainRequestExecutor:
                     offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
                     last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
                 )
+
+            if attempt.outcome is OffchainAttemptOutcome.NONCE_TAKEN:
+                # The slot went to something else paying from this Safe.
+                # Re-read the counter and sign again at the mech we were
+                # already talking to; another mech would refuse the same
+                # slot, and this one is not at fault, so this does not
+                # spend a failover.
+                last_failure = OFFCHAIN_NONCE_TAKEN
+                if nonce_retries_left <= 0:
+                    break
+                nonce_retries_left -= 1
+                failovers_left += 1
+                attempted.remove(mech_address.lower())
+                refreshed = yield from self._read_on_chain_nonce()
+                if refreshed is None:
+                    last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
+                    break
+                self._logger.info(
+                    f"Mech {mech_address} refused slot {on_chain_nonce} for "
+                    f"{self._safe_address()}; retrying at {refreshed}."
+                )
+                on_chain_nonce = refreshed
+                continue
 
             # TIMEOUT / SERVER_BUSY / BAD_RESPONSE — try the next mech.
             last_failure = self._failure_label_for(attempt.outcome)
@@ -1275,6 +1346,13 @@ class OffchainRequestExecutor:
                 mech_address=mech_address,
                 mech_url=mech_url,
                 challenge=challenge,
+                status_code=status,
+            )
+        if status in (401, 503) and _is_nonce_rejection(body_bytes):
+            return OffchainAttemptResult(
+                outcome=OffchainAttemptOutcome.NONCE_TAKEN,
+                mech_address=mech_address,
+                mech_url=mech_url,
                 status_code=status,
             )
         if status == 503:
@@ -2388,6 +2466,8 @@ class OffchainRequestExecutor:
             return OFFCHAIN_503_ALL_MECHS
         if outcome is OffchainAttemptOutcome.BAD_RESPONSE:
             return OFFCHAIN_BAD_RESPONSE
+        if outcome is OffchainAttemptOutcome.NONCE_TAKEN:
+            return OFFCHAIN_NONCE_TAKEN
         return OFFCHAIN_TIMEOUT_ALL_MECHS
 
 

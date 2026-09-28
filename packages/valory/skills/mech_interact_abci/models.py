@@ -250,6 +250,12 @@ class MechMarketplaceConfig:
     # Maximum retries across the ranked mech list on HTTP timeout or 503.
     # Default 2 (three mechs total per request) per the prepay spec.
     offchain_failover_max_retries: int = 2
+    # How many times to re-sign at a fresh slot when the mech refuses the
+    # one a request was signed at. Separate from the failover budget: the
+    # mech is not at fault, so a stale slot must not use up the tries a
+    # genuinely bad mech would get. The FSM re-enters this behaviour each
+    # period, so a slot that stays taken is retried again next cycle.
+    offchain_nonce_retry_max: int = 3
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -280,6 +286,8 @@ class MechMarketplaceConfig:
             raise ValueError("offchain_poll_timeout_seconds must be positive")
         if self.offchain_failover_max_retries < 0:
             raise ValueError("offchain_failover_max_retries must be non-negative")
+        if self.offchain_nonce_retry_max < 0:
+            raise ValueError("offchain_nonce_retry_max must be non-negative")
 
 
 _LEGACY_MARKETPLACE_KEYS = frozenset({"use_offchain", "offchain_deposit_target_calls"})
