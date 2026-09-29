@@ -66,9 +66,7 @@ OFFCHAIN_402_INSUFFICIENT = "offchain_402_insufficient"
 OFFCHAIN_503_ALL_MECHS = "offchain_503_all_mechs"
 OFFCHAIN_TIMEOUT_ALL_MECHS = "offchain_timeout_all_mechs"
 OFFCHAIN_BAD_RESPONSE = "offchain_bad_response"
-# The mech refused the slot the request was signed at, because something
-# else took it from the same Safe. Distinct from a misbehaving mech: the
-# request is fine and only its nonce is stale.
+# The mech refused the slot, not the request; see ``OffchainAttemptOutcome``.
 OFFCHAIN_NONCE_TAKEN = "offchain_nonce_taken"
 # Emitted when the caller-supplied metadata exceeds the single-block CIDv1
 # ceiling (256 KiB). The on-chain IPFS path chunks these transparently; the

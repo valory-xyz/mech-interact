@@ -4376,18 +4376,23 @@ class TestNonceRejectionRetriesTheSameMech:
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert len(stub.posted_urls) == 2
 
-    def test_a_slot_that_stays_taken_gives_up_with_its_own_reason(self) -> None:
-        """Bounded, and reported as a nonce problem rather than a bad mech."""
+    def test_a_counter_that_has_not_moved_gives_up_at_once(self) -> None:
+        """Re-signing at the same slot would be refused identically.
+
+        ``mapNonces`` only moves when a delivery settles, so an unmoved
+        counter means nothing has changed and the extra signed posts are
+        wasted. The next period retries with a fresh read.
+        """
         mech_a = "0x" + "aa" * 20
-        reads: List[Any] = [_state_resp({"data": 100}), _state_resp({"data": 7})]
-        for _ in range(3):
-            reads.extend(self._per_attempt_reads())
-            reads.append(_state_resp({"data": 7}))
-        reads.extend(self._per_attempt_reads())
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
-            contract_api_responses=reads,
-            http_responses=[_make_http_response(503, self._REFUSED)] * 4,
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                *self._per_attempt_reads(),
+                _state_resp({"data": 7}),  # re-read: still 7
+            ],
+            http_responses=[_make_http_response(503, self._REFUSED)],
             failover_retries=0,
             nonce_retry_max=3,
         )
@@ -4397,4 +4402,5 @@ class TestNonceRejectionRetriesTheSameMech:
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_NONCE_TAKEN
-        assert len(stub.posted_urls) == 4  # the first try plus three retries
+        # One post, not one per retry the budget would have allowed.
+        assert len(stub.posted_urls) == 1

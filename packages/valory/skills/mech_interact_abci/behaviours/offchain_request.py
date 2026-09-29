@@ -619,8 +619,9 @@ class OffchainAttemptOutcome(enum.Enum):
     own unsettled requests. Anything else paying from the same Safe, an
     on-chain request or another off-chain service, takes slots it cannot
     see, so the signed slot can be stale or ahead through no fault of
-    this request. Re-read the counter and sign again; moving to another
-    mech would carry the same dead slot.
+    this request. Re-read the counter and sign again at the same mech;
+    moving to another one would carry the same dead slot, and a counter
+    that has not moved means the retry would be refused identically.
     """
 
     BAD_RESPONSE = "bad_response"
@@ -1116,21 +1117,28 @@ class OffchainRequestExecutor:
                 )
 
             if attempt.outcome is OffchainAttemptOutcome.NONCE_TAKEN:
-                # The slot went to something else paying from this Safe.
-                # Re-read the counter and sign again at the mech we were
-                # already talking to; another mech would refuse the same
-                # slot, and this one is not at fault, so this does not
-                # spend a failover.
+                # Stay on this mech: another one would refuse the same
+                # slot and this one is not at fault, so it costs no failover.
                 last_failure = OFFCHAIN_NONCE_TAKEN
                 if nonce_retries_left <= 0:
                     break
-                nonce_retries_left -= 1
-                failovers_left += 1
-                attempted.remove(mech_address.lower())
                 refreshed = yield from self._read_on_chain_nonce()
                 if refreshed is None:
                     last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                     break
+                if refreshed == on_chain_nonce:
+                    # ``mapNonces`` only moves when a delivery settles, so an
+                    # unmoved counter means re-signing would be refused the
+                    # same way. Give up now and let the next period retry.
+                    self._logger.info(
+                        f"Mech {mech_address} refused slot {on_chain_nonce} for "
+                        f"{self._safe_address()} and the counter has not moved; "
+                        "leaving it for the next period."
+                    )
+                    break
+                nonce_retries_left -= 1
+                failovers_left += 1
+                attempted.remove(mech_address.lower())
                 self._logger.info(
                     f"Mech {mech_address} refused slot {on_chain_nonce} for "
                     f"{self._safe_address()}; retrying at {refreshed}."

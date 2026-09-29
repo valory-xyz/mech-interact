@@ -250,11 +250,8 @@ class MechMarketplaceConfig:
     # Maximum retries across the ranked mech list on HTTP timeout or 503.
     # Default 2 (three mechs total per request) per the prepay spec.
     offchain_failover_max_retries: int = 2
-    # How many times to re-sign at a fresh slot when the mech refuses the
-    # one a request was signed at. Separate from the failover budget: the
-    # mech is not at fault, so a stale slot must not use up the tries a
-    # genuinely bad mech would get. The FSM re-enters this behaviour each
-    # period, so a slot that stays taken is retried again next cycle.
+    # Re-signs at a fresh slot after a refusal, separate from the failover
+    # budget because the mech is not at fault.
     offchain_nonce_retry_max: int = 3
 
     def __post_init__(self) -> None:
