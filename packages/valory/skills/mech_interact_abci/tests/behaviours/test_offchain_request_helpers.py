@@ -55,6 +55,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     parse_payment_challenge,
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import PaymentType
+from packages.valory.skills.mech_interact_abci.nonce_allocator import reserve_slot
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechMetadata,
@@ -1251,6 +1252,9 @@ class _StubBehaviour:
                 error=lambda *a, **k: None,
                 debug=lambda *a, **k: None,
             ),
+            # The real context carries this and every skill in the agent
+            # shares it; the slot allocator lives in it.
+            shared_state={},
         )
         self.params = SimpleNamespace(
             mech_marketplace_config=SimpleNamespace(
@@ -4207,3 +4211,67 @@ class TestStubValidatesCanonicalKwargs:
                     account="0x" + "bb" * 20,
                 )
             )
+
+
+class TestTheCycleTakesItsSlotFromTheAllocator:
+    """The chain counter alone hands back slots something else already holds."""
+
+    @staticmethod
+    def _per_attempt_reads() -> List[Any]:
+        return [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def test_it_signs_above_a_slot_the_facilitator_already_holds(self) -> None:
+        """A CoinGecko call served but unsettled leaves the chain reading 7.
+
+        Reading the chain would sign 7 again, which is the collision.
+        The allocator has already issued 7 to that call, so this gets 8.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # chain still reads 7
+                *self._per_attempt_reads(),
+            ],
+            http_responses=[_make_http_response(200)],
+        )
+        # Something else in the agent took 7 and has not settled it.
+        reserve_slot(
+            stub.context.shared_state,
+            chain=str(stub.params.mech_chain_id),
+            safe=stub.synchronized_data.safe_contract_address,
+            on_chain_nonce=7,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[0], "nonce") == "8"
+
+    def test_a_cycle_that_lands_nothing_gives_its_slot_back(self) -> None:
+        """Otherwise the gap stalls the Safe: nothing here can fill it."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                *self._per_attempt_reads(),
+            ],
+            http_responses=[_make_http_response(418)],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert reserve_slot(
+            stub.context.shared_state,
+            chain=str(stub.params.mech_chain_id),
+            safe=stub.synchronized_data.safe_contract_address,
+            on_chain_nonce=7,
+        ) == 7

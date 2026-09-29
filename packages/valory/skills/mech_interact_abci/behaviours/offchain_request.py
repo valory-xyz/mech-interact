@@ -88,6 +88,10 @@ from packages.valory.contracts.multisend.contract import (
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    release_slot,
+    reserve_slot,
+)
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechInteractionResponse,
@@ -835,6 +839,31 @@ class OffchainRequestExecutor:
     # ---------- fresh cycle -------------------------------------------------
 
     def _fresh_cycle(self) -> Generator[None, None, OffchainCycleResult]:
+        """Build a brand-new request, giving back its slot if nothing landed.
+
+        :yield: the framework steps of the cycle.
+        :return: the cycle outcome.
+
+        The slot is reserved before signing, because a caller that has
+        picked one owns it until it is used. If the cycle ends with
+        nothing sent, holding on to it would leave a gap that only an
+        on-chain request can step over, so it goes back.
+        """
+        self._reserved_slot = None
+        result = yield from self._fresh_cycle_inner()
+        if (
+            result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+            and self._reserved_slot is not None
+        ):
+            release_slot(
+                self._b.context.shared_state,
+                chain=str(self._b.params.mech_chain_id or ""),
+                safe=self._safe_address(),
+                slot=self._reserved_slot,
+            )
+        return result
+
+    def _fresh_cycle_inner(self) -> Generator[None, None, OffchainCycleResult]:
         """Build a brand-new request and walk the ranked mech list."""
         # Trader and other current consumers populate ``mech_requests`` with
         # exactly one entry per cycle; the offchain wire shape supports one
@@ -880,12 +909,22 @@ class OffchainRequestExecutor:
                 last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
             )
 
-        on_chain_nonce = yield from self._read_on_chain_nonce()
-        if on_chain_nonce is None:
+        chain_nonce = yield from self._read_on_chain_nonce()
+        if chain_nonce is None:
             return OffchainCycleResult(
                 offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
                 last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
             )
+        # The chain counter only moves at settlement, so on its own it
+        # hands back slots something else in this agent is already
+        # holding. The allocator is the one place that sees both.
+        on_chain_nonce = reserve_slot(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            on_chain_nonce=chain_nonce,
+        )
+        self._reserved_slot = on_chain_nonce
 
         attempted: List[str] = []
         last_failure: Optional[str] = None
