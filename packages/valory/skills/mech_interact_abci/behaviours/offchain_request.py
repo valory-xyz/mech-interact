@@ -616,12 +616,15 @@ class OffchainAttemptOutcome(enum.Enum):
 
     The marketplace consumes one slot per delivery per requester, and the
     mech works the next free one out from the on-chain counter plus its
-    own unsettled requests. Anything else paying from the same Safe, an
-    on-chain request or another off-chain service, takes slots it cannot
-    see, so the signed slot can be stale or ahead through no fault of
-    this request. Re-read the counter and sign again at the same mech;
-    moving to another one would carry the same dead slot, and a counter
-    that has not moved means the retry would be refused identically.
+    own unsettled requests. So it refuses a slot below that, which has
+    settled since this request was signed, and one above it, which it
+    cannot fill. A slot held unsettled by something else paying from the
+    same Safe is invisible to the mech, which accepts it; that clashes at
+    settlement rather than here.
+
+    Re-read the counter and sign again at the same mech; moving to another
+    one would carry the same dead slot, and a counter that has not moved
+    means the retry would be refused identically.
     """
 
     BAD_RESPONSE = "bad_response"
@@ -1119,7 +1122,7 @@ class OffchainRequestExecutor:
             if attempt.outcome is OffchainAttemptOutcome.NONCE_TAKEN:
                 # Stay on this mech: another one would refuse the same
                 # slot and this one is not at fault, so it costs no failover.
-                last_failure = OFFCHAIN_NONCE_TAKEN
+                last_failure = self._failure_label_for(attempt.outcome)
                 if nonce_retries_left <= 0:
                     break
                 refreshed = yield from self._read_on_chain_nonce()
