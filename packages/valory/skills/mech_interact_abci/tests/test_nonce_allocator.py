@@ -27,7 +27,6 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     reserve_slot,
 )
 
-
 _CHAIN = "optimism"
 _SAFE = "0x000000000000000000000000000000000000AbCd"
 _OTHER = "0x000000000000000000000000000000000000BeEf"
@@ -67,7 +66,10 @@ class TestReserveSlot:
         state: dict = {}
         reserve_slot(state, chain=_CHAIN, safe=_SAFE.lower(), on_chain_nonce=10)
 
-        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE.upper(), on_chain_nonce=10) == 11
+        assert (
+            reserve_slot(state, chain=_CHAIN, safe=_SAFE.upper(), on_chain_nonce=10)
+            == 11
+        )
 
 
 class TestReleaseSlot:
@@ -89,7 +91,10 @@ class TestReleaseSlot:
         newer = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
 
         assert release_slot(state, chain=_CHAIN, safe=_SAFE, slot=stranded) is False
-        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10) == newer + 1
+        assert (
+            reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+            == newer + 1
+        )
 
     def test_releasing_the_first_slot_clears_the_count(self) -> None:
         """Slot zero is a real slot, so it cannot be recorded as "one below"."""
@@ -101,7 +106,9 @@ class TestReleaseSlot:
         assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=0) == 0
 
     @pytest.mark.parametrize("slot", [5, 99])
-    def test_releasing_something_never_handed_out_changes_nothing(self, slot: int) -> None:
+    def test_releasing_something_never_handed_out_changes_nothing(
+        self, slot: int
+    ) -> None:
         """A confused caller must not be able to rewind somebody else's count."""
         state: dict = {}
         reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)

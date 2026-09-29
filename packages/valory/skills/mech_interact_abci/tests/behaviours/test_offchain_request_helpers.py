@@ -31,6 +31,7 @@ import logging
 from dataclasses import asdict
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -60,9 +61,16 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
+    OFFCHAIN_NONCE_TAKEN,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     merge_extra_attributes,
 )
+
+
+def _form_field(body: Any, field: str) -> str:
+    """Return one field of a form-urlencoded POST body."""
+    raw = body.decode("utf-8") if isinstance(body, bytes) else str(body)
+    return parse_qs(raw)[field][0]
 
 
 class TestComputeCidv1Bytes:
@@ -1240,6 +1248,7 @@ class _StubBehaviour:
         auto_deposit_cap: int = 10**18,
         deposit_target_calls: int = 10,
         failover_retries: int = 2,
+        nonce_retry_max: int = 3,
         mech_requests: Optional[List[Any]] = None,
         use_dynamic_mech_selection: bool = True,
         ledger_api_responses: Optional[List[Any]] = None,
@@ -1252,14 +1261,14 @@ class _StubBehaviour:
                 error=lambda *a, **k: None,
                 debug=lambda *a, **k: None,
             ),
-            # The real context carries this and every skill in the agent
-            # shares it; the slot allocator lives in it.
+            # Every skill in the agent shares this; the slot allocator is in it.
             shared_state={},
         )
         self.params = SimpleNamespace(
             mech_marketplace_config=SimpleNamespace(
                 mech_marketplace_address="0x" + "ff" * 20,
                 offchain_failover_max_retries=failover_retries,
+                offchain_nonce_retry_max=nonce_retry_max,
                 offchain_url=offchain_url,
                 priority_mech_address=priority_mech_address,
                 auto_deposit_cap_per_cycle=auto_deposit_cap,
@@ -1288,6 +1297,7 @@ class _StubBehaviour:
         self._signature = signature
         # Record of calls (lets tests assert what the executor did).
         self.posted_urls: List[str] = []
+        self.posted_bodies: List[Any] = []
         self.signed_request_ids: List[bytes] = []
         # Record of every contract-api kwargs and every safe-tx kwargs so
         # tests can assert the deposit value (token path: kwargs["amount"]
@@ -1350,6 +1360,7 @@ class _StubBehaviour:
         if False:
             yield
         self.posted_urls.append(kwargs.get("url", ""))
+        self.posted_bodies.append(kwargs.get("content", b""))
         return self._http_responses.pop(0)
 
     def get_ledger_api_response(self, **kwargs: Any) -> Any:
@@ -4213,8 +4224,90 @@ class TestStubValidatesCanonicalKwargs:
             )
 
 
-class TestTheCycleTakesItsSlotFromTheAllocator:
-    """The chain counter alone hands back slots something else already holds."""
+class TestNonceRejectionClassification:
+    """A refused slot is not a misbehaving mech, and must not read as one."""
+
+    _BELOW = b'{"reason": "wire nonce below sender\'s next expected slot"}'
+    _ABOVE = b'{"reason": "wire nonce above sender\'s next expected slot"}'
+
+    def _outcome(self, status: int, body: bytes) -> OffchainAttemptOutcome:
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[_make_http_response(status, body)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        attempt: OffchainAttemptResult = _drive(
+            executor._post_signed_request(
+                mech_url="https://m",
+                mech_address="0x" + "aa" * 20,
+                ipfs_hash="0x" + "cc" * 31,
+                ipfs_data="{}",
+                request_id_bytes=bytes(32),
+                signature_hex="0x" + "dd" * 65,
+                nonce=7,
+                delivery_rate=1,
+                sender="0x" + "bb" * 20,
+            )
+        )
+        return attempt.outcome
+
+    @pytest.mark.parametrize(
+        "status, body",
+        [
+            pytest.param(401, _BELOW, id="below expected, 401"),
+            pytest.param(503, _ABOVE, id="above expected, 503"),
+        ],
+    )
+    def test_a_refused_slot_is_its_own_outcome(self, status: int, body: bytes) -> None:
+        """Both halves arrive on different statuses; the reason tells them apart.
+
+        Read as ``BAD_RESPONSE`` this moved to another mech carrying the
+        same dead slot, and the operator saw a misbehaving mech rather
+        than a nonce problem.
+        """
+        assert self._outcome(status, body) is OffchainAttemptOutcome.NONCE_TAKEN
+
+    @pytest.mark.parametrize(
+        "status, body, expected",
+        [
+            pytest.param(
+                503,
+                b'{"reason": "no workers available"}',
+                OffchainAttemptOutcome.SERVER_BUSY,
+                id="a real 503 still fails over",
+            ),
+            pytest.param(
+                401,
+                b'{"reason": "signature does not match sender"}',
+                OffchainAttemptOutcome.BAD_RESPONSE,
+                id="a bad signature is still the request's fault",
+            ),
+            pytest.param(
+                503,
+                b"not-json",
+                OffchainAttemptOutcome.SERVER_BUSY,
+                id="an unreadable body is not a refused slot",
+            ),
+            pytest.param(
+                503,
+                b"",
+                OffchainAttemptOutcome.SERVER_BUSY,
+                id="an empty body is not a refused slot",
+            ),
+        ],
+    )
+    def test_other_rejections_keep_their_outcome(
+        self, status: int, body: bytes, expected: OffchainAttemptOutcome
+    ) -> None:
+        """Only the mech's own nonce wording counts, or every 503 would retry forever."""
+        assert self._outcome(status, body) is expected
+
+
+class TestNonceRejectionRetriesTheSameMech:
+    """A refused slot re-reads the counter and signs again, at the same mech."""
+
+    _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
 
     @staticmethod
     def _per_attempt_reads() -> List[Any]:
@@ -4223,8 +4316,121 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
             _state_resp({"max_delivery_rate": 10**16}),
         ]
 
-    def test_it_signs_above_a_slot_the_facilitator_already_holds(self) -> None:
-        """A CoinGecko call served but unsettled leaves the chain reading 7.
+    def test_it_re_reads_the_slot_and_posts_again_to_the_same_mech(self) -> None:
+        """Failing over would carry the same dead slot to a mech that is not at fault."""
+        mech_a = "0x" + "aa" * 20
+        mech_b = "0x" + "bb" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(mech_a, "https://mech-aa.example"),
+                _FakeMechInfo(mech_b, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce, taken by something else
+                *self._per_attempt_reads(),
+                _state_resp({"data": 8}),  # re-read after the refusal
+                *self._per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(503, self._REFUSED),
+                _make_http_response(200),
+            ],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        # Both posts went to the first mech, not one each.
+        assert stub.posted_urls == [
+            "https://mech-aa.example/send_signed_requests",
+            "https://mech-aa.example/send_signed_requests",
+        ]
+        slots = [_form_field(body, "nonce") for body in stub.posted_bodies]
+        assert slots == ["7", "8"]
+
+    def test_a_refused_slot_does_not_spend_the_failover_budget(self) -> None:
+        """The mech is not at fault, so a bad mech must keep its full allowance.
+
+        With a single failover and one refusal, a refusal that cost a
+        failover would leave nothing for the real retry.
+        """
+        mech_a = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                *self._per_attempt_reads(),
+                _state_resp({"data": 8}),
+                *self._per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(503, self._REFUSED),
+                _make_http_response(200),
+            ],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert len(stub.posted_urls) == 2
+
+    def test_a_counter_that_has_not_moved_gives_up_at_once(self) -> None:
+        """Re-signing at the same slot would be refused identically.
+
+        ``mapNonces`` only moves when a delivery settles, so an unmoved
+        counter means nothing has changed and the extra signed posts are
+        wasted. The next period retries with a fresh read.
+        """
+        mech_a = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                *self._per_attempt_reads(),
+                _state_resp({"data": 7}),  # re-read: still 7
+            ],
+            http_responses=[_make_http_response(503, self._REFUSED)],
+            failover_retries=0,
+            nonce_retry_max=3,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_NONCE_TAKEN
+        # One post, not one per retry the budget would have allowed.
+        assert len(stub.posted_urls) == 1
+
+
+class TestTheCycleTakesItsSlotFromTheAllocator:
+    """Reading the chain alone hands back slots something else already holds."""
+
+    @staticmethod
+    def _per_attempt_reads() -> List[Any]:
+        return [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    @staticmethod
+    def _take_slot(stub: Any, slot: int) -> None:
+        """Stand in for something else in the agent holding ``slot``."""
+        reserve_slot(
+            stub.context.shared_state,
+            chain=str(stub.params.mech_chain_id),
+            safe=stub.synchronized_data.safe_contract_address,
+            on_chain_nonce=slot,
+        )
+
+    def test_it_signs_above_a_slot_something_else_already_holds(self) -> None:
+        """A facilitator call served but unsettled leaves the chain reading 7.
 
         Reading the chain would sign 7 again, which is the collision.
         The allocator has already issued 7 to that call, so this gets 8.
@@ -4233,18 +4439,12 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
             ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
             contract_api_responses=[
                 _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # chain still reads 7
+                _state_resp({"data": 7}),  # the chain still reads 7
                 *self._per_attempt_reads(),
             ],
             http_responses=[_make_http_response(200)],
         )
-        # Something else in the agent took 7 and has not settled it.
-        reserve_slot(
-            stub.context.shared_state,
-            chain=str(stub.params.mech_chain_id),
-            safe=stub.synchronized_data.safe_contract_address,
-            on_chain_nonce=7,
-        )
+        self._take_slot(stub, 7)
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
 
         result = _drive(executor._fresh_cycle())
@@ -4253,7 +4453,7 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
         assert _form_field(stub.posted_bodies[0], "nonce") == "8"
 
     def test_a_cycle_that_lands_nothing_gives_its_slot_back(self) -> None:
-        """Otherwise the gap stalls the Safe: nothing here can fill it."""
+        """Otherwise the gap stalls the Safe, because nothing here can fill it."""
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
             contract_api_responses=[
@@ -4269,9 +4469,13 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
         result = _drive(executor._fresh_cycle())
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert reserve_slot(
-            stub.context.shared_state,
-            chain=str(stub.params.mech_chain_id),
-            safe=stub.synchronized_data.safe_contract_address,
-            on_chain_nonce=7,
-        ) == 7
+        # The slot it took is free again, not stranded above the counter.
+        assert (
+            reserve_slot(
+                stub.context.shared_state,
+                chain=str(stub.params.mech_chain_id),
+                safe=stub.synchronized_data.safe_contract_address,
+                on_chain_nonce=7,
+            )
+            == 7
+        )

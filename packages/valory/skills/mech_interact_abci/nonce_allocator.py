@@ -36,7 +36,6 @@ above the on-chain counter and above anything it has already issued.
 
 from typing import Any, Dict
 
-
 # Highest slot handed out per Safe, keyed ``chain:safe`` in lower case.
 MECH_NONCE_ISSUED = "mech_nonce_issued"
 
