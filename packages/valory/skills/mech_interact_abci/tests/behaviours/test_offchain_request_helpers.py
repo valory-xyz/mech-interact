@@ -4230,6 +4230,101 @@ class TestStubValidatesCanonicalKwargs:
             )
 
 
+class TestNonceRefusalNeverFailsOverToAnotherMech:
+    """Another mech would refuse the same slot, and is not at fault for it.
+
+    A failover here is worse than useless: it spends the budget meant for
+    a genuinely bad mech, and leaves two mechs holding the same slot.
+    """
+
+    _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
+
+    @staticmethod
+    def _per_attempt_reads() -> List[Any]:
+        return [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def _two_mech_stub(self, contract_api_responses: List[Any], **kwargs: Any) -> Any:
+        return _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example"),
+                _FakeMechInfo("0x" + "bb" * 20, "https://mech-bb.example"),
+            ],
+            contract_api_responses=contract_api_responses,
+            **kwargs,
+        )
+
+    def test_an_unmoved_counter_stops_without_trying_the_other_mech(self) -> None:
+        """``mapNonces`` is per requester, so the second mech sees the same slot."""
+        stub = self._two_mech_stub(
+            [
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                *self._per_attempt_reads(),
+                _state_resp({"data": 7}),  # re-read: still 7
+            ],
+            http_responses=[_make_http_response(503, self._REFUSED)],
+            failover_retries=1,
+            nonce_retry_max=3,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_NONCE_TAKEN
+        assert len(stub.posted_urls) == 1
+
+    def test_a_spent_retry_budget_stops_without_trying_the_other_mech(self) -> None:
+        """The budget bounds re-signing at this mech, not the search for another."""
+        stub = self._two_mech_stub(
+            [
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                *self._per_attempt_reads(),
+            ],
+            http_responses=[_make_http_response(503, self._REFUSED)],
+            failover_retries=1,
+            nonce_retry_max=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_NONCE_TAKEN
+        # No re-read either: the budget is spent before the counter is asked.
+        assert len(stub.posted_urls) == 1
+
+    def test_a_counter_that_cannot_be_read_is_reported_as_a_read_failure(self) -> None:
+        """Without the counter there is no way to tell a stale slot from a fresh one.
+
+        Reporting it as a refused slot would send the operator looking at
+        the marketplace rather than at the chain connection.
+        """
+        stub = self._two_mech_stub(
+            [
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                *self._per_attempt_reads(),
+                # A contract-api answer that is not STATE: the read failed.
+                SimpleNamespace(performative=None, state=None),  # the re-read fails
+            ],
+            http_responses=[_make_http_response(503, self._REFUSED)],
+            failover_retries=1,
+            nonce_retry_max=3,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+        assert len(stub.posted_urls) == 1
+
+
 class TestNonceRejectionClassification:
     """A refused slot is not a misbehaving mech, and must not read as one."""
 
