@@ -56,7 +56,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     parse_payment_challenge,
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import PaymentType
-from packages.valory.skills.mech_interact_abci.nonce_allocator import reserve_slot
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    MECH_SLOT_REGISTRY,
+    reserve_slot,
+)
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechMetadata,
@@ -65,6 +68,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     merge_extra_attributes,
 )
+from packages.valory.skills.mech_interact_abci.tests.registry_stub import _Registry
 
 
 def _form_field(body: Any, field: str) -> str:
@@ -1261,8 +1265,10 @@ class _StubBehaviour:
                 error=lambda *a, **k: None,
                 debug=lambda *a, **k: None,
             ),
-            # Every skill in the agent shares this; the slot allocator is in it.
-            shared_state={},
+            # Every skill in the agent shares this. An agent that pays from
+            # its Safe through more than one route binds a slot registry
+            # into it; one that does not leaves it out.
+            shared_state={MECH_SLOT_REGISTRY: _Registry()},
         )
         self.params = SimpleNamespace(
             mech_marketplace_config=SimpleNamespace(
@@ -4412,6 +4418,8 @@ class TestNonceRejectionRetriesTheSameMech:
 class TestTheCycleTakesItsSlotFromTheAllocator:
     """Reading the chain alone hands back slots something else already holds."""
 
+    _ABOVE_EXPECTED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
+
     @staticmethod
     def _per_attempt_reads() -> List[Any]:
         return [
@@ -4451,6 +4459,72 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
 
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert _form_field(stub.posted_bodies[0], "nonce") == "8"
+
+    def test_a_retry_hands_the_refused_slot_back_before_taking_the_next(self) -> None:
+        """A refused slot was never served, so keeping it strands it.
+
+        Nothing settles a slot the mech refused, and the marketplace
+        consumes a requester's slots in order, so every later request for
+        the Safe would queue behind it.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                *self._per_attempt_reads(),
+                _state_resp({"data": 8}),  # re-read after the refusal
+                *self._per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(503, self._ABOVE_EXPECTED),
+                _make_http_response(200),
+            ],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
+        assert _form_field(stub.posted_bodies[1], "nonce") == "8"
+        # Slot 7 is free again; only the slot that was served is held.
+        registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
+        key = (
+            str(stub.params.mech_chain_id).lower(),
+            stub.synchronized_data.safe_contract_address.lower(),
+        )
+        assert registry.live[key] == {8}
+
+    def test_a_retry_steps_over_a_slot_something_else_took_meanwhile(self) -> None:
+        """The chain moving does not mean the next slot up is free.
+
+        Another payer in this agent can take it between the refusal and
+        the re-read, and it is unsettled so the chain cannot show it.
+        """
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                *self._per_attempt_reads(),
+                _state_resp({"data": 8}),
+                *self._per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(503, self._ABOVE_EXPECTED),
+                _make_http_response(200),
+            ],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        self._take_slot(stub, 8)
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[1], "nonce") == "9"
 
     def test_a_cycle_that_lands_nothing_gives_its_slot_back(self) -> None:
         """Otherwise the gap stalls the Safe, because nothing here can fill it."""

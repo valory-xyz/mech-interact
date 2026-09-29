@@ -961,7 +961,7 @@ class OffchainRequestExecutor:
             )
         # The chain counter only moves at settlement, so on its own it
         # hands back slots something else in this agent is already
-        # holding. The allocator is the one place that sees both.
+        # holding. The agent's registry is the one view that sees both.
         on_chain_nonce = reserve_slot(
             self._b.context.shared_state,
             chain=str(self._b.params.mech_chain_id or ""),
@@ -1165,7 +1165,22 @@ class OffchainRequestExecutor:
                 if refreshed is None:
                     last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                     break
-                if refreshed == on_chain_nonce:
+                # Handed back before the next one is taken, or the registry
+                # would step over the slot being retried and never offer it.
+                release_slot(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    slot=on_chain_nonce,
+                )
+                candidate = reserve_slot(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    on_chain_nonce=refreshed,
+                )
+                self._reserved_slot = candidate
+                if candidate == on_chain_nonce:
                     # ``mapNonces`` only moves when a delivery settles, so an
                     # unmoved counter means re-signing would be refused the
                     # same way. Give up now and let the next period retry.
@@ -1180,9 +1195,9 @@ class OffchainRequestExecutor:
                 attempted.remove(mech_address.lower())
                 self._logger.info(
                     f"Mech {mech_address} refused slot {on_chain_nonce} for "
-                    f"{self._safe_address()}; retrying at {refreshed}."
+                    f"{self._safe_address()}; retrying at {candidate}."
                 )
-                on_chain_nonce = refreshed
+                on_chain_nonce = candidate
                 continue
 
             # TIMEOUT / SERVER_BUSY / BAD_RESPONSE — try the next mech.

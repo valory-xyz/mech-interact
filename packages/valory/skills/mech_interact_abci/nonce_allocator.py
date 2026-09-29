@@ -17,103 +17,69 @@
 #
 # ------------------------------------------------------------------------------
 
-"""One place that hands out marketplace slots for a Safe.
+"""Marketplace slots for a Safe that more than one thing pays from.
 
-The marketplace consumes a requester's slots in order, and the on-chain
-counter only moves when a delivery settles. So a slot that is taken but
-not yet settled is invisible to the chain, and anyone reading the chain
-to pick their next one will pick a slot somebody else already holds.
+The marketplace consumes a requester's slots in order, and ``mapNonces``
+only moves when a delivery settles. So a slot that is taken but unsettled
+is invisible on chain, and signing at the chain counter hands out one
+somebody else is already holding.
 
-An agent can have more than one thing paying from the same Safe: mech
-requests through this skill, and API calls through a facilitator. Each
-of them tracks its own outstanding slots perfectly and cannot see the
-other's, so both are right on their own and wrong together.
-
-This is the one place that sees both. It lives in the agent's shared
-state, which every skill in the agent reaches, and hands out a slot
-above the on-chain counter and above anything it has already issued.
+That only happens when an agent pays from a Safe through more than one
+route, which is not something this skill can know about. So the agent
+supplies a registry if it has one, under ``MECH_SLOT_REGISTRY``, and
+without one the chain counter is the whole picture and is used as is.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-# Highest slot handed out per Safe, keyed ``chain:safe`` in lower case.
-MECH_NONCE_ISSUED = "mech_nonce_issued"
+# Shared-state key the agent binds its slot registry to. The object needs
+# ``reserve(chain, safe, floor)`` and ``release(chain, safe, slot)``.
+MECH_SLOT_REGISTRY = "mech_slot_registry"
 
 
-def _key(chain: str, safe: str) -> str:
-    return f"{chain.lower()}:{safe.lower()}"
+def _registry(shared_state: Dict[str, Any]) -> Optional[Any]:
+    """Return the agent's slot registry, or ``None`` when it has none.
+
+    :param shared_state: the agent's shared state.
+    :return: the registry, or ``None``.
+    """
+    return shared_state.get(MECH_SLOT_REGISTRY)
 
 
 def reserve_slot(
     shared_state: Dict[str, Any], *, chain: str, safe: str, on_chain_nonce: int
 ) -> int:
-    """Hand out the next marketplace slot for ``safe`` and record it.
+    """Take a marketplace slot for ``safe`` at or above the chain counter.
 
-    :param shared_state: the agent's shared state, reachable from every skill.
+    :param shared_state: the agent's shared state.
     :param chain: the chain the marketplace is on.
     :param safe: the requester Safe paying for the request.
     :param on_chain_nonce: ``mapNonces(safe)``, the floor.
     :return: the slot to sign at.
 
-    The on-chain counter is the floor because everything below it has
-    settled and can never be used again. Above it, the highest slot
-    already handed out wins, because those are taken but not yet
-    visible on chain.
-
     Reserved on the way out rather than on success, since a caller that
-    picks a slot and has not finished with it still owns it. Hand it
-    back with ``release_slot`` when the request does not land.
+    has picked a slot and not finished with it still owns it. Hand it back
+    with ``release_slot`` when the request does not land.
     """
-    issued: Dict[str, int] = shared_state.setdefault(MECH_NONCE_ISSUED, {})
-    key = _key(chain, safe)
-    last = issued.get(key)
-    slot = on_chain_nonce if last is None else max(on_chain_nonce, last + 1)
-    issued[key] = slot
-    return slot
+    registry = _registry(shared_state)
+    if registry is None:
+        return on_chain_nonce
+    return int(registry.reserve(chain, safe, on_chain_nonce))
 
 
 def release_slot(
     shared_state: Dict[str, Any], *, chain: str, safe: str, slot: int
-) -> bool:
+) -> None:
     """Give back a slot whose request never landed.
 
     :param shared_state: the agent's shared state.
     :param chain: the chain the marketplace is on.
     :param safe: the requester Safe.
-    :param slot: the slot handed out earlier.
-    :return: whether it was given back.
+    :param slot: the slot reserved earlier.
 
-    Only the most recent slot can be handed back. Once something else
-    has taken a higher one, returning this would hand the same slot to
-    two callers, which is the thing this exists to prevent. A slot
-    stranded in the middle leaves a gap that nothing here can fill; the
-    marketplace needs an on-chain request to step over it.
+    Holding a slot nothing will ever settle stalls every later request
+    for the Safe, because the marketplace consumes slots in order.
     """
-    issued: Dict[str, int] = shared_state.setdefault(MECH_NONCE_ISSUED, {})
-    key = _key(chain, safe)
-    if issued.get(key) != slot:
-        return False
-    if slot == 0:
-        del issued[key]
-    else:
-        issued[key] = slot - 1
-    return True
-
-
-def payload_floor(context: Any, *, chain: str, safe: str, on_chain_nonce: int) -> int:
-    """Reserve a slot and return it for a request served by something else.
-
-    :param context: the skill context, whose shared state holds the count.
-    :param chain: the chain the marketplace is on.
-    :param safe: the requester Safe paying for the request.
-    :param on_chain_nonce: ``mapNonces(safe)``, the floor.
-    :return: the slot the request must not be signed below.
-
-    For a paid call the agent hands to something it does not sign for
-    itself, such as a connection that builds its own session. The slot
-    is reserved here so the next caller does not get the same one, and
-    travels with the request as a floor.
-    """
-    return reserve_slot(
-        context.shared_state, chain=chain, safe=safe, on_chain_nonce=on_chain_nonce
-    )
+    registry = _registry(shared_state)
+    if registry is not None:
+        registry.release(chain, safe, slot)

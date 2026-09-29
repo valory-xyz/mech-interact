@@ -17,53 +17,76 @@
 #
 # ------------------------------------------------------------------------------
 
-"""Tests for the shared marketplace slot allocator."""
+"""Tests for the agent-supplied marketplace slot registry."""
 
-import pytest
+from typing import Any, Dict
 
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
-    MECH_NONCE_ISSUED,
+    MECH_SLOT_REGISTRY,
     release_slot,
     reserve_slot,
 )
+from packages.valory.skills.mech_interact_abci.tests.registry_stub import _Registry
 
 _CHAIN = "optimism"
 _SAFE = "0x000000000000000000000000000000000000AbCd"
 _OTHER = "0x000000000000000000000000000000000000BeEf"
 
 
-class TestReserveSlot:
-    """Two callers on one Safe must never be handed the same slot."""
+def _state() -> Dict[str, Any]:
+    return {MECH_SLOT_REGISTRY: _Registry()}
 
-    def test_the_counter_does_not_wait_for_settlement(self) -> None:
-        """This is the whole point: the chain will not move until a delivery settles.
 
-        Reading the chain twice in a row hands out the same slot, which
-        is how two parts of one agent end up signing the same request.
+class TestWithoutARegistry:
+    """Most agents pay from their Safe through this skill and nothing else."""
+
+    def test_the_chain_counter_is_used_as_is(self) -> None:
+        """With one payer the chain counter is the whole picture.
+
+        Anything else here would change the slot an agent signs at
+        without the agent having asked for it.
         """
-        state: dict = {}
+        assert reserve_slot({}, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10) == 10
+        assert reserve_slot({}, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10) == 10
+
+    def test_releasing_is_a_no_op_rather_than_an_error(self) -> None:
+        """Nothing was reserved, so the failure path must not raise."""
+        release_slot({}, chain=_CHAIN, safe=_SAFE, slot=10)
+
+
+class TestWithARegistry:
+    """An agent that also pays through a facilitator has two payers."""
+
+    def test_the_second_caller_does_not_get_the_first_ones_slot(self) -> None:
+        """The chain will not move until a delivery settles.
+
+        Reading it twice in a row hands out the same slot, which is how
+        two parts of one agent sign the same request.
+        """
+        state = _state()
+
         first = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
         second = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
 
         assert (first, second) == (10, 11)
 
-    def test_the_on_chain_counter_is_a_floor_it_never_goes_below(self) -> None:
-        """Everything below has settled, so those slots can never be used again."""
-        state: dict = {}
+    def test_settlement_moves_the_floor_up(self) -> None:
+        """Slots below the chain counter are gone for good."""
+        state = _state()
         reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
 
         assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=40) == 40
 
-    def test_safes_are_counted_separately(self) -> None:
-        """Slots belong to a requester, so one Safe's count must not move another's."""
-        state: dict = {}
+    def test_each_safe_is_counted_separately(self) -> None:
+        """The marketplace counts slots per requester, not per agent."""
+        state = _state()
         reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
 
         assert reserve_slot(state, chain=_CHAIN, safe=_OTHER, on_chain_nonce=3) == 3
 
-    def test_the_same_safe_in_any_casing_is_one_count(self) -> None:
-        """Callers get the address from different places and the casing differs."""
-        state: dict = {}
+    def test_the_safe_address_case_does_not_split_the_count(self) -> None:
+        """A checksummed address and a lower-case one are the same Safe."""
+        state = _state()
         reserve_slot(state, chain=_CHAIN, safe=_SAFE.lower(), on_chain_nonce=10)
 
         assert (
@@ -71,47 +94,38 @@ class TestReserveSlot:
             == 11
         )
 
-
-class TestReleaseSlot:
-    """A slot handed out for a request that never landed has to come back."""
-
-    def test_a_released_slot_is_handed_out_again(self) -> None:
-        """Otherwise the gap it leaves stalls the Safe: nothing can fill it."""
-        state: dict = {}
+    def test_a_released_slot_is_offered_again(self) -> None:
+        """A slot nothing will settle stalls every later request for the Safe."""
+        state = _state()
         reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
         taken = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
 
-        assert release_slot(state, chain=_CHAIN, safe=_SAFE, slot=taken) is True
+        release_slot(state, chain=_CHAIN, safe=_SAFE, slot=taken)
+
         assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10) == taken
 
-    def test_only_the_most_recent_slot_comes_back(self) -> None:
-        """Returning an older one would hand the same slot to two callers."""
-        state: dict = {}
-        stranded = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
-        newer = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+    def test_a_gap_is_filled_before_a_higher_slot(self) -> None:
+        """The marketplace consumes a requester's slots in order.
 
-        assert release_slot(state, chain=_CHAIN, safe=_SAFE, slot=stranded) is False
-        assert (
-            reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
-            == newer + 1
-        )
-
-    def test_releasing_the_first_slot_clears_the_count(self) -> None:
-        """Slot zero is a real slot, so it cannot be recorded as "one below"."""
-        state: dict = {}
-        first = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=0)
-
-        assert release_slot(state, chain=_CHAIN, safe=_SAFE, slot=first) is True
-        assert state[MECH_NONCE_ISSUED] == {}
-        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=0) == 0
-
-    @pytest.mark.parametrize("slot", [5, 99])
-    def test_releasing_something_never_handed_out_changes_nothing(
-        self, slot: int
-    ) -> None:
-        """A confused caller must not be able to rewind somebody else's count."""
-        state: dict = {}
+        Skipping a freed slot leaves a hole that stalls everything above
+        it until an on-chain request steps over it.
+        """
+        state = _state()
+        reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+        middle = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
         reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
 
-        assert release_slot(state, chain=_CHAIN, safe=_SAFE, slot=slot) is False
-        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10) == 11
+        release_slot(state, chain=_CHAIN, safe=_SAFE, slot=middle)
+
+        assert (
+            reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10) == middle
+        )
+
+    def test_releasing_a_slot_that_was_never_taken_changes_nothing(self) -> None:
+        """A double release must not free a slot another caller now holds."""
+        state = _state()
+        held = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+
+        release_slot(state, chain=_CHAIN, safe=_SAFE, slot=held + 5)
+
+        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10) != held
