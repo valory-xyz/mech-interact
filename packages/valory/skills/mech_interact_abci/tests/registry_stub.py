@@ -24,7 +24,7 @@ that owns it, so what the tests pin down is the contract between them.
 """
 
 import threading
-from typing import Dict, Set, Tuple
+from typing import Dict, Iterable, Set, Tuple
 
 
 class _Registry:
@@ -35,8 +35,31 @@ class _Registry:
     """
 
     def __init__(self) -> None:
-        self.live: Dict[Tuple[str, str], Set[int]] = {}
+        self._reserved: Dict[Tuple[str, str], Set[int]] = {}
+        self._published: Dict[Tuple[str, str], Set[int]] = {}
         self._guard = threading.Lock()
+
+    @property
+    def live(self) -> Dict[Tuple[str, str], Set[int]]:
+        """Every slot in use: reserved here plus reported by the facilitator.
+
+        A snapshot, not the working set. The two halves retire differently,
+        so mutating this would change nothing; use ``reserve``, ``release``
+        or ``publish``.
+        """
+        with self._guard:
+            keys = set(self._reserved) | set(self._published)
+            merged = {
+                key: self._reserved.get(key, set()) | self._published.get(key, set())
+                for key in keys
+            }
+            return {key: slots for key, slots in merged.items() if slots}
+
+    def clear(self) -> None:
+        """Forget everything."""
+        with self._guard:
+            self._reserved.clear()
+            self._published.clear()
 
     def reserve(self, chain: str, safe: str, floor: int, settled_below: int) -> int:
         """Take the lowest free slot at or above ``floor``.
@@ -47,21 +70,58 @@ class _Registry:
         """
         key = (chain.lower(), safe.lower())
         with self._guard:
-            live = self.live.setdefault(key, set())
-            live.difference_update([slot for slot in live if slot < settled_below])
+            reserved = self._reserved.setdefault(key, set())
+            reserved.difference_update(
+                [slot for slot in reserved if slot < settled_below]
+            )
+            in_use = reserved | self._published.get(key, set())
             slot = floor
-            while slot in live:
+            while slot in in_use:
                 slot += 1
-            live.add(slot)
+            reserved.add(slot)
             return slot
 
     def release(self, chain: str, safe: str, slot: int) -> None:
-        """Hand a slot back."""
+        """Hand back a slot reserved here.
+
+        One the facilitator reports is retired by it dropping out of a later
+        report, so this leaves those alone.
+        """
         key = (chain.lower(), safe.lower())
         with self._guard:
-            live = self.live.get(key)
-            if live is None:
+            reserved = self._reserved.get(key)
+            if reserved is None:
                 return
-            live.discard(slot)
-            if not live:
-                del self.live[key]
+            reserved.discard(slot)
+            if not reserved:
+                del self._reserved[key]
+
+    def publish(self, chain: str, safe: str, slots: Iterable[int]) -> None:
+        """Replace what the facilitator is known to hold for ``safe``.
+
+        Wholesale, because this is the only thing that can retire one of
+        its rows: the chain counter never passes a slot that never settled.
+        """
+        key = (chain.lower(), safe.lower())
+        with self._guard:
+            held = {int(slot) for slot in slots}
+            if held:
+                self._published[key] = held
+            else:
+                self._published.pop(key, None)
+            reserved = self._reserved.get(key)
+            if reserved is not None:
+                reserved.difference_update(held)
+                if not reserved:
+                    del self._reserved[key]
+
+    def hand_over(self, chain: str, safe: str, slot: int) -> None:
+        """Record that the facilitator has taken responsibility for ``slot``."""
+        key = (chain.lower(), safe.lower())
+        with self._guard:
+            self._published.setdefault(key, set()).add(slot)
+            reserved = self._reserved.get(key)
+            if reserved is not None:
+                reserved.discard(slot)
+                if not reserved:
+                    del self._reserved[key]

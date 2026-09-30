@@ -289,6 +289,74 @@ class TestSweepingASlotNothingCanBeUsing:
         )
 
 
+class TestTheFacilitatorsOwnRowsAreVisibleHere:
+    """The other payer on the Safe reports its rows; this skill must see them.
+
+    The on-chain path cannot pick a slot, so all it can do is decline to
+    send into one in use. A row the facilitator holds is in use, and it is
+    reported rather than reserved through this module, so a registry that
+    only tracked what this skill took would call it free.
+    """
+
+    def test_a_reported_row_reads_as_held(self) -> None:
+        """Sending into it costs the whole per-sender settlement batch."""
+        state = _state()
+        state[MECH_SLOT_REGISTRY].publish(_CHAIN, _SAFE, [7])
+
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
+
+    def test_a_reported_row_is_stepped_over_when_taking_a_slot(self) -> None:
+        """The off-chain path can pick, so it picks the next free one."""
+        state = _state()
+        state[MECH_SLOT_REGISTRY].publish(_CHAIN, _SAFE, [7])
+
+        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=7) == 8
+
+    def test_a_row_that_stops_being_reported_frees_its_slot(self) -> None:
+        """Nothing else can notice the facilitator gave up on it."""
+        state = _state()
+        registry = state[MECH_SLOT_REGISTRY]
+        registry.publish(_CHAIN, _SAFE, [7])
+
+        registry.publish(_CHAIN, _SAFE, [])
+
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is False
+        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=7) == 7
+
+    def test_each_report_replaces_the_last_rather_than_adding_to_it(self) -> None:
+        """Merging would mean a row could only ever be added.
+
+        One the facilitator gave up on would then stay held while its
+        neighbours settled normally, which an empty report does not
+        exercise because that clears the key outright.
+        """
+        state = _state()
+        registry = state[MECH_SLOT_REGISTRY]
+        registry.publish(_CHAIN, _SAFE, [7, 8])
+
+        registry.publish(_CHAIN, _SAFE, [8])
+
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is False
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=8) is True
+        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=7) == 7
+
+    def test_the_sweep_leaves_a_reported_row_alone(self) -> None:
+        """It is the facilitator's to retire, and it may still be serving it."""
+        state = _state()
+        state[MECH_SLOT_REGISTRY].publish(_CHAIN, _SAFE, [7])
+
+        swept = sweep_dead_slots(
+            state,
+            chain=_CHAIN,
+            safe=_SAFE,
+            on_chain_nonce=7,
+            older_than_secs=0.0,
+        )
+
+        assert swept == []
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
+
+
 class TestAnUnnamedChainMeansNoRegistry:
     """The registry is keyed by chain name, and so is the other payer.
 

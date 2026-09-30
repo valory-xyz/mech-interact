@@ -685,8 +685,9 @@ class TestTheOnChainPathWaitsOnASlotInUse:
         shared_state: dict = {}
         if registry_holds is not None:
             registry = _Registry()
-            for held in registry_holds:
-                registry.live.setdefault(("gnosis", "0xsafe"), set()).add(held)
+            # As the facilitator reports them, which is how the other payer
+            # on this Safe actually gets into the registry.
+            registry.publish("gnosis", "0xsafe", registry_holds)
             shared_state[MECH_SLOT_REGISTRY] = registry
         behaviour._context.shared_state = shared_state
 
