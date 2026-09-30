@@ -996,21 +996,20 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return False
 
+    # A settlement tick or two of holding is the normal wait; beyond that it
+    # is not transient and somebody should see it.
+    _ON_CHAIN_HOLD_WARN_AFTER = 3
+
     def _on_chain_slot_is_taken(self) -> Generator[None, None, bool]:
         """Return whether the slot ``request()`` would take is already in use.
 
         :yield: the contract read.
         :return: whether to hold this request back for a later period.
 
-        ``request()`` takes no nonce: the marketplace assigns the requester's
-        next slot when the transaction executes. So unlike the off-chain
-        path this one cannot step over a slot something else is using, and
-        the only choice left is whether to send at all.
-
-        The registry knows the slots other payers on this Safe are holding
-        and the chain does not, because ``mapNonces`` only moves at
-        settlement. Sending into one of those costs the whole per-sender
-        settlement batch, so the request waits for a later period instead.
+        ``request()`` takes no nonce, so this path cannot step over a slot
+        in use the way the off-chain one does; see ``slot_is_held``. All it
+        can decide is whether to send, and sending into a held slot costs
+        the whole per-sender settlement batch.
         """
         safe = self.synchronized_data.safe_contract_address
         chain = str(self.params.mech_chain_id or "")
@@ -1023,12 +1022,23 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         if not slot_is_held(
             self.context.shared_state, chain=chain, safe=safe, slot=raw
         ):
+            self.shared_state.consecutive_on_chain_slot_holds = 0
             return False
-        self.context.logger.info(
+        held = self.shared_state.consecutive_on_chain_slot_holds + 1
+        self.shared_state.consecutive_on_chain_slot_holds = held
+        message = (
             f"Holding the on-chain mech request back: the marketplace would "
             f"take slot {raw} for {safe}, which something else in this agent "
-            "is already using. Retrying in a later period."
+            f"is already using. Held for {held} period(s)."
         )
+        # An agent making paid calls every period can hold a slot every
+        # period, and then this never sends. Quiet at first, because one or
+        # two is the normal wait for a settlement, loud once it looks
+        # permanent rather than transient.
+        if held >= self._ON_CHAIN_HOLD_WARN_AFTER:
+            self.context.logger.warning(message)
+        else:
+            self.context.logger.info(message)
         return True
 
     def _read_marketplace_nonce(

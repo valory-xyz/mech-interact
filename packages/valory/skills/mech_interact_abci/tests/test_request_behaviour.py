@@ -680,6 +680,7 @@ class TestTheOnChainPathWaitsOnASlotInUse:
         behaviour.priority_mech_address = "0x" + "aa" * 20
         behaviour._context.params.mech_chain_id = "gnosis"
         behaviour._context.state = MagicMock()
+        behaviour._context.state.consecutive_on_chain_slot_holds = 0
 
         shared_state: dict = {}
         if registry_holds is not None:
@@ -766,3 +767,33 @@ class TestTheOnChainPathWaitsOnASlotInUse:
     def test_an_unreadable_counter_does_not_stall_the_request(self) -> None:
         """Refusing on a failed read would stop every request on a wobbly RPC."""
         assert self._decide(self._behaviour(slot=None, registry_holds=[5])) is False
+
+    def test_a_hold_that_does_not_clear_stops_being_reported_as_routine(
+        self,
+    ) -> None:
+        """An agent paying every period holds every period, and never sends.
+
+        One or two periods is the normal wait for a settlement, so the first
+        few are ordinary log lines. Past that the wait is not transient and
+        has to be visible, or the request queue stalls silently forever.
+        """
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        logger = behaviour._context.logger
+        levels = []
+        for _ in range(4):
+            assert self._decide(behaviour) is True
+            levels.append("warning" if logger.warning.call_count else "info")
+            logger.reset_mock()
+
+        assert levels == ["info", "info", "warning", "warning"], levels
+        assert behaviour._context.state.consecutive_on_chain_slot_holds == 4
+
+    def test_a_cleared_hold_starts_the_count_again(self) -> None:
+        """Otherwise one earlier wait makes every later one look permanent."""
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        assert self._decide(behaviour) is True
+        assert behaviour._context.state.consecutive_on_chain_slot_holds == 1
+
+        behaviour._context.shared_state.clear()
+        assert self._decide(behaviour) is False
+        assert behaviour._context.state.consecutive_on_chain_slot_holds == 0

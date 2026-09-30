@@ -4714,3 +4714,48 @@ class TestTheCycleOnlyGivesBackASlotTheMechRefused:
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert self._held(stub) == {7}, "gave back a slot the mech may be serving"
+
+
+class TestTheDepositPathKeepsItsSlot:
+    """``_retry_pending`` re-sends the same request at the same slot.
+
+    So the slot has to survive the deposit round trip. Releasing it would
+    let something else take it while the original request is still live,
+    and the retry would then land somewhere the caller never signed for.
+    """
+
+    def test_a_deposit_needed_cycle_does_not_release_its_slot(self) -> None:
+        """The retry after settlement depends on still holding it."""
+        mech_addr = "0x" + "aa" * 20
+        canonical_tracker = "0x" + "11" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+                _state_resp({"data": canonical_tracker}),
+                _state_resp({"data": b"\x01\x02\x03"}),
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402,
+                    _make_402_body(pay_to=canonical_tracker, required=500, current=0),
+                ),
+            ],
+            ledger_api_responses=[_ledger_balance_resp(10 * 10**18)],
+            auto_deposit_cap=10**18,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
+        key = (
+            str(stub.params.mech_chain_id).lower(),
+            stub.synchronized_data.safe_contract_address.lower(),
+        )
+        assert registry.live.get(key) == {7}, "the deposit retry lost its slot"

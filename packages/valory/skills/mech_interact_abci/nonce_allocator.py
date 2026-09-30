@@ -46,12 +46,21 @@ MECH_SLOT_REGISTRY = "mech_slot_registry"
 MECH_SLOT_RESERVED_AT = "mech_slot_reserved_at"
 
 
-def _registry(shared_state: Dict[str, Any]) -> Optional[Any]:
-    """Return the agent's slot registry, or ``None`` when it has none.
+def _registry(shared_state: Dict[str, Any], chain: str = "x") -> Optional[Any]:
+    """Return the agent's slot registry, or ``None`` when it cannot be used.
 
     :param shared_state: the agent's shared state.
+    :param chain: the chain name this call would key by.
     :return: the registry, or ``None``.
+
+    The registry is keyed by chain name, and the other payer on the Safe
+    keys by its own configured name for the same chain. An empty name here
+    would still produce a key, just one nothing else writes to, so the two
+    would never meet and the registry would silently do nothing. Treated as
+    "no registry" instead, which is at least the documented behaviour.
     """
+    if not chain:
+        return None
     return shared_state.get(MECH_SLOT_REGISTRY)
 
 
@@ -70,7 +79,7 @@ def reserve_slot(
     has picked a slot and not finished with it still owns it. Hand it back
     with ``release_slot`` when the request does not land.
     """
-    registry = _registry(shared_state)
+    registry = _registry(shared_state, chain)
     if registry is None:
         return on_chain_nonce
     # Both bounds are the chain counter here: this path floors at ``mapNonces``
@@ -100,7 +109,7 @@ def slot_is_held(
     decide is whether to send now, and that turns on whether the slot the
     contract is about to take is one something else is already using.
     """
-    registry = _registry(shared_state)
+    registry = _registry(shared_state, chain)
     if registry is None:
         return False
     key = (chain.lower(), safe.lower())
@@ -120,7 +129,7 @@ def release_slot(
     Holding a slot nothing will ever settle stalls every later request
     for the Safe, because the marketplace consumes slots in order.
     """
-    registry = _registry(shared_state)
+    registry = _registry(shared_state, chain)
     if registry is not None:
         registry.release(chain, safe, slot)
     shared_state.get(MECH_SLOT_RESERVED_AT, {}).pop(
@@ -158,7 +167,7 @@ def sweep_dead_slots(
     that a mech holding it would have answered: it cannot have been
     accepted, so the slot is free.
     """
-    registry = _registry(shared_state)
+    registry = _registry(shared_state, chain)
     if registry is None:
         return []
     key = (chain.lower(), safe.lower())

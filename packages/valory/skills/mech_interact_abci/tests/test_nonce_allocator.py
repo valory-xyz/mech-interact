@@ -287,3 +287,42 @@ class TestSweepingASlotNothingCanBeUsing:
             )
             == []
         )
+
+
+class TestAnUnnamedChainMeansNoRegistry:
+    """The registry is keyed by chain name, and so is the other payer.
+
+    An empty name still produces a key, just one nothing else writes to,
+    so the two would never meet and the registry would quietly do nothing
+    while looking like it worked. Better to behave as the documented
+    no-registry case.
+    """
+
+    def test_reserve_falls_back_to_the_chain_counter(self) -> None:
+        """Not a phantom key that no other payer will ever read."""
+        state = _state()
+
+        assert reserve_slot(state, chain="", safe=_SAFE, on_chain_nonce=10) == 10
+        assert state[MECH_SLOT_REGISTRY].live == {}
+
+    def test_nothing_is_reported_held(self) -> None:
+        """A key nobody writes to would always answer 'free' anyway."""
+        state = _state()
+        reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+
+        assert slot_is_held(state, chain="", safe=_SAFE, slot=10) is False
+
+    def test_nothing_is_swept(self) -> None:
+        """There is no bookkeeping to reclaim under a name nothing uses."""
+        state = _state()
+
+        assert (
+            sweep_dead_slots(
+                state,
+                chain="",
+                safe=_SAFE,
+                on_chain_nonce=10,
+                older_than_secs=0.0,
+            )
+            == []
+        )
