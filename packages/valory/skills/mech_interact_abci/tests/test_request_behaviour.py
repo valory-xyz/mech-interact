@@ -750,6 +750,30 @@ class TestTheOnChainPathWaitsOnASlotInUse:
                 return bool(stop.value)
         raise AssertionError("the guard never returned")
 
+    def test_it_asks_only_for_the_clock_when_retiring(self) -> None:
+        """The margin is the registry's to decide, not this skill's.
+
+        How long past a request's expiry it is safe to act depends on how
+        long the other payer's server can hold one, which is not visible
+        from here. Reading a config value for it also meant reading one that
+        does not exist on ``params``, which a mock hid.
+        """
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        seen = {}
+
+        def capture(_state: Any, **kwargs: Any) -> list:
+            seen.update(kwargs)
+            return []
+
+        with patch(
+            "packages.valory.skills.mech_interact_abci.behaviours.request."
+            "retire_expired_slots",
+            capture,
+        ):
+            self._decide(behaviour)
+
+        assert set(seen) == {"chain", "safe"}, seen
+
     def test_it_waits_when_the_slot_the_contract_would_take_is_in_use(self) -> None:
         """Sending here loses the settlement for both requests."""
         seen = self._drive(self._behaviour(slot=5, registry_holds=[5]))

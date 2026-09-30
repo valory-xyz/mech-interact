@@ -375,9 +375,7 @@ class TestASlotTheOtherPayerStrandedDoesNotBlockForever:
         registry.reserve(_CHAIN, _SAFE, 7, 7)
         registry.note_expiry(_CHAIN, _SAFE, 7, 1_000)
 
-        freed = retire_expired_slots(
-            state, chain=_CHAIN, safe=_SAFE, older_than_secs=0.0
-        )
+        freed = retire_expired_slots(state, chain=_CHAIN, safe=_SAFE)
 
         assert freed == [7]
         assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is False
@@ -389,9 +387,7 @@ class TestASlotTheOtherPayerStrandedDoesNotBlockForever:
         registry.reserve(_CHAIN, _SAFE, 7, 7)
         registry.note_expiry(_CHAIN, _SAFE, 7, int(time.time()) + 600)
 
-        freed = retire_expired_slots(
-            state, chain=_CHAIN, safe=_SAFE, older_than_secs=0.0
-        )
+        freed = retire_expired_slots(state, chain=_CHAIN, safe=_SAFE)
 
         assert freed == []
         assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
@@ -410,9 +406,7 @@ class TestASlotTheOtherPayerStrandedDoesNotBlockForever:
         registry.reserve(_CHAIN, _SAFE, 7, 7)
         registry.note_expiry(_CHAIN, _SAFE, 7, int(time.time()) - 10)
 
-        freed = retire_expired_slots(
-            state, chain=_CHAIN, safe=_SAFE, older_than_secs=60.0
-        )
+        freed = retire_expired_slots(state, chain=_CHAIN, safe=_SAFE)
 
         assert freed == []
         assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
@@ -424,9 +418,7 @@ class TestASlotTheOtherPayerStrandedDoesNotBlockForever:
         registry.reserve(_CHAIN, _SAFE, 7, 7)
         registry.note_expiry(_CHAIN, _SAFE, 7, int(time.time()) - 600)
 
-        freed = retire_expired_slots(
-            state, chain=_CHAIN, safe=_SAFE, older_than_secs=60.0
-        )
+        freed = retire_expired_slots(state, chain=_CHAIN, safe=_SAFE)
 
         assert freed == [7]
 
@@ -435,19 +427,14 @@ class TestASlotTheOtherPayerStrandedDoesNotBlockForever:
         state = _state()
         state[MECH_SLOT_REGISTRY].publish(_CHAIN, _SAFE, [7])
 
-        freed = retire_expired_slots(
-            state, chain=_CHAIN, safe=_SAFE, older_than_secs=0.0
-        )
+        freed = retire_expired_slots(state, chain=_CHAIN, safe=_SAFE)
 
         assert freed == []
         assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
 
     def test_without_a_registry_there_is_nothing_to_retire(self) -> None:
         """Most agents have a single payer and bind none."""
-        assert (
-            retire_expired_slots({}, chain=_CHAIN, safe=_SAFE, older_than_secs=0.0)
-            == []
-        )
+        assert retire_expired_slots({}, chain=_CHAIN, safe=_SAFE) == []
 
 
 class TestAnAcceptedRequestStopsBeingSweepable:

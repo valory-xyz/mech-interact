@@ -1009,7 +1009,6 @@ class OffchainRequestExecutor:
             self._b.context.shared_state,
             chain=str(self._b.params.mech_chain_id or ""),
             safe=self._safe_address(),
-            older_than_secs=self._config.offchain_poll_timeout_seconds,
         )
         if retired:
             self._logger.info(

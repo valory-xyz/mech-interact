@@ -1024,7 +1024,6 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             self.context.shared_state,
             chain=chain,
             safe=safe,
-            older_than_secs=self.params.offchain_poll_timeout_seconds,
         )
         if not slot_is_held(
             self.context.shared_state, chain=chain, safe=safe, slot=raw

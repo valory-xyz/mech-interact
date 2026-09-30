@@ -117,18 +117,26 @@ class _Registry:
                 if not reserved:
                     del self._reserved[key]
 
-    def retire_expired(self, chain: str, safe: str, now: int) -> List[int]:
+    # The facilitator's own worst case: its admission wait plus its upstream
+    # deadline. A request can expire while it is still being served, so a
+    # caller's unadjusted clock alone would free a slot in use.
+    MARGIN_SECS = 25.0 + 120.0
+
+    def retire_expired(
+        self, chain: str, safe: str, now: int, margin_secs: float = MARGIN_SECS
+    ) -> List[int]:
         """Free reserved slots whose signed request can no longer be admitted.
 
         Never touches what the facilitator reports: an expired request it
         already admitted is its row, retired only by its next report.
         """
         key = (chain.lower(), safe.lower())
+        moment = int(now - margin_secs)
         with self._guard:
             freed = []
             for slot in list(self._reserved.get(key, set())):
                 expires_at = self._expiry.get((key, slot))
-                if expires_at is None or expires_at > int(now):
+                if expires_at is None or expires_at > moment:
                     continue
                 self._reserved[key].discard(slot)
                 if not self._reserved[key]:
