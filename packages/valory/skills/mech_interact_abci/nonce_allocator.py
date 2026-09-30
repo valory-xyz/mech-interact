@@ -67,6 +67,29 @@ def reserve_slot(
     return int(registry.reserve(chain, safe, on_chain_nonce))
 
 
+def slot_is_held(
+    shared_state: Dict[str, Any], *, chain: str, safe: str, slot: int
+) -> bool:
+    """Return whether something in this agent is already using ``slot``.
+
+    :param shared_state: the agent's shared state.
+    :param chain: the chain the marketplace is on.
+    :param safe: the requester Safe.
+    :param slot: the slot to check.
+    :return: whether it is taken.
+
+    For a caller that cannot choose its slot. An on-chain ``request()``
+    takes ``mapNonces`` at execution time, so the only thing the agent can
+    decide is whether to send now, and that turns on whether the slot the
+    contract is about to take is one something else is already using.
+    """
+    registry = _registry(shared_state)
+    if registry is None:
+        return False
+    key = (chain.lower(), safe.lower())
+    return slot in registry.live.get(key, set())
+
+
 def release_slot(
     shared_state: Dict[str, Any], *, chain: str, safe: str, slot: int
 ) -> None:

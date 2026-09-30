@@ -33,6 +33,9 @@ from aea.helpers.multiformat import multibase_decode, multicodec_remove_prefix
 
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
 from packages.valory.contracts.ierc1155.contract import IERC1155
+from packages.valory.contracts.mech_marketplace.contract import (
+    MechMarketplaceContract as MechMarketplace,
+)
 from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.contracts.nvm_balance_tracker_native.contract import (
     BalanceTrackerNvmSubscriptionNative,
@@ -53,6 +56,9 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     OffchainRequestExecutor,
 )
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    slot_is_held,
+)
 from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
@@ -990,6 +996,72 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return False
 
+    def _on_chain_slot_is_taken(self) -> Generator[None, None, bool]:
+        """Return whether the slot ``request()`` would take is already in use.
+
+        :yield: the contract read.
+        :return: whether to hold this request back for a later period.
+
+        ``request()`` takes no nonce: the marketplace assigns the requester's
+        next slot when the transaction executes. So unlike the off-chain
+        path this one cannot step over a slot something else is using, and
+        the only choice left is whether to send at all.
+
+        The registry knows the slots other payers on this Safe are holding
+        and the chain does not, because ``mapNonces`` only moves at
+        settlement. Sending into one of those costs the whole per-sender
+        settlement batch, so the request waits for a later period instead.
+        """
+        safe = self.synchronized_data.safe_contract_address
+        chain = str(self.params.mech_chain_id or "")
+        raw = yield from self._read_marketplace_nonce(safe)
+        if raw is None:
+            # Without the counter there is no way to tell, and refusing to
+            # send on a failed read would stall every request whenever the
+            # chain connection wobbles. Send, as it did before this check.
+            return False
+        if not slot_is_held(
+            self.context.shared_state, chain=chain, safe=safe, slot=raw
+        ):
+            return False
+        self.context.logger.info(
+            f"Holding the on-chain mech request back: the marketplace would "
+            f"take slot {raw} for {safe}, which something else in this agent "
+            "is already using. Retrying in a later period."
+        )
+        return True
+
+    def _read_marketplace_nonce(
+        self, safe: str
+    ) -> Generator[None, None, Optional[int]]:
+        """Read ``MechMarketplace.mapNonces(safe)``.
+
+        :param safe: the requester Safe.
+        :yield: the contract read.
+        :return: the counter, or ``None`` when it could not be read.
+        """
+        response = yield from self.get_contract_api_response(
+            performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
+            contract_address=self.mech_marketplace_config.mech_marketplace_address,
+            contract_id=str(MechMarketplace.contract_id),
+            contract_callable="get_nonce",
+            sender_address=safe,
+            chain_id=self.params.mech_chain_id,
+        )
+        if response.performative != ContractApiMessage.Performative.STATE:
+            self.context.logger.warning(
+                "Could not read MechMarketplace.mapNonces; sending the "
+                f"on-chain request anyway ({response.performative})."
+            )
+            return None
+        try:
+            return int(response.state.body["data"])
+        except (KeyError, TypeError, ValueError) as exc:
+            self.context.logger.warning(
+                f"MechMarketplace.mapNonces returned an unusable value: {exc}"
+            )
+            return None
+
     def _build_skip_payload(self) -> MechRequestPayload:
         """Build the no-op payload used by both skip paths in `async_act`."""
         return MechRequestPayload(
@@ -1068,6 +1140,15 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 "No priority mech available this round; skipping request "
                 f"(last_failure_reason={self.shared_state.last_failure_reason!r})."
             )
+            with self.context.benchmark_tool.measure(self.behaviour_id).local():
+                payload = self._build_skip_payload()
+            yield from self.finish_behaviour(payload)
+            return
+
+        # Last, after the cheap skips: this reads the marketplace, and there
+        # is no point paying for that on a period with nothing to send.
+        blocked = yield from self._on_chain_slot_is_taken()
+        if blocked:
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
                 payload = self._build_skip_payload()
             yield from self.finish_behaviour(payload)

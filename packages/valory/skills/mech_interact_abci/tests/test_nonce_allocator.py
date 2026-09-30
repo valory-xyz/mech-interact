@@ -25,6 +25,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_REGISTRY,
     release_slot,
     reserve_slot,
+    slot_is_held,
 )
 from packages.valory.skills.mech_interact_abci.tests.registry_stub import _Registry
 
@@ -129,3 +130,45 @@ class TestWithARegistry:
         release_slot(state, chain=_CHAIN, safe=_SAFE, slot=held + 5)
 
         assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10) != held
+
+
+class TestSlotIsHeld:
+    """For a caller that cannot choose its slot.
+
+    An on-chain ``request()`` takes ``mapNonces`` when it executes, so the
+    agent cannot step over a slot in use. All it can decide is whether to
+    send, and that turns on this answer.
+    """
+
+    def test_a_slot_another_payer_holds_is_reported_as_taken(self) -> None:
+        """Sending into it costs the whole per-sender settlement batch."""
+        state = _state()
+        held = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=held) is True
+
+    def test_a_free_slot_is_not_reported_as_taken(self) -> None:
+        """Otherwise every on-chain request would be held back forever."""
+        state = _state()
+        held = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=held + 1) is False
+
+    def test_a_released_slot_is_free_again(self) -> None:
+        """A request that never landed must not block the on-chain path."""
+        state = _state()
+        held = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+        release_slot(state, chain=_CHAIN, safe=_SAFE, slot=held)
+
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=held) is False
+
+    def test_another_safes_slot_does_not_block_this_one(self) -> None:
+        """The marketplace counts slots per requester."""
+        state = _state()
+        reserve_slot(state, chain=_CHAIN, safe=_OTHER, on_chain_nonce=10)
+
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=10) is False
+
+    def test_without_a_registry_nothing_is_reported_as_taken(self) -> None:
+        """An agent with one payer must not hold its own requests back."""
+        assert slot_is_held({}, chain=_CHAIN, safe=_SAFE, slot=10) is False
