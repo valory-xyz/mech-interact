@@ -30,12 +30,20 @@ supplies a registry if it has one, under ``MECH_SLOT_REGISTRY``, and
 without one the chain counter is the whole picture and is used as is.
 """
 
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 # Shared-state key the agent binds its slot registry to. The object needs
 # ``reserve(chain, safe, floor, settled_below)``, ``release(chain, safe, slot)``
 # and ``live``.
 MECH_SLOT_REGISTRY = "mech_slot_registry"
+
+# When each slot this skill reserved was taken, keyed ``(chain, safe, slot)``.
+# A slot whose request never reached the mech looks exactly like one the mech is
+# serving, until enough time has passed that a mech holding it would have
+# answered. Kept here rather than in the registry because it is this path's
+# problem: the facilitator proves the same thing from its signed expiry.
+MECH_SLOT_RESERVED_AT = "mech_slot_reserved_at"
 
 
 def _registry(shared_state: Dict[str, Any]) -> Optional[Any]:
@@ -68,7 +76,12 @@ def reserve_slot(
     # Both bounds are the chain counter here: this path floors at ``mapNonces``
     # and everything below it has settled. They differ for a caller that floors
     # at a facilitator's first free slot, which sits above its own unsettled rows.
-    return int(registry.reserve(chain, safe, on_chain_nonce, on_chain_nonce))
+    slot = int(registry.reserve(chain, safe, on_chain_nonce, on_chain_nonce))
+    taken_at: Dict[Tuple[str, str, int], float] = shared_state.setdefault(
+        MECH_SLOT_RESERVED_AT, {}
+    )
+    taken_at[(chain.lower(), safe.lower(), slot)] = time.time()
+    return slot
 
 
 def slot_is_held(
@@ -110,3 +123,53 @@ def release_slot(
     registry = _registry(shared_state)
     if registry is not None:
         registry.release(chain, safe, slot)
+    shared_state.get(MECH_SLOT_RESERVED_AT, {}).pop(
+        (chain.lower(), safe.lower(), slot), None
+    )
+
+
+def sweep_dead_slots(
+    shared_state: Dict[str, Any],
+    *,
+    chain: str,
+    safe: str,
+    on_chain_nonce: int,
+    older_than_secs: float,
+) -> List[int]:
+    """Hand back a held slot that nothing can be using any more.
+
+    :param shared_state: the agent's shared state.
+    :param chain: the chain the marketplace is on.
+    :param safe: the requester Safe.
+    :param on_chain_nonce: ``mapNonces(safe)``.
+    :param older_than_secs: how long a mech has to answer before a slot it
+        never acknowledged is treated as dead.
+    :return: the slots handed back.
+
+    A request whose POST went unanswered may be one the mech is serving, so
+    its slot is kept: re-issuing it would put two requests on one slot,
+    which is what this registry exists to stop. But if the mech never
+    received it, nothing will settle that slot, the counter never moves,
+    and every later request for the Safe queues above a slot that will
+    never clear.
+
+    The two cases look identical at the time. They stop looking identical
+    once the counter still sits at that slot and long enough has passed
+    that a mech holding it would have answered: it cannot have been
+    accepted, so the slot is free.
+    """
+    registry = _registry(shared_state)
+    if registry is None:
+        return []
+    key = (chain.lower(), safe.lower())
+    if on_chain_nonce not in registry.live.get(key, set()):
+        # Either never ours or already settled; nothing to reclaim.
+        return []
+    taken_at: Dict[Tuple[str, str, int], float] = shared_state.setdefault(
+        MECH_SLOT_RESERVED_AT, {}
+    )
+    when = taken_at.get((key[0], key[1], on_chain_nonce))
+    if when is None or time.time() - when < older_than_secs:
+        return []
+    release_slot(shared_state, chain=chain, safe=safe, slot=on_chain_nonce)
+    return [on_chain_nonce]

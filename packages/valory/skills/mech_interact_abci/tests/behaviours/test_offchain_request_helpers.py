@@ -1279,6 +1279,9 @@ class _StubBehaviour:
                 priority_mech_address=priority_mech_address,
                 auto_deposit_cap_per_cycle=auto_deposit_cap,
                 use_dynamic_mech_selection=use_dynamic_mech_selection,
+                # How long a mech has to answer before a slot it never
+                # acknowledged is treated as dead.
+                offchain_poll_timeout_seconds=300.0,
             ),
             offchain_deposit_target_calls=deposit_target_calls,
             multisend_address="0x" + "ee" * 20,
@@ -4648,3 +4651,66 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
             )
             == 7
         )
+
+
+class TestTheCycleOnlyGivesBackASlotTheMechRefused:
+    """An unanswered POST may have been accepted; a refusal never was.
+
+    Handing back a slot the mech is serving puts two requests on one slot
+    and loses a settlement. Keeping one the mech never got stalls the
+    Safe. So the outcome decides, and the sweep handles what is left.
+    """
+
+    _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
+
+    @staticmethod
+    def _per_attempt_reads() -> List[Any]:
+        return [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def _stub(self, http_responses: List[Any], extra_reads: int = 0) -> Any:
+        reads: List[Any] = [
+            _state_resp({"data": 100}),  # chainId
+            _state_resp({"data": 7}),  # nonce
+            *self._per_attempt_reads(),
+        ]
+        for _ in range(extra_reads):
+            reads.append(_state_resp({"data": 7}))
+        return _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=reads,
+            http_responses=http_responses,
+            failover_retries=0,
+            nonce_retry_max=0,
+        )
+
+    @staticmethod
+    def _held(stub: Any) -> set:
+        registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
+        key = (
+            str(stub.params.mech_chain_id).lower(),
+            stub.synchronized_data.safe_contract_address.lower(),
+        )
+        return registry.live.get(key, set())
+
+    def test_a_refused_slot_goes_straight_back(self) -> None:
+        """The mech answered and declined it, so nothing can be holding it."""
+        stub = self._stub([_make_http_response(503, self._REFUSED)])
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert self._held(stub) == set(), "a refused slot was left reserved"
+
+    def test_an_unanswered_post_keeps_its_slot(self) -> None:
+        """The mech may have accepted it; re-issuing would collide."""
+        stub = self._stub([None])
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert self._held(stub) == {7}, "gave back a slot the mech may be serving"

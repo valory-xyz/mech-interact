@@ -23,9 +23,11 @@ from typing import Any, Dict
 
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_REGISTRY,
+    MECH_SLOT_RESERVED_AT,
     release_slot,
     reserve_slot,
     slot_is_held,
+    sweep_dead_slots,
 )
 from packages.valory.skills.mech_interact_abci.tests.registry_stub import _Registry
 
@@ -208,3 +210,80 @@ class TestTheTwoBoundsAreNotInterchangeable:
 
         assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=7) == 7
         assert registry.live[(_CHAIN, _SAFE.lower())] == {7}
+
+
+class TestSweepingASlotNothingCanBeUsing:
+    """A POST that went unanswered leaves a slot in an unknown state.
+
+    The mech may be serving it, so it cannot simply be re-issued. But if
+    the mech never received it, nothing will ever settle it and every
+    later request for the Safe queues above a slot that never clears. The
+    sweep is what tells the two apart, once the counter has stayed put
+    long enough that a mech holding it would have answered.
+    """
+
+    _TIMEOUT = 300.0
+
+    def test_a_slot_is_kept_while_the_mech_could_still_answer(self) -> None:
+        """Re-issuing it here is the collision the registry exists to stop."""
+        state = _state()
+        slot = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+
+        swept = sweep_dead_slots(
+            state,
+            chain=_CHAIN,
+            safe=_SAFE,
+            on_chain_nonce=slot,
+            older_than_secs=self._TIMEOUT,
+        )
+
+        assert swept == []
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=slot) is True
+
+    def test_a_slot_is_reclaimed_once_no_answer_can_be_coming(self) -> None:
+        """Otherwise the Safe stalls above it until the process restarts."""
+        state = _state()
+        slot = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+        # Long enough ago that a mech holding it would have answered.
+        state[MECH_SLOT_RESERVED_AT][(_CHAIN, _SAFE.lower(), slot)] -= self._TIMEOUT + 1
+
+        swept = sweep_dead_slots(
+            state,
+            chain=_CHAIN,
+            safe=_SAFE,
+            on_chain_nonce=slot,
+            older_than_secs=self._TIMEOUT,
+        )
+
+        assert swept == [slot]
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=slot) is False
+
+    def test_a_slot_the_counter_has_moved_past_is_left_alone(self) -> None:
+        """It settled, so it was used; reclaiming it would mean nothing."""
+        state = _state()
+        slot = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=10)
+        state[MECH_SLOT_RESERVED_AT][(_CHAIN, _SAFE.lower(), slot)] -= self._TIMEOUT + 1
+
+        # The counter has moved on, so this asks about a later slot.
+        swept = sweep_dead_slots(
+            state,
+            chain=_CHAIN,
+            safe=_SAFE,
+            on_chain_nonce=slot + 1,
+            older_than_secs=self._TIMEOUT,
+        )
+
+        assert swept == []
+
+    def test_nothing_is_swept_without_a_registry(self) -> None:
+        """An agent with a single payer has no registry and no slots to reclaim."""
+        assert (
+            sweep_dead_slots(
+                {},
+                chain=_CHAIN,
+                safe=_SAFE,
+                on_chain_nonce=10,
+                older_than_secs=self._TIMEOUT,
+            )
+            == []
+        )
