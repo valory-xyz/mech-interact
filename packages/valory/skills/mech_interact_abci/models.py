@@ -541,10 +541,6 @@ class SharedState(BaseSharedState):
         self._penalized_mechs: Dict[str, int] = {}
         self.last_called_mech: Optional[str] = None
         self.last_failure_reason: Optional[str] = None
-        # How many periods in a row an on-chain request has been held back
-        # because another payer on the Safe held the slot the marketplace
-        # would assign. One or two is a settlement wait; more is not.
-        self.consecutive_on_chain_slot_holds: int = 0
 
     @property
     def params(self) -> MechParams:  # pragma: no cover

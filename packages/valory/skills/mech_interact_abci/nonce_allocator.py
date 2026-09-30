@@ -44,6 +44,7 @@ MECH_SLOT_REGISTRY = "mech_slot_registry"
 # answered. Kept here rather than in the registry because it is this path's
 # problem: the facilitator proves the same thing from its signed expiry.
 MECH_SLOT_RESERVED_AT = "mech_slot_reserved_at"
+MECH_SLOT_BLOCKED = "mech_slot_blocked"
 
 
 def _registry(shared_state: Dict[str, Any], chain: str) -> Optional[Any]:
@@ -158,6 +159,40 @@ def release_slot(
     shared_state.get(MECH_SLOT_RESERVED_AT, {}).pop(
         (chain.lower(), safe.lower(), slot), None
     )
+
+
+def note_slot_blocked(
+    shared_state: Dict[str, Any], *, chain: str, safe: str, slot: int
+) -> int:
+    """Count consecutive periods blocked by the same slot.
+
+    :param shared_state: the agent's shared state.
+    :param chain: the chain the marketplace is on.
+    :param safe: the requester Safe paying for the request.
+    :param slot: the slot the marketplace counter is sitting on.
+    :return: how many periods in a row that slot has blocked this Safe.
+
+    Keyed on the slot so a counter that moves resets the count: a fresh
+    wait must not inherit the age of the one before it.
+    """
+    key = (chain.lower(), safe.lower())
+    blocked: Dict[Tuple[str, str], Tuple[int, int]] = shared_state.setdefault(
+        MECH_SLOT_BLOCKED, {}
+    )
+    seen, count = blocked.get(key, (slot, 0))
+    count = count + 1 if seen == slot else 1
+    blocked[key] = (slot, count)
+    return count
+
+
+def clear_slot_blocked(shared_state: Dict[str, Any], *, chain: str, safe: str) -> None:
+    """Forget the blocked count, because this Safe just got the slot it wanted.
+
+    :param shared_state: the agent's shared state.
+    :param chain: the chain the marketplace is on.
+    :param safe: the requester Safe paying for the request.
+    """
+    shared_state.get(MECH_SLOT_BLOCKED, {}).pop((chain.lower(), safe.lower()), None)
 
 
 def retire_expired_slots(

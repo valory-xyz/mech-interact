@@ -680,7 +680,6 @@ class TestTheOnChainPathWaitsOnASlotInUse:
         behaviour.priority_mech_address = "0x" + "aa" * 20
         behaviour._context.params.mech_chain_id = "gnosis"
         behaviour._context.state = MagicMock()
-        behaviour._context.state.consecutive_on_chain_slot_holds = 0
 
         shared_state: dict = {}
         if registry_holds is not None:
@@ -811,14 +810,61 @@ class TestTheOnChainPathWaitsOnASlotInUse:
             logger.reset_mock()
 
         assert levels == ["info", "info", "warning", "warning"], levels
-        assert behaviour._context.state.consecutive_on_chain_slot_holds == 4
+
+    def test_it_sends_anyway_once_the_counter_has_not_moved_for_long_enough(
+        self,
+    ) -> None:
+        """One bound for every way a slot can get stuck, including unknown ones.
+
+        Each specific cause has a rule now, but the rules only cover what has
+        been found, and the cost of the next one is that this path never sends
+        again. If the counter has not moved off the slot in this many periods,
+        whatever holds it is not settling it, so there is most likely no
+        settlement left to lose.
+        """
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        bound = behaviour._ON_CHAIN_HOLD_SEND_AFTER
+
+        decisions = [self._decide(behaviour) for _ in range(bound)]
+
+        assert decisions[:-1] == [True] * (bound - 1), "gave up too early"
+        assert decisions[-1] is False, "still waiting past the bound"
+
+    def test_a_counter_that_moves_starts_the_bound_again(self) -> None:
+        """A fresh wait must not inherit the age of the one before it.
+
+        Otherwise a Safe that legitimately waits a period here and there
+        eventually sends into a slot that really is being served.
+        """
+        from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+            MECH_SLOT_REGISTRY,
+        )
+
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        for _ in range(behaviour._ON_CHAIN_HOLD_SEND_AFTER - 1):
+            assert self._decide(behaviour) is True
+
+        # The counter moved on: the previous holder settled, and the slot now
+        # blocked is a different one.
+        moved = self._behaviour(slot=6, registry_holds=[6])
+        moved._context.shared_state = behaviour._context.shared_state
+        moved._context.shared_state[MECH_SLOT_REGISTRY].publish("gnosis", "0xsafe", [6])
+
+        assert self._decide(moved) is True, "kept the old slot's age"
 
     def test_a_cleared_hold_starts_the_count_again(self) -> None:
         """Otherwise one earlier wait makes every later one look permanent."""
+        from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+            MECH_SLOT_BLOCKED,
+            MECH_SLOT_REGISTRY,
+        )
+
         behaviour = self._behaviour(slot=5, registry_holds=[5])
         assert self._decide(behaviour) is True
-        assert behaviour._context.state.consecutive_on_chain_slot_holds == 1
 
-        behaviour._context.shared_state.clear()
+        behaviour._context.shared_state.pop(MECH_SLOT_REGISTRY, None)
         assert self._decide(behaviour) is False
-        assert behaviour._context.state.consecutive_on_chain_slot_holds == 0
+        # The count is forgotten too, so a later wait starts from one.
+        assert MECH_SLOT_BLOCKED not in behaviour._context.shared_state or not (
+            behaviour._context.shared_state[MECH_SLOT_BLOCKED]
+        )

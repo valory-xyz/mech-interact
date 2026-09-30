@@ -60,6 +60,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import Payment
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_REGISTRY,
     MECH_SLOT_RESERVED_AT,
+    note_slot_blocked,
     reserve_slot,
     sweep_dead_slots,
 )
@@ -4789,6 +4790,77 @@ class TestOneUnansweredAttemptDecidesTheWholeCycle:
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert self._held(stub) == set()
+
+
+class TestTheCycleStopsSteppingOverAStuckSlot:
+    """Stepping over a held slot is refused until that slot settles.
+
+    Every specific way one can get stuck now has a rule of its own, but the
+    rules cover only the causes found so far, and the cost of the next one
+    is that this path is refused forever. So after a bounded number of
+    cycles with the counter unmoved, the cycle signs at it regardless.
+    """
+
+    @staticmethod
+    def _stub() -> Any:
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce, never moves
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+            ],
+            http_responses=[_make_http_response(200)],
+        )
+        # Something else in this agent is holding the counter's slot and never
+        # settling it, so every cycle would otherwise sign 8 and be refused.
+        stub.context.shared_state[MECH_SLOT_REGISTRY].publish(
+            str(stub.params.mech_chain_id),
+            stub.synchronized_data.safe_contract_address,
+            [7],
+        )
+        return stub
+
+    def test_it_signs_at_the_counter_once_the_slot_has_not_moved(self) -> None:
+        """One lost settlement beats never sending again."""
+        bound = OffchainRequestExecutor._OFFCHAIN_STEP_OVER_GIVE_UP_AFTER
+        stub = self._stub()
+        chain = str(stub.params.mech_chain_id)
+        safe = stub.synchronized_data.safe_contract_address
+        # Every earlier cycle but this one has already stepped over slot 7.
+        for _ in range(bound - 1):
+            note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=7)
+
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert (
+            _form_field(stub.posted_bodies[0], "nonce") == "7"
+        ), "kept stepping over a slot nothing is settling"
+
+    def test_it_still_steps_over_before_the_bound(self) -> None:
+        """The slot may simply be being served; giving up early is the collision."""
+        stub = self._stub()
+
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[0], "nonce") == "8"
+
+    def test_a_counter_that_moves_starts_the_count_again(self) -> None:
+        """A fresh wait must not inherit the age of the previous one."""
+        stub = self._stub()
+        chain = str(stub.params.mech_chain_id)
+        safe = stub.synchronized_data.safe_contract_address
+
+        for _ in range(5):
+            note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=7)
+
+        assert (
+            note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=8)
+            == 1
+        )
 
 
 class TestAnAcceptedRequestIsNotSweptLater:

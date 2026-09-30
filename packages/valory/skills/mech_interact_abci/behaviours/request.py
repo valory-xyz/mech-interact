@@ -57,6 +57,8 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
 )
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    clear_slot_blocked,
+    note_slot_blocked,
     retire_expired_slots,
     slot_is_held,
 )
@@ -1000,6 +1002,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     # A settlement tick or two of holding is the normal wait; beyond that it
     # is not transient and somebody should see it.
     _ON_CHAIN_HOLD_WARN_AFTER = 3
+    # And beyond this, send regardless. Every specific way a slot can get
+    # stuck has a rule of its own now, but the rules only cover the causes
+    # found so far, and the cost of the next unknown one is that this path
+    # never sends again. One bound covers them all: if the counter has not
+    # moved off the slot in this many periods, whatever holds it is not
+    # making progress, so there is most likely no settlement left to lose.
+    _ON_CHAIN_HOLD_SEND_AFTER = 10
 
     def _on_chain_slot_is_taken(self) -> Generator[None, None, bool]:
         """Return whether the slot ``request()`` would take is already in use.
@@ -1028,23 +1037,32 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         if not slot_is_held(
             self.context.shared_state, chain=chain, safe=safe, slot=raw
         ):
-            self.shared_state.consecutive_on_chain_slot_holds = 0
+            clear_slot_blocked(self.context.shared_state, chain=chain, safe=safe)
             return False
-        held = self.shared_state.consecutive_on_chain_slot_holds + 1
-        self.shared_state.consecutive_on_chain_slot_holds = held
-        message = (
-            f"Holding the on-chain mech request back: the marketplace would "
-            f"take slot {raw} for {safe}, which something else in this agent "
-            f"is already using. Held for {held} period(s)."
+        held = note_slot_blocked(
+            self.context.shared_state, chain=chain, safe=safe, slot=raw
         )
+        message = (
+            f"the marketplace would take slot {raw} for {safe}, which "
+            f"something else in this agent is already using. Held for "
+            f"{held} period(s)."
+        )
+        if held >= self._ON_CHAIN_HOLD_SEND_AFTER:
+            self.context.logger.warning(
+                f"Sending the on-chain mech request anyway: {message} The "
+                "counter has not moved in that time, so whatever holds the "
+                "slot is not settling it. One lost settlement batch is worth "
+                "less than this request never being sent."
+            )
+            clear_slot_blocked(self.context.shared_state, chain=chain, safe=safe)
+            return False
         # An agent making paid calls every period can hold a slot every
-        # period, and then this never sends. Quiet at first, because one or
-        # two is the normal wait for a settlement, loud once it looks
-        # permanent rather than transient.
+        # period. Quiet at first, because one or two is the normal wait for a
+        # settlement, loud once it looks permanent rather than transient.
         if held >= self._ON_CHAIN_HOLD_WARN_AFTER:
-            self.context.logger.warning(message)
+            self.context.logger.warning(f"Holding the request back: {message}")
         else:
-            self.context.logger.info(message)
+            self.context.logger.info(f"Holding the request back: {message}")
         return True
 
     def _read_marketplace_nonce(
