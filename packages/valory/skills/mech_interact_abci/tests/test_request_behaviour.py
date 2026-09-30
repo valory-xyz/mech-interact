@@ -34,6 +34,9 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import (
     MechRequestBehaviour,
     PaymentType,
 )
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    SLOT_BLOCKED_GIVE_UP_SECS,
+)
 from packages.valory.skills.mech_interact_abci.states.base import Event
 from packages.valory.skills.mech_interact_abci.tests.registry_stub import (
     _Registry,
@@ -811,41 +814,57 @@ class TestTheOnChainPathWaitsOnASlotInUse:
 
         assert levels == ["info", "info", "warning", "warning"], levels
 
-    def test_it_sends_anyway_once_the_counter_has_not_moved_for_long_enough(
-        self,
-    ) -> None:
+    @staticmethod
+    def _age_the_block(behaviour: Any, seconds: float) -> None:
+        """Pretend the current block started ``seconds`` ago."""
+        from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+            MECH_SLOT_BLOCKED,
+        )
+
+        blocked = behaviour._context.shared_state[MECH_SLOT_BLOCKED]
+        for key, (slot, periods, since) in list(blocked.items()):
+            blocked[key] = (slot, periods, since - seconds)
+
+    def test_it_sends_anyway_once_the_slot_has_blocked_for_long_enough(self) -> None:
         """One bound for every way a slot can get stuck, including unknown ones.
 
         Each specific cause has a rule now, but the rules only cover what has
         been found, and the cost of the next one is that this path never sends
-        again. If the counter has not moved off the slot in this many periods,
-        whatever holds it is not settling it, so there is most likely no
-        settlement left to lose.
+        again. Once nothing has moved for that long, whatever holds the slot
+        is not settling it, so there is most likely no settlement left to lose.
         """
         behaviour = self._behaviour(slot=5, registry_holds=[5])
-        bound = behaviour._ON_CHAIN_HOLD_SEND_AFTER
 
-        decisions = [self._decide(behaviour) for _ in range(bound)]
+        assert self._decide(behaviour) is True
+        self._age_the_block(behaviour, SLOT_BLOCKED_GIVE_UP_SECS)
 
-        assert decisions[:-1] == [True] * (bound - 1), "gave up too early"
-        assert decisions[-1] is False, "still waiting past the bound"
+        assert self._decide(behaviour) is False, "still waiting past the bound"
 
-    def test_a_counter_that_moves_starts_the_bound_again(self) -> None:
-        """A fresh wait must not inherit the age of the one before it.
+    def test_it_keeps_waiting_while_the_slot_could_still_settle(self) -> None:
+        """Measured in wall clock, not periods.
 
-        Otherwise a Safe that legitimately waits a period here and there
-        eventually sends into a slot that really is being served.
+        A period is however fast this agent happens to run, and can be far
+        shorter than a legitimate wait for a settlement, so counting them
+        would take a slot that was about to settle.
         """
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+
+        decisions = [self._decide(behaviour) for _ in range(25)]
+
+        assert decisions == [True] * 25, "gave up on a period count"
+
+    def test_a_counter_that_moves_starts_the_clock_again(self) -> None:
+        """A fresh wait must not inherit the age of the one before it."""
         from packages.valory.skills.mech_interact_abci.nonce_allocator import (
             MECH_SLOT_REGISTRY,
         )
 
         behaviour = self._behaviour(slot=5, registry_holds=[5])
-        for _ in range(behaviour._ON_CHAIN_HOLD_SEND_AFTER - 1):
-            assert self._decide(behaviour) is True
+        assert self._decide(behaviour) is True
+        self._age_the_block(behaviour, SLOT_BLOCKED_GIVE_UP_SECS)
 
-        # The counter moved on: the previous holder settled, and the slot now
-        # blocked is a different one.
+        # The counter moved on: the previous holder settled, and a different
+        # slot is blocked now.
         moved = self._behaviour(slot=6, registry_holds=[6])
         moved._context.shared_state = behaviour._context.shared_state
         moved._context.shared_state[MECH_SLOT_REGISTRY].publish("gnosis", "0xsafe", [6])

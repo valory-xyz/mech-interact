@@ -89,6 +89,7 @@ from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    SLOT_BLOCKED_GIVE_UP_SECS,
     clear_slot_blocked,
     note_slot_accepted,
     note_slot_blocked,
@@ -928,10 +929,6 @@ class OffchainRequestExecutor:
             self._settle_reserved_slot()
         return result
 
-    # Cycles of being refused because a stepped-over slot never settles,
-    # before signing at the chain counter regardless.
-    _OFFCHAIN_STEP_OVER_GIVE_UP_AFTER = 10
-
     def _settle_reserved_slot(self) -> None:
         """Hand the slot back only when the mech is known not to have it.
 
@@ -1045,26 +1042,21 @@ class OffchainRequestExecutor:
         )
         if on_chain_nonce != chain_nonce:
             # Stepped over a slot something else holds. The mech expects the
-            # chain counter, so this is refused until that slot settles. Every
-            # specific way one can get stuck now has a rule, but those cover
-            # only the causes found so far, and the cost of the next unknown
-            # one is that this path is refused forever. So after a bounded
-            # number of cycles with the counter unmoved, sign at it anyway:
-            # whatever holds it is not settling it, so there is most likely no
-            # settlement left to lose.
+            # chain counter, so this is refused until that slot settles, and
+            # ``SLOT_BLOCKED_GIVE_UP_SECS`` bounds how long that can go on.
             blocked = note_slot_blocked(
                 self._b.context.shared_state,
                 chain=str(self._b.params.mech_chain_id or ""),
                 safe=self._safe_address(),
                 slot=chain_nonce,
             )
-            if blocked >= self._OFFCHAIN_STEP_OVER_GIVE_UP_AFTER:
+            if blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
                 self._logger.warning(
                     f"Signing at slot {chain_nonce} even though something in "
                     "this agent holds it: the counter has not moved in "
-                    f"{self._OFFCHAIN_STEP_OVER_GIVE_UP_AFTER} cycles, so it "
-                    "is not being settled. One lost settlement batch is worth "
-                    "less than this request never being sent."
+                    f"{blocked.seconds:.0f}s, so it is not being settled. One "
+                    "lost settlement batch is worth less than this request "
+                    "never being sent."
                 )
                 release_slot(
                     self._b.context.shared_state,

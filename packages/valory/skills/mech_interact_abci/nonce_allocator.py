@@ -31,7 +31,7 @@ without one the chain counter is the whole picture and is used as is.
 """
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 # Shared-state key the agent binds its slot registry to. The object needs
 # ``reserve(chain, safe, floor, settled_below)``, ``release(chain, safe, slot)``
@@ -161,28 +161,52 @@ def release_slot(
     )
 
 
+class SlotBlock(NamedTuple):
+    """How long, and for how many periods, one slot has blocked a Safe."""
+
+    periods: int
+    seconds: float
+
+
+# How long a slot may block this Safe before it is used regardless. Every
+# specific way one can get stuck has a rule of its own, but those cover only
+# the causes found so far, and the cost of the next one is that this skill
+# stops sending. Past this the holder is not making progress, so there is
+# most likely no settlement left to lose.
+#
+# In wall-clock rather than periods on purpose. A period is however fast the
+# agent happens to run, which can be far shorter than a legitimate wait for a
+# settlement, and giving up inside one takes a slot that was about to settle.
+# Half an hour is well past the facilitator serving one request and settling
+# its batch, and well short of a stall nobody notices.
+SLOT_BLOCKED_GIVE_UP_SECS = 30.0 * 60.0
+
+
 def note_slot_blocked(
     shared_state: Dict[str, Any], *, chain: str, safe: str, slot: int
-) -> int:
-    """Count consecutive periods blocked by the same slot.
+) -> SlotBlock:
+    """Record that ``slot`` is blocking this Safe, and say for how long.
 
     :param shared_state: the agent's shared state.
     :param chain: the chain the marketplace is on.
     :param safe: the requester Safe paying for the request.
     :param slot: the slot the marketplace counter is sitting on.
-    :return: how many periods in a row that slot has blocked this Safe.
+    :return: the periods and the seconds it has been blocked for.
 
-    Keyed on the slot so a counter that moves resets the count: a fresh
-    wait must not inherit the age of the one before it.
+    Keyed on the slot so a counter that moves starts the clock again: a
+    fresh wait must not inherit the age of the one before it.
     """
     key = (chain.lower(), safe.lower())
-    blocked: Dict[Tuple[str, str], Tuple[int, int]] = shared_state.setdefault(
+    blocked: Dict[Tuple[str, str], Tuple[int, int, float]] = shared_state.setdefault(
         MECH_SLOT_BLOCKED, {}
     )
-    seen, count = blocked.get(key, (slot, 0))
-    count = count + 1 if seen == slot else 1
-    blocked[key] = (slot, count)
-    return count
+    now = time.time()
+    seen, periods, since = blocked.get(key, (slot, 0, now))
+    if seen != slot:
+        periods, since = 0, now
+    periods += 1
+    blocked[key] = (slot, periods, since)
+    return SlotBlock(periods=periods, seconds=now - since)
 
 
 def clear_slot_blocked(shared_state: Dict[str, Any], *, chain: str, safe: str) -> None:

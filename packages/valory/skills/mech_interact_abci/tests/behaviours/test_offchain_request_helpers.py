@@ -58,8 +58,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import PaymentType
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    MECH_SLOT_BLOCKED,
     MECH_SLOT_REGISTRY,
     MECH_SLOT_RESERVED_AT,
+    SLOT_BLOCKED_GIVE_UP_SECS,
     note_slot_blocked,
     reserve_slot,
     sweep_dead_slots,
@@ -4822,15 +4824,22 @@ class TestTheCycleStopsSteppingOverAStuckSlot:
         )
         return stub
 
-    def test_it_signs_at_the_counter_once_the_slot_has_not_moved(self) -> None:
+    @staticmethod
+    def _age_the_block(stub: Any, seconds: float) -> None:
+        """Pretend the current block started ``seconds`` ago."""
+        blocked = stub.context.shared_state[MECH_SLOT_BLOCKED]
+        for key, (slot, periods, since) in list(blocked.items()):
+            blocked[key] = (slot, periods, since - seconds)
+
+    def test_it_signs_at_the_counter_once_the_slot_has_blocked_long_enough(
+        self,
+    ) -> None:
         """One lost settlement beats never sending again."""
-        bound = OffchainRequestExecutor._OFFCHAIN_STEP_OVER_GIVE_UP_AFTER
         stub = self._stub()
         chain = str(stub.params.mech_chain_id)
         safe = stub.synchronized_data.safe_contract_address
-        # Every earlier cycle but this one has already stepped over slot 7.
-        for _ in range(bound - 1):
-            note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=7)
+        note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=7)
+        self._age_the_block(stub, SLOT_BLOCKED_GIVE_UP_SECS)
 
         result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
 
@@ -4848,19 +4857,20 @@ class TestTheCycleStopsSteppingOverAStuckSlot:
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert _form_field(stub.posted_bodies[0], "nonce") == "8"
 
-    def test_a_counter_that_moves_starts_the_count_again(self) -> None:
+    def test_a_counter_that_moves_starts_the_clock_again(self) -> None:
         """A fresh wait must not inherit the age of the previous one."""
         stub = self._stub()
         chain = str(stub.params.mech_chain_id)
         safe = stub.synchronized_data.safe_contract_address
+        note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=7)
+        self._age_the_block(stub, SLOT_BLOCKED_GIVE_UP_SECS)
 
-        for _ in range(5):
-            note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=7)
-
-        assert (
-            note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=8)
-            == 1
+        moved = note_slot_blocked(
+            stub.context.shared_state, chain=chain, safe=safe, slot=8
         )
+
+        assert moved.seconds < SLOT_BLOCKED_GIVE_UP_SECS
+        assert moved.periods == 1
 
 
 class TestAnAcceptedRequestIsNotSweptLater:
