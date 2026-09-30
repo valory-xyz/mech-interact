@@ -160,6 +160,39 @@ def release_slot(
     )
 
 
+def retire_expired_slots(
+    shared_state: Dict[str, Any],
+    *,
+    chain: str,
+    safe: str,
+    older_than_secs: float,
+) -> List[int]:
+    """Free slots another payer signed for and whose request has expired.
+
+    :param shared_state: the agent's shared state.
+    :param chain: the chain the marketplace is on.
+    :param safe: the requester Safe paying for the request.
+    :param older_than_secs: margin past the expiry before acting, to absorb
+        the difference between this agent's clock and the facilitator's.
+    :return: the slots freed.
+
+    The other payer retires its own expired slots whenever it next talks to
+    its server, but it may not do that for days. Until then a slot it
+    stranded blocks this skill, which has no server of its own to ask. The
+    registry records when each signed request stops being admissible, so
+    this needs only a clock. Slots the other payer's server reports holding
+    are left alone by the registry itself.
+    """
+    registry = _registry(shared_state, chain)
+    if registry is None:
+        return []
+    retire = getattr(registry, "retire_expired", None)
+    if retire is None:
+        # A registry from a release that predates this; nothing to do.
+        return []
+    return list(retire(chain, safe, int(time.time() - older_than_secs)))
+
+
 def sweep_dead_slots(
     shared_state: Dict[str, Any],
     *,

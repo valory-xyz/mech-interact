@@ -19,6 +19,7 @@
 
 """Tests for the agent-supplied marketplace slot registry."""
 
+import time
 from typing import Any, Dict
 
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
@@ -27,6 +28,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     note_slot_accepted,
     release_slot,
     reserve_slot,
+    retire_expired_slots,
     slot_is_held,
     sweep_dead_slots,
 )
@@ -356,6 +358,96 @@ class TestTheFacilitatorsOwnRowsAreVisibleHere:
 
         assert swept == []
         assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
+
+
+class TestASlotTheOtherPayerStrandedDoesNotBlockForever:
+    """The other payer retires its own expired slots when it next pays.
+
+    It may not pay for days, and this skill has no server of its own to
+    ask, so a slot it stranded would otherwise hold every request here for
+    that whole time.
+    """
+
+    def test_an_expired_slot_is_freed_on_this_skills_clock(self) -> None:
+        """No facilitator read needed, just the recorded expiry and a clock."""
+        state = _state()
+        registry = state[MECH_SLOT_REGISTRY]
+        registry.reserve(_CHAIN, _SAFE, 7, 7)
+        registry.note_expiry(_CHAIN, _SAFE, 7, 1_000)
+
+        freed = retire_expired_slots(
+            state, chain=_CHAIN, safe=_SAFE, older_than_secs=0.0
+        )
+
+        assert freed == [7]
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is False
+
+    def test_a_slot_still_admissible_is_left_alone(self) -> None:
+        """Freeing one the other payer may still get served is the collision."""
+        state = _state()
+        registry = state[MECH_SLOT_REGISTRY]
+        registry.reserve(_CHAIN, _SAFE, 7, 7)
+        registry.note_expiry(_CHAIN, _SAFE, 7, int(time.time()) + 600)
+
+        freed = retire_expired_slots(
+            state, chain=_CHAIN, safe=_SAFE, older_than_secs=0.0
+        )
+
+        assert freed == []
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
+
+    def test_a_slot_only_just_expired_is_given_the_benefit_of_the_doubt(
+        self,
+    ) -> None:
+        """The expiry is on the other server's clock, not this agent's.
+
+        An agent running ahead would otherwise free a slot that server is
+        still willing to admit, which is the collision this exists to stop.
+        The margin is the slack.
+        """
+        state = _state()
+        registry = state[MECH_SLOT_REGISTRY]
+        registry.reserve(_CHAIN, _SAFE, 7, 7)
+        registry.note_expiry(_CHAIN, _SAFE, 7, int(time.time()) - 10)
+
+        freed = retire_expired_slots(
+            state, chain=_CHAIN, safe=_SAFE, older_than_secs=60.0
+        )
+
+        assert freed == []
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
+
+    def test_a_slot_expired_well_past_the_margin_is_freed(self) -> None:
+        """Otherwise the margin would just move the stall rather than end it."""
+        state = _state()
+        registry = state[MECH_SLOT_REGISTRY]
+        registry.reserve(_CHAIN, _SAFE, 7, 7)
+        registry.note_expiry(_CHAIN, _SAFE, 7, int(time.time()) - 600)
+
+        freed = retire_expired_slots(
+            state, chain=_CHAIN, safe=_SAFE, older_than_secs=60.0
+        )
+
+        assert freed == [7]
+
+    def test_a_row_the_other_payers_server_reports_is_left_alone(self) -> None:
+        """Expired or not, an admitted request is that server's to retire."""
+        state = _state()
+        state[MECH_SLOT_REGISTRY].publish(_CHAIN, _SAFE, [7])
+
+        freed = retire_expired_slots(
+            state, chain=_CHAIN, safe=_SAFE, older_than_secs=0.0
+        )
+
+        assert freed == []
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
+
+    def test_without_a_registry_there_is_nothing_to_retire(self) -> None:
+        """Most agents have a single payer and bind none."""
+        assert (
+            retire_expired_slots({}, chain=_CHAIN, safe=_SAFE, older_than_secs=0.0)
+            == []
+        )
 
 
 class TestAnAcceptedRequestStopsBeingSweepable:

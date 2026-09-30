@@ -24,7 +24,7 @@ that owns it, so what the tests pin down is the contract between them.
 """
 
 import threading
-from typing import Dict, Iterable, Set, Tuple
+from typing import Dict, Iterable, List, Set, Tuple
 
 
 class _Registry:
@@ -37,6 +37,7 @@ class _Registry:
     def __init__(self) -> None:
         self._reserved: Dict[Tuple[str, str], Set[int]] = {}
         self._published: Dict[Tuple[str, str], Set[int]] = {}
+        self._expiry: Dict[Tuple[Tuple[str, str], int], int] = {}
         self._guard = threading.Lock()
 
     @property
@@ -60,6 +61,7 @@ class _Registry:
         with self._guard:
             self._reserved.clear()
             self._published.clear()
+            self._expiry.clear()
 
     def reserve(self, chain: str, safe: str, floor: int, settled_below: int) -> int:
         """Take the lowest free slot at or above ``floor``.
@@ -114,6 +116,32 @@ class _Registry:
                 reserved.difference_update(held)
                 if not reserved:
                     del self._reserved[key]
+
+    def retire_expired(self, chain: str, safe: str, now: int) -> List[int]:
+        """Free reserved slots whose signed request can no longer be admitted.
+
+        Never touches what the facilitator reports: an expired request it
+        already admitted is its row, retired only by its next report.
+        """
+        key = (chain.lower(), safe.lower())
+        with self._guard:
+            freed = []
+            for slot in list(self._reserved.get(key, set())):
+                expires_at = self._expiry.get((key, slot))
+                if expires_at is None or expires_at > int(now):
+                    continue
+                self._reserved[key].discard(slot)
+                if not self._reserved[key]:
+                    del self._reserved[key]
+                self._expiry.pop((key, slot), None)
+                freed.append(slot)
+            return freed
+
+    def note_expiry(self, chain: str, safe: str, slot: int, expires_at: int) -> None:
+        """Record when the request signed at ``slot`` stops being admissible."""
+        key = (chain.lower(), safe.lower())
+        with self._guard:
+            self._expiry[(key, slot)] = int(expires_at)
 
     def hand_over(self, chain: str, safe: str, slot: int) -> None:
         """Record that the facilitator has taken responsibility for ``slot``."""

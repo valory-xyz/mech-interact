@@ -92,6 +92,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     note_slot_accepted,
     release_slot,
     reserve_slot,
+    retire_expired_slots,
     sweep_dead_slots,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
@@ -1004,6 +1005,17 @@ class OffchainRequestExecutor:
         # Before taking one, reclaim any slot this skill is still holding
         # that the mech cannot have accepted: the counter has not moved off
         # it and a mech that had it would have answered by now.
+        retired = retire_expired_slots(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            older_than_secs=self._config.offchain_poll_timeout_seconds,
+        )
+        if retired:
+            self._logger.info(
+                f"Reclaimed slot(s) {retired} for {self._safe_address()}: the "
+                "request signed at them can no longer be admitted."
+            )
         swept = sweep_dead_slots(
             self._b.context.shared_state,
             chain=str(self._b.params.mech_chain_id or ""),

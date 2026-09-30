@@ -57,6 +57,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
 )
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    retire_expired_slots,
     slot_is_held,
 )
 from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
@@ -1019,6 +1020,12 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             # send on a failed read would stall every request whenever the
             # chain connection wobbles. Send, as it did before this check.
             return False
+        retire_expired_slots(
+            self.context.shared_state,
+            chain=chain,
+            safe=safe,
+            older_than_secs=self.params.offchain_poll_timeout_seconds,
+        )
         if not slot_is_held(
             self.context.shared_state, chain=chain, safe=safe, slot=raw
         ):
