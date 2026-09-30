@@ -33,7 +33,8 @@ without one the chain counter is the whole picture and is used as is.
 from typing import Any, Dict, Optional
 
 # Shared-state key the agent binds its slot registry to. The object needs
-# ``reserve(chain, safe, floor)`` and ``release(chain, safe, slot)``.
+# ``reserve(chain, safe, floor, settled_below)``, ``release(chain, safe, slot)``
+# and ``live``.
 MECH_SLOT_REGISTRY = "mech_slot_registry"
 
 
@@ -64,7 +65,10 @@ def reserve_slot(
     registry = _registry(shared_state)
     if registry is None:
         return on_chain_nonce
-    return int(registry.reserve(chain, safe, on_chain_nonce))
+    # Both bounds are the chain counter here: this path floors at ``mapNonces``
+    # and everything below it has settled. They differ for a caller that floors
+    # at a facilitator's first free slot, which sits above its own unsettled rows.
+    return int(registry.reserve(chain, safe, on_chain_nonce, on_chain_nonce))
 
 
 def slot_is_held(

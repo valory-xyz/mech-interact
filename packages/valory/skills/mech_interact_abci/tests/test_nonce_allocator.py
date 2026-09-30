@@ -172,3 +172,39 @@ class TestSlotIsHeld:
     def test_without_a_registry_nothing_is_reported_as_taken(self) -> None:
         """An agent with one payer must not hold its own requests back."""
         assert slot_is_held({}, chain=_CHAIN, safe=_SAFE, slot=10) is False
+
+
+class TestTheTwoBoundsAreNotInterchangeable:
+    """A facilitator's first free slot is not a settlement marker.
+
+    It sits above that facilitator's own unsettled rows. Pruning the
+    registry at that number forgets slots it is still holding, and this
+    path, which floors at ``mapNonces``, is then handed one back. That is
+    the collision the registry exists to prevent, so the contract this
+    skill relies on has to keep the two bounds apart.
+    """
+
+    def test_a_slot_the_facilitator_holds_is_not_handed_to_this_path(self) -> None:
+        """The chain counter is what may be forgotten, not the floor asked for."""
+        state = _state()
+        registry = state[MECH_SLOT_REGISTRY]
+
+        # Two facilitator calls while the chain sits at 5: its first free slot
+        # walks up, but nothing has settled.
+        registry.reserve(_CHAIN, _SAFE, 5, 5)
+        registry.reserve(_CHAIN, _SAFE, 6, 5)
+
+        # This path floors at mapNonces, still 5.
+        got = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=5)
+
+        assert got == 7, "handed a slot the facilitator is still holding"
+
+    def test_settlement_is_what_frees_a_slot(self) -> None:
+        """Once the counter moves past them the set must not grow forever."""
+        state = _state()
+        registry = state[MECH_SLOT_REGISTRY]
+        registry.reserve(_CHAIN, _SAFE, 5, 5)
+        registry.reserve(_CHAIN, _SAFE, 6, 5)
+
+        assert reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=7) == 7
+        assert registry.live[(_CHAIN, _SAFE.lower())] == {7}

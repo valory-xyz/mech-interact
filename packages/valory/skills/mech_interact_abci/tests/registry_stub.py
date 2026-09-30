@@ -38,12 +38,17 @@ class _Registry:
         self.live: Dict[Tuple[str, str], Set[int]] = {}
         self._guard = threading.Lock()
 
-    def reserve(self, chain: str, safe: str, floor: int) -> int:
-        """Take the lowest free slot at or above ``floor``."""
+    def reserve(self, chain: str, safe: str, floor: int, settled_below: int) -> int:
+        """Take the lowest free slot at or above ``floor``.
+
+        ``settled_below`` is what can be forgotten, which is not the same as
+        ``floor``: a facilitator's first free slot sits above its own
+        unsettled rows, so pruning there would drop slots it still holds.
+        """
         key = (chain.lower(), safe.lower())
         with self._guard:
             live = self.live.setdefault(key, set())
-            live.difference_update([slot for slot in live if slot < floor])
+            live.difference_update([slot for slot in live if slot < settled_below])
             slot = floor
             while slot in live:
                 slot += 1
