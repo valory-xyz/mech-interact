@@ -28,6 +28,7 @@ executor's failover decision tree.
 
 import json
 import logging
+import time
 from dataclasses import asdict
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -58,6 +59,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
 from packages.valory.skills.mech_interact_abci.behaviours.request import PaymentType
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_REGISTRY,
+    MECH_SLOT_RESERVED_AT,
     reserve_slot,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
@@ -4759,3 +4761,60 @@ class TestTheDepositPathKeepsItsSlot:
             stub.synchronized_data.safe_contract_address.lower(),
         )
         assert registry.live.get(key) == {7}, "the deposit retry lost its slot"
+
+
+class TestTheCycleReclaimsASlotNoMechCanHave:
+    """A kept slot has to be reclaimed eventually or the Safe stalls.
+
+    An unanswered POST keeps its slot because the mech may be serving it.
+    If the mech never had it, nothing else will ever hand it back: the
+    chain counter does not move off it, so every later request from the
+    Safe signs above it and is refused. The cycle reclaims one once the
+    counter has not moved and no mech could still be answering.
+    """
+
+    @staticmethod
+    def _per_attempt_reads() -> List[Any]:
+        return [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+
+    def _stub(self, reserved_age_secs: float) -> Any:
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # the counter has not moved off 7
+                *self._per_attempt_reads(),
+            ],
+            http_responses=[_make_http_response(200)],
+        )
+        chain = str(stub.params.mech_chain_id)
+        safe = stub.synchronized_data.safe_contract_address
+        reserve_slot(
+            stub.context.shared_state, chain=chain, safe=safe, on_chain_nonce=7
+        )
+        taken_at = stub.context.shared_state[MECH_SLOT_RESERVED_AT]
+        taken_at[(chain.lower(), safe.lower(), 7)] = time.time() - reserved_age_secs
+        return stub
+
+    def test_a_slot_older_than_any_mech_could_still_answer_is_retaken(self) -> None:
+        """Without this the Safe never sends again on either route."""
+        stub = self._stub(reserved_age_secs=400.0)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
+
+    def test_a_slot_a_mech_could_still_be_serving_is_left_alone(self) -> None:
+        """Reclaiming early puts two requests on one slot and loses one."""
+        stub = self._stub(reserved_age_secs=1.0)
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[0], "nonce") == "8"
