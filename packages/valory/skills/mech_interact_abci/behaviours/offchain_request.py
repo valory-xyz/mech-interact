@@ -89,6 +89,7 @@ from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    note_slot_accepted,
     release_slot,
     reserve_slot,
     sweep_dead_slots,
@@ -677,11 +678,14 @@ _REQUEST_ID_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 # again. ``DONE`` used it. ``TIMEOUT`` went unanswered, so the mech may be
 # holding it. ``DEPOSIT_NEEDED`` keeps it on purpose, because the retry
 # re-sends the same request at the same slot. ``OVER_CAP`` never posted.
+# Outcomes where the mech answered and declined, so it cannot be holding the
+# slot. ``BAD_RESPONSE`` is deliberately not one: it covers any unhandled
+# status, including a 502 or 504 from a proxy in front of a mech that did
+# accept the request.
 _REFUSED_OUTCOMES = frozenset(
     {
         OffchainAttemptOutcome.NONCE_TAKEN,
         OffchainAttemptOutcome.SERVER_BUSY,
-        OffchainAttemptOutcome.BAD_RESPONSE,
     }
 )
 
@@ -911,7 +915,7 @@ class OffchainRequestExecutor:
         on-chain request can step over, so it goes back.
         """
         self._reserved_slot: Optional[int] = None
-        self._slot_was_refused = False
+        self._slot_may_be_held = False
         try:
             result = yield from self._fresh_cycle_inner()
         finally:
@@ -924,15 +928,18 @@ class OffchainRequestExecutor:
     def _settle_reserved_slot(self) -> None:
         """Hand the slot back only when the mech is known not to have it.
 
-        A mech that refused the slot never took it, so it goes straight
+        A mech that answered and refused never took it, so it goes straight
         back. An unanswered POST is different: the mech may have accepted
         the request and be serving it, and re-issuing that slot would put
         two requests on one, which is the collision this registry exists to
         stop. Those are kept, and ``sweep_dead_slots`` on a later cycle is
         what frees them once the chain and the clock together show the
         request can never have been accepted.
+
+        ``DEPOSIT_NEEDED`` keeps its slot on purpose: ``_retry_pending``
+        re-sends the same request at the same slot once the deposit settles.
         """
-        if self._reserved_slot is None or not self._slot_was_refused:
+        if self._reserved_slot is None or self._slot_may_be_held:
             return
         release_slot(
             self._b.context.shared_state,
@@ -1088,12 +1095,19 @@ class OffchainRequestExecutor:
                 sender=self._safe_address(),
             )
             last_outcome = attempt.outcome
-            # Whether the slot is known to be free. A mech that answered and
-            # refused never took it. A POST that went unanswered may have been
-            # accepted, so that slot is kept and reclaimed later by
-            # ``sweep_dead_slots``. ``DEPOSIT_NEEDED`` keeps it on purpose:
-            # ``_retry_pending`` re-sends the same request at the same slot.
-            self._slot_was_refused = attempt.outcome in _REFUSED_OUTCOMES
+            # Latched across the failover list rather than set per attempt.
+            # One mech that never answered may be serving the request, and a
+            # later mech refusing the same slot says nothing about it, so the
+            # slot is kept once any attempt has left the question open.
+            if attempt.outcome not in _REFUSED_OUTCOMES:
+                self._slot_may_be_held = True
+            if attempt.outcome is OffchainAttemptOutcome.DONE:
+                note_slot_accepted(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    slot=on_chain_nonce,
+                )
 
             pending = self._build_pending(
                 request_id_bytes=request_id_bytes,

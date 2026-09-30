@@ -61,6 +61,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_REGISTRY,
     MECH_SLOT_RESERVED_AT,
     reserve_slot,
+    sweep_dead_slots,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
@@ -4626,8 +4627,14 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert _form_field(stub.posted_bodies[1], "nonce") == "9"
 
-    def test_a_cycle_that_lands_nothing_gives_its_slot_back(self) -> None:
-        """Otherwise the gap stalls the Safe, because nothing here can fill it."""
+    def test_an_unreadable_answer_keeps_the_slot(self) -> None:
+        """An unhandled status does not say the mech declined the request.
+
+        It covers a 502 or 504 from a proxy in front of a mech that did
+        accept it, so handing the slot back here would let something else
+        pay from the Safe at the same slot. The sweep frees it once the
+        counter and the clock together show it can never have been accepted.
+        """
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
             contract_api_responses=[
@@ -4643,7 +4650,6 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
         result = _drive(executor._fresh_cycle())
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        # The slot it took is free again, not stranded above the counter.
         assert (
             reserve_slot(
                 stub.context.shared_state,
@@ -4651,8 +4657,8 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
                 safe=stub.synchronized_data.safe_contract_address,
                 on_chain_nonce=7,
             )
-            == 7
-        )
+            == 8
+        ), "gave back a slot a mech behind a failing proxy may hold"
 
 
 class TestTheCycleOnlyGivesBackASlotTheMechRefused:
@@ -4716,6 +4722,109 @@ class TestTheCycleOnlyGivesBackASlotTheMechRefused:
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert self._held(stub) == {7}, "gave back a slot the mech may be serving"
+
+
+class TestOneUnansweredAttemptDecidesTheWholeCycle:
+    """A later mech refusing the slot says nothing about an earlier one.
+
+    The failover list walks several mechs for one request at one slot. If
+    the first never answers it may be serving it, and a second answering
+    "that slot is taken" does not change that. Deciding on the last attempt
+    would hand back a slot the first is working on.
+    """
+
+    _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
+
+    @staticmethod
+    def _held(stub: Any) -> set:
+        registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
+        key = (
+            str(stub.params.mech_chain_id).lower(),
+            stub.synchronized_data.safe_contract_address.lower(),
+        )
+        return registry.live.get(key, set())
+
+    def _stub(self, http_responses: List[Any]) -> Any:
+        per_attempt = [
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": 10**16}),
+        ]
+        return _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example"),
+                _FakeMechInfo("0x" + "bb" * 20, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                *per_attempt,
+                *per_attempt,
+            ],
+            http_responses=http_responses,
+            failover_retries=1,
+            nonce_retry_max=0,
+        )
+
+    def test_an_unanswered_first_attempt_keeps_the_slot(self) -> None:
+        """Even though the second mech answered and declined the same slot."""
+        stub = self._stub([None, _make_http_response(503, self._REFUSED)])
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert self._held(stub) == {7}, "the first mech may still be serving it"
+
+    def test_two_refusals_still_give_the_slot_back(self) -> None:
+        """Both answered and declined, so nothing can be holding it."""
+        stub = self._stub(
+            [
+                _make_http_response(503, self._REFUSED),
+                _make_http_response(503, self._REFUSED),
+            ]
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert self._held(stub) == set()
+
+
+class TestAnAcceptedRequestIsNotSweptLater:
+    """``mapNonces`` moves at settlement, not when the mech answers.
+
+    So the counter can still sit on a slot a mech accepted for longer than
+    the sweep's age bound. Sweeping it would hand the slot to the
+    facilitator route and the two would clash at settlement.
+    """
+
+    def test_a_served_cycle_leaves_a_slot_the_sweep_will_not_touch(self) -> None:
+        """The sweep is for a POST that may never have arrived; this one did."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+            ],
+            http_responses=[_make_http_response(200)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        swept = sweep_dead_slots(
+            stub.context.shared_state,
+            chain=str(stub.params.mech_chain_id),
+            safe=stub.synchronized_data.safe_contract_address,
+            on_chain_nonce=7,
+            older_than_secs=0.0,
+        )
+
+        assert swept == [], "swept a slot a mech had accepted"
 
 
 class TestTheDepositPathKeepsItsSlot:

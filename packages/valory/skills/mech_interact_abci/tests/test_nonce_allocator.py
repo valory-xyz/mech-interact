@@ -24,6 +24,7 @@ from typing import Any, Dict
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_REGISTRY,
     MECH_SLOT_RESERVED_AT,
+    note_slot_accepted,
     release_slot,
     reserve_slot,
     slot_is_held,
@@ -355,6 +356,52 @@ class TestTheFacilitatorsOwnRowsAreVisibleHere:
 
         assert swept == []
         assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
+
+
+class TestAnAcceptedRequestStopsBeingSweepable:
+    """The sweep is for a POST that may never have arrived.
+
+    ``mapNonces`` moves when a mech settles on chain, not when it answers,
+    so the counter can sit on a slot a mech accepted for longer than the
+    sweep's age bound. Sweeping it would hand the slot to another payer on
+    the Safe and the two would clash at settlement.
+    """
+
+    def test_an_accepted_slot_is_not_swept(self) -> None:
+        """A mech answered and took it, so the question is already settled."""
+        state = _state()
+        slot = reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=7)
+        note_slot_accepted(state, chain=_CHAIN, safe=_SAFE, slot=slot)
+
+        swept = sweep_dead_slots(
+            state,
+            chain=_CHAIN,
+            safe=_SAFE,
+            on_chain_nonce=7,
+            older_than_secs=0.0,
+        )
+
+        assert swept == []
+        assert slot_is_held(state, chain=_CHAIN, safe=_SAFE, slot=7) is True
+
+    def test_an_unanswered_slot_is_still_swept(self) -> None:
+        """Otherwise nothing would ever reclaim one, which stalls the Safe."""
+        state = _state()
+        reserve_slot(state, chain=_CHAIN, safe=_SAFE, on_chain_nonce=7)
+
+        swept = sweep_dead_slots(
+            state,
+            chain=_CHAIN,
+            safe=_SAFE,
+            on_chain_nonce=7,
+            older_than_secs=0.0,
+        )
+
+        assert swept == [7]
+
+    def test_noting_a_slot_nothing_reserved_is_harmless(self) -> None:
+        """Called on every accepted attempt, including with no registry bound."""
+        note_slot_accepted({}, chain=_CHAIN, safe=_SAFE, slot=7)
 
 
 class TestAnUnnamedChainMeansNoRegistry:

@@ -46,7 +46,7 @@ MECH_SLOT_REGISTRY = "mech_slot_registry"
 MECH_SLOT_RESERVED_AT = "mech_slot_reserved_at"
 
 
-def _registry(shared_state: Dict[str, Any], chain: str = "x") -> Optional[Any]:
+def _registry(shared_state: Dict[str, Any], chain: str) -> Optional[Any]:
     """Return the agent's slot registry, or ``None`` when it cannot be used.
 
     :param shared_state: the agent's shared state.
@@ -91,6 +91,29 @@ def reserve_slot(
     )
     taken_at[(chain.lower(), safe.lower(), slot)] = time.time()
     return slot
+
+
+def note_slot_accepted(
+    shared_state: Dict[str, Any], *, chain: str, safe: str, slot: int
+) -> None:
+    """Record that a mech took the request signed at ``slot``.
+
+    :param shared_state: the agent's shared state.
+    :param chain: the chain the marketplace is on.
+    :param safe: the requester Safe paying for the request.
+    :param slot: the slot the accepted request was signed at.
+
+    The sweep exists for a slot whose POST went unanswered, where the mech
+    may never have received it. Once a mech has answered and taken the
+    request that question is settled, so the slot stops being sweepable.
+    Without this it would still be swept: ``mapNonces`` moves when the mech
+    settles on chain rather than when it answers, so the counter can sit on
+    an accepted slot for longer than the sweep's age bound, and handing it
+    back would let another payer on the Safe sign the same slot.
+    """
+    shared_state.get(MECH_SLOT_RESERVED_AT, {}).pop(
+        (chain.lower(), safe.lower(), slot), None
+    )
 
 
 def slot_is_held(
