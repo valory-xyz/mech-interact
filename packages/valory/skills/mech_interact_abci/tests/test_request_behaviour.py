@@ -34,7 +34,13 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import (
     MechRequestBehaviour,
     PaymentType,
 )
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    SLOT_BLOCKED_GIVE_UP_SECS,
+)
 from packages.valory.skills.mech_interact_abci.states.base import Event
+from packages.valory.skills.mech_interact_abci.tests.registry_stub import (
+    _Registry,
+)
 
 
 def _make_request_behaviour(**overrides: Any) -> MechRequestBehaviour:
@@ -655,3 +661,229 @@ class TestOffchainRequestCycleGuard:
         assert payload.offchain_result == Event.OFFCHAIN_DONE.value
         assert payload.offchain_pending_request == '{"nonce": "n1"}'
         assert payload.offchain_last_failure_reason == "last-reason"
+
+
+class TestTheOnChainPathWaitsOnASlotInUse:
+    """``request()`` takes ``mapNonces`` when it executes, not a slot we pick.
+
+    So unlike the off-chain path this one cannot step over a slot another
+    payer on the Safe is holding. Sending into one costs the whole
+    per-sender settlement batch, so the only safe move is to wait.
+    """
+
+    @staticmethod
+    def _behaviour(slot: Any, registry_holds: Any) -> Any:
+        from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+            MECH_SLOT_REGISTRY,
+        )
+        from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
+
+        behaviour = _make_request_behaviour()
+        behaviour._mech_requests = [MechMetadata(prompt="p", tool="t", nonce="n")]
+        behaviour.priority_mech_address = "0x" + "aa" * 20
+        behaviour._context.params.mech_chain_id = "gnosis"
+        behaviour._context.state = MagicMock()
+
+        shared_state: dict = {}
+        if registry_holds is not None:
+            registry = _Registry()
+            # As the facilitator reports them, which is how the other payer
+            # on this Safe actually gets into the registry.
+            registry.publish("gnosis", "0xsafe", registry_holds)
+            shared_state[MECH_SLOT_REGISTRY] = registry
+        behaviour._context.shared_state = shared_state
+
+        benchmark_ctx = MagicMock()
+        behaviour._context.benchmark_tool.measure.return_value = benchmark_ctx
+        benchmark_ctx.local.return_value.__enter__ = MagicMock()
+        benchmark_ctx.local.return_value.__exit__ = MagicMock(return_value=False)
+
+        def fake_read(_safe: str) -> Any:
+            yield
+            return slot
+
+        behaviour._read_marketplace_nonce = fake_read  # type: ignore[assignment]
+        return behaviour
+
+    def _drive(self, behaviour: Any) -> dict:
+        mock_synced = MagicMock()
+        mock_synced.safe_contract_address = "0xsafe"
+        seen = {"prepared": 0, "finished": False}
+
+        def fake_prepare() -> Any:
+            seen["prepared"] += 1
+            yield
+            return False
+
+        def capture_finish(_payload: Any) -> Any:
+            seen["finished"] = True
+            yield
+
+        with patch.object(
+            type(behaviour),
+            "synchronized_data",
+            new_callable=lambda: property(lambda self: mock_synced),
+        ):
+            behaviour._prepare_safe_tx = fake_prepare  # type: ignore[method-assign]
+            behaviour.finish_behaviour = capture_finish  # type: ignore[method-assign]
+            gen = behaviour.async_act()
+            try:
+                while True:
+                    next(gen)
+            except StopIteration:
+                pass
+        return seen
+
+    @staticmethod
+    def _decide(behaviour: Any) -> bool:
+        """Run the guard alone and return whether it holds the request back."""
+        mock_synced = MagicMock()
+        mock_synced.safe_contract_address = "0xsafe"
+        with patch.object(
+            type(behaviour),
+            "synchronized_data",
+            new_callable=lambda: property(lambda self: mock_synced),
+        ):
+            gen = behaviour._on_chain_slot_is_taken()
+            try:
+                while True:
+                    next(gen)
+            except StopIteration as stop:
+                return bool(stop.value)
+        raise AssertionError("the guard never returned")
+
+    def test_it_asks_only_for_the_clock_when_retiring(self) -> None:
+        """The margin is the registry's to decide, not this skill's.
+
+        How long past a request's expiry it is safe to act depends on how
+        long the other payer's server can hold one, which is not visible
+        from here. Reading a config value for it also meant reading one that
+        does not exist on ``params``, which a mock hid.
+        """
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        seen = {}
+
+        def capture(_state: Any, **kwargs: Any) -> list:
+            seen.update(kwargs)
+            return []
+
+        with patch(
+            "packages.valory.skills.mech_interact_abci.behaviours.request."
+            "retire_expired_slots",
+            capture,
+        ):
+            self._decide(behaviour)
+
+        assert set(seen) == {"chain", "safe"}, seen
+
+    def test_it_waits_when_the_slot_the_contract_would_take_is_in_use(self) -> None:
+        """Sending here loses the settlement for both requests."""
+        seen = self._drive(self._behaviour(slot=5, registry_holds=[5]))
+
+        assert seen["prepared"] == 0, "it sent into a slot another payer holds"
+        assert seen["finished"] is True
+
+    def test_it_sends_when_that_slot_is_free(self) -> None:
+        """A registry holding a higher slot must not stall the on-chain path."""
+        assert self._decide(self._behaviour(slot=5, registry_holds=[6])) is False
+
+    def test_it_sends_when_the_agent_binds_no_registry(self) -> None:
+        """Most agents have a single payer and must be unaffected."""
+        assert self._decide(self._behaviour(slot=5, registry_holds=None)) is False
+
+    def test_an_unreadable_counter_does_not_stall_the_request(self) -> None:
+        """Refusing on a failed read would stop every request on a wobbly RPC."""
+        assert self._decide(self._behaviour(slot=None, registry_holds=[5])) is False
+
+    def test_a_hold_that_does_not_clear_stops_being_reported_as_routine(
+        self,
+    ) -> None:
+        """An agent paying every period holds every period, and never sends.
+
+        One or two periods is the normal wait for a settlement, so the first
+        few are ordinary log lines. Past that the wait is not transient and
+        has to be visible, or the request queue stalls silently forever.
+        """
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        logger = behaviour._context.logger
+        levels = []
+        for _ in range(4):
+            assert self._decide(behaviour) is True
+            levels.append("warning" if logger.warning.call_count else "info")
+            logger.reset_mock()
+
+        assert levels == ["info", "info", "warning", "warning"], levels
+
+    @staticmethod
+    def _age_the_block(behaviour: Any, seconds: float) -> None:
+        """Pretend the current block started ``seconds`` ago."""
+        from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+            MECH_SLOT_BLOCKED,
+        )
+
+        blocked = behaviour._context.shared_state[MECH_SLOT_BLOCKED]
+        for key, (slot, periods, since) in list(blocked.items()):
+            blocked[key] = (slot, periods, since - seconds)
+
+    def test_it_sends_anyway_once_the_slot_has_blocked_for_long_enough(self) -> None:
+        """One bound for every way a slot can get stuck, including unknown ones.
+
+        Each specific cause has a rule now, but the rules only cover what has
+        been found, and the cost of the next one is that this path never sends
+        again. Once nothing has moved for that long, whatever holds the slot
+        is not settling it, so there is most likely no settlement left to lose.
+        """
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+
+        assert self._decide(behaviour) is True
+        self._age_the_block(behaviour, SLOT_BLOCKED_GIVE_UP_SECS)
+
+        assert self._decide(behaviour) is False, "still waiting past the bound"
+
+    def test_it_keeps_waiting_while_the_slot_could_still_settle(self) -> None:
+        """Measured in wall clock, not periods.
+
+        A period is however fast this agent happens to run, and can be far
+        shorter than a legitimate wait for a settlement, so counting them
+        would take a slot that was about to settle.
+        """
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+
+        decisions = [self._decide(behaviour) for _ in range(25)]
+
+        assert decisions == [True] * 25, "gave up on a period count"
+
+    def test_a_counter_that_moves_starts_the_clock_again(self) -> None:
+        """A fresh wait must not inherit the age of the one before it."""
+        from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+            MECH_SLOT_REGISTRY,
+        )
+
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        assert self._decide(behaviour) is True
+        self._age_the_block(behaviour, SLOT_BLOCKED_GIVE_UP_SECS)
+
+        # The counter moved on: the previous holder settled, and a different
+        # slot is blocked now.
+        moved = self._behaviour(slot=6, registry_holds=[6])
+        moved._context.shared_state = behaviour._context.shared_state
+        moved._context.shared_state[MECH_SLOT_REGISTRY].publish("gnosis", "0xsafe", [6])
+
+        assert self._decide(moved) is True, "kept the old slot's age"
+
+    def test_a_cleared_hold_starts_the_count_again(self) -> None:
+        """Otherwise one earlier wait makes every later one look permanent."""
+        from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+            MECH_SLOT_BLOCKED,
+            MECH_SLOT_REGISTRY,
+        )
+
+        behaviour = self._behaviour(slot=5, registry_holds=[5])
+        assert self._decide(behaviour) is True
+
+        behaviour._context.shared_state.pop(MECH_SLOT_REGISTRY, None)
+        assert self._decide(behaviour) is False
+        # The count is forgotten too, so a later wait starts from one.
+        assert MECH_SLOT_BLOCKED not in behaviour._context.shared_state or not (
+            behaviour._context.shared_state[MECH_SLOT_BLOCKED]
+        )

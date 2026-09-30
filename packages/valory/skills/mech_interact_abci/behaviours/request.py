@@ -33,6 +33,9 @@ from aea.helpers.multiformat import multibase_decode, multicodec_remove_prefix
 
 from packages.valory.contracts.erc20.contract import ERC20TokenContract
 from packages.valory.contracts.ierc1155.contract import IERC1155
+from packages.valory.contracts.mech_marketplace.contract import (
+    MechMarketplaceContract as MechMarketplace,
+)
 from packages.valory.contracts.mech_mm.contract import MechMM
 from packages.valory.contracts.nvm_balance_tracker_native.contract import (
     BalanceTrackerNvmSubscriptionNative,
@@ -53,6 +56,13 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     OffchainRequestExecutor,
 )
 from packages.valory.skills.mech_interact_abci.models import MultisendBatch
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    SLOT_BLOCKED_GIVE_UP_SECS,
+    clear_slot_blocked,
+    note_slot_blocked,
+    retire_expired_slots,
+    slot_is_held,
+)
 from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
@@ -990,6 +1000,98 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return False
 
+    # A settlement tick or two of holding is the normal wait; beyond that it
+    # is not transient and somebody should see it. The bound on giving up
+    # altogether is ``SLOT_BLOCKED_GIVE_UP_SECS``, which is in wall clock.
+    _ON_CHAIN_HOLD_WARN_AFTER = 3
+
+    def _on_chain_slot_is_taken(self) -> Generator[None, None, bool]:
+        """Return whether the slot ``request()`` would take is already in use.
+
+        :yield: the contract read.
+        :return: whether to hold this request back for a later period.
+
+        ``request()`` takes no nonce, so this path cannot step over a slot
+        in use the way the off-chain one does; see ``slot_is_held``. All it
+        can decide is whether to send, and sending into a held slot costs
+        the whole per-sender settlement batch.
+        """
+        safe = self.synchronized_data.safe_contract_address
+        chain = str(self.params.mech_chain_id or "")
+        raw = yield from self._read_marketplace_nonce(safe)
+        if raw is None:
+            # Without the counter there is no way to tell, and refusing to
+            # send on a failed read would stall every request whenever the
+            # chain connection wobbles. Send, as it did before this check.
+            return False
+        retire_expired_slots(
+            self.context.shared_state,
+            chain=chain,
+            safe=safe,
+        )
+        if not slot_is_held(
+            self.context.shared_state, chain=chain, safe=safe, slot=raw
+        ):
+            clear_slot_blocked(self.context.shared_state, chain=chain, safe=safe)
+            return False
+        blocked = note_slot_blocked(
+            self.context.shared_state, chain=chain, safe=safe, slot=raw
+        )
+        held = blocked.periods
+        message = (
+            f"the marketplace would take slot {raw} for {safe}, which "
+            f"something else in this agent is already using. Held for "
+            f"{held} period(s)."
+        )
+        if blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
+            self.context.logger.warning(
+                f"Sending the on-chain mech request anyway: {message} The "
+                f"counter has not moved in {blocked.seconds:.0f}s, so whatever "
+                "holds the slot is not settling it. One lost settlement batch "
+                "is worth less than this request never being sent."
+            )
+            clear_slot_blocked(self.context.shared_state, chain=chain, safe=safe)
+            return False
+        # An agent making paid calls every period can hold a slot every
+        # period. Quiet at first, because one or two is the normal wait for a
+        # settlement, loud once it looks permanent rather than transient.
+        if held >= self._ON_CHAIN_HOLD_WARN_AFTER:
+            self.context.logger.warning(f"Holding the request back: {message}")
+        else:
+            self.context.logger.info(f"Holding the request back: {message}")
+        return True
+
+    def _read_marketplace_nonce(
+        self, safe: str
+    ) -> Generator[None, None, Optional[int]]:
+        """Read ``MechMarketplace.mapNonces(safe)``.
+
+        :param safe: the requester Safe.
+        :yield: the contract read.
+        :return: the counter, or ``None`` when it could not be read.
+        """
+        response = yield from self.get_contract_api_response(
+            performative=ContractApiMessage.Performative.GET_STATE,  # type: ignore
+            contract_address=self.mech_marketplace_config.mech_marketplace_address,
+            contract_id=str(MechMarketplace.contract_id),
+            contract_callable="get_nonce",
+            sender_address=safe,
+            chain_id=self.params.mech_chain_id,
+        )
+        if response.performative != ContractApiMessage.Performative.STATE:
+            self.context.logger.warning(
+                "Could not read MechMarketplace.mapNonces; sending the "
+                f"on-chain request anyway ({response.performative})."
+            )
+            return None
+        try:
+            return int(response.state.body["data"])
+        except (KeyError, TypeError, ValueError) as exc:
+            self.context.logger.warning(
+                f"MechMarketplace.mapNonces returned an unusable value: {exc}"
+            )
+            return None
+
     def _build_skip_payload(self) -> MechRequestPayload:
         """Build the no-op payload used by both skip paths in `async_act`."""
         return MechRequestPayload(
@@ -1068,6 +1170,15 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 "No priority mech available this round; skipping request "
                 f"(last_failure_reason={self.shared_state.last_failure_reason!r})."
             )
+            with self.context.benchmark_tool.measure(self.behaviour_id).local():
+                payload = self._build_skip_payload()
+            yield from self.finish_behaviour(payload)
+            return
+
+        # Last, after the cheap skips: this reads the marketplace, and there
+        # is no point paying for that on a period with nothing to send.
+        blocked = yield from self._on_chain_slot_is_taken()
+        if blocked:
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
                 payload = self._build_skip_payload()
             yield from self.finish_behaviour(payload)

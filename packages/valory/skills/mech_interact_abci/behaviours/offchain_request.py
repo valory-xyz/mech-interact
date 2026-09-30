@@ -88,6 +88,16 @@ from packages.valory.contracts.multisend.contract import (
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    SLOT_BLOCKED_GIVE_UP_SECS,
+    clear_slot_blocked,
+    note_slot_accepted,
+    note_slot_blocked,
+    release_slot,
+    reserve_slot,
+    retire_expired_slots,
+    sweep_dead_slots,
+)
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechInteractionResponse,
@@ -668,6 +678,22 @@ class OffchainAttemptResult:
 _REQUEST_ID_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+# Outcomes where the mech answered and did not take the slot, so it is free
+# again. ``DONE`` used it. ``TIMEOUT`` went unanswered, so the mech may be
+# holding it. ``DEPOSIT_NEEDED`` keeps it on purpose, because the retry
+# re-sends the same request at the same slot. ``OVER_CAP`` never posted.
+# Outcomes where the mech answered and declined, so it cannot be holding the
+# slot. ``BAD_RESPONSE`` is deliberately not one: it covers any unhandled
+# status, including a 502 or 504 from a proxy in front of a mech that did
+# accept the request.
+_REFUSED_OUTCOMES = frozenset(
+    {
+        OffchainAttemptOutcome.NONCE_TAKEN,
+        OffchainAttemptOutcome.SERVER_BUSY,
+    }
+)
+
+
 @dataclass(frozen=True)
 class PendingRequest:
     """Serialized state of an in-flight offchain request awaiting deposit retry.
@@ -882,6 +908,52 @@ class OffchainRequestExecutor:
     # ---------- fresh cycle -------------------------------------------------
 
     def _fresh_cycle(self) -> Generator[None, None, OffchainCycleResult]:
+        """Build a brand-new request, giving back its slot if nothing landed.
+
+        :yield: the framework steps of the cycle.
+        :return: the cycle outcome.
+
+        The slot is reserved before signing, because a caller that has
+        picked one owns it until it is used. If the cycle ends with
+        nothing sent, holding on to it would leave a gap that only an
+        on-chain request can step over, so it goes back.
+        """
+        self._reserved_slot: Optional[int] = None
+        self._slot_may_be_held = False
+        try:
+            result = yield from self._fresh_cycle_inner()
+        finally:
+            # In a ``finally`` because a round timeout closes this generator
+            # instead of letting it return, and the slot would otherwise be
+            # left reserved with nothing able to decide its fate.
+            self._settle_reserved_slot()
+        return result
+
+    def _settle_reserved_slot(self) -> None:
+        """Hand the slot back only when the mech is known not to have it.
+
+        A mech that answered and refused never took it, so it goes straight
+        back. An unanswered POST is different: the mech may have accepted
+        the request and be serving it, and re-issuing that slot would put
+        two requests on one, which is the collision this registry exists to
+        stop. Those are kept, and ``sweep_dead_slots`` on a later cycle is
+        what frees them once the chain and the clock together show the
+        request can never have been accepted.
+
+        ``DEPOSIT_NEEDED`` keeps its slot on purpose: ``_retry_pending``
+        re-sends the same request at the same slot once the deposit settles.
+        """
+        if self._reserved_slot is None or self._slot_may_be_held:
+            return
+        release_slot(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            slot=self._reserved_slot,
+        )
+        self._reserved_slot = None
+
+    def _fresh_cycle_inner(self) -> Generator[None, None, OffchainCycleResult]:
         """Build a brand-new request and walk the ranked mech list."""
         # Trader and other current consumers populate ``mech_requests`` with
         # exactly one entry per cycle; the offchain wire shape supports one
@@ -927,12 +999,79 @@ class OffchainRequestExecutor:
                 last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
             )
 
-        on_chain_nonce = yield from self._read_on_chain_nonce()
-        if on_chain_nonce is None:
+        chain_nonce = yield from self._read_on_chain_nonce()
+        if chain_nonce is None:
             return OffchainCycleResult(
                 offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
                 last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
             )
+        # Before taking one, reclaim any slot this skill is still holding
+        # that the mech cannot have accepted: the counter has not moved off
+        # it and a mech that had it would have answered by now.
+        retired = retire_expired_slots(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+        )
+        if retired:
+            self._logger.info(
+                f"Reclaimed slot(s) {retired} for {self._safe_address()}: the "
+                "request signed at them can no longer be admitted."
+            )
+        swept = sweep_dead_slots(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            on_chain_nonce=chain_nonce,
+            older_than_secs=self._config.offchain_poll_timeout_seconds,
+        )
+        if swept:
+            self._logger.info(
+                f"Reclaimed slot(s) {swept} for {self._safe_address()}: the "
+                "counter has not moved off them and no mech answered in time."
+            )
+
+        # The chain counter only moves at settlement, so on its own it
+        # hands back slots something else in this agent is already
+        # holding. The agent's registry is the one view that sees both.
+        on_chain_nonce = reserve_slot(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            on_chain_nonce=chain_nonce,
+        )
+        if on_chain_nonce != chain_nonce:
+            # Stepped over a slot something else holds. The mech expects the
+            # chain counter, so this is refused until that slot settles, and
+            # ``SLOT_BLOCKED_GIVE_UP_SECS`` bounds how long that can go on.
+            blocked = note_slot_blocked(
+                self._b.context.shared_state,
+                chain=str(self._b.params.mech_chain_id or ""),
+                safe=self._safe_address(),
+                slot=chain_nonce,
+            )
+            if blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
+                self._logger.warning(
+                    f"Signing at slot {chain_nonce} even though something in "
+                    "this agent holds it: the counter has not moved in "
+                    f"{blocked.seconds:.0f}s, so it is not being settled. One "
+                    "lost settlement batch is worth less than this request "
+                    "never being sent."
+                )
+                release_slot(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    slot=on_chain_nonce,
+                )
+                on_chain_nonce = chain_nonce
+        else:
+            clear_slot_blocked(
+                self._b.context.shared_state,
+                chain=str(self._b.params.mech_chain_id or ""),
+                safe=self._safe_address(),
+            )
+        self._reserved_slot = on_chain_nonce
 
         attempted: List[str] = []
         last_failure: Optional[str] = None
@@ -1001,6 +1140,19 @@ class OffchainRequestExecutor:
                 sender=self._safe_address(),
             )
             last_outcome = attempt.outcome
+            # Latched across the failover list rather than set per attempt.
+            # One mech that never answered may be serving the request, and a
+            # later mech refusing the same slot says nothing about it, so the
+            # slot is kept once any attempt has left the question open.
+            if attempt.outcome not in _REFUSED_OUTCOMES:
+                self._slot_may_be_held = True
+            if attempt.outcome is OffchainAttemptOutcome.DONE:
+                note_slot_accepted(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    slot=on_chain_nonce,
+                )
 
             pending = self._build_pending(
                 request_id_bytes=request_id_bytes,
@@ -1129,7 +1281,22 @@ class OffchainRequestExecutor:
                 if refreshed is None:
                     last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                     break
-                if refreshed == on_chain_nonce:
+                # Handed back before the next one is taken, or the registry
+                # would step over the slot being retried and never offer it.
+                release_slot(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    slot=on_chain_nonce,
+                )
+                candidate = reserve_slot(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    on_chain_nonce=refreshed,
+                )
+                self._reserved_slot = candidate
+                if candidate == on_chain_nonce:
                     # ``mapNonces`` only moves when a delivery settles, so an
                     # unmoved counter means re-signing would be refused the
                     # same way. Give up now and let the next period retry.
@@ -1144,9 +1311,9 @@ class OffchainRequestExecutor:
                 attempted.remove(mech_address.lower())
                 self._logger.info(
                     f"Mech {mech_address} refused slot {on_chain_nonce} for "
-                    f"{self._safe_address()}; retrying at {refreshed}."
+                    f"{self._safe_address()}; retrying at {candidate}."
                 )
-                on_chain_nonce = refreshed
+                on_chain_nonce = candidate
                 continue
 
             # TIMEOUT / SERVER_BUSY / BAD_RESPONSE — try the next mech.
