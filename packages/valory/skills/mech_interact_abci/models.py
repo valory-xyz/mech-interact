@@ -423,6 +423,12 @@ class MechParams(BaseParams):
         self.valid_mechs: FrozenSet[str] = frozenset(
             str(addr).lower() for addr in self._ensure("valid_mechs", kwargs, List[str])
         )
+        self.verified_operator_domains: Dict[str, str] = {
+            str(addr).lower(): str(domain).lower()
+            for addr, domain in self._ensure(
+                "verified_operator_domains", kwargs, Dict[str, str]
+            ).items()
+        }
         self.penalize_mech_time_window: int = self._ensure(
             "penalize_mech_time_window", kwargs, int
         )

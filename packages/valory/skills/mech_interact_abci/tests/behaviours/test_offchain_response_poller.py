@@ -97,6 +97,40 @@ def _drive(gen: Any) -> Any:
         return exc.value
 
 
+def _pending_dict() -> dict:
+    """A well-formed pending request as the request round writes it."""
+    return {
+        "request_id": "ab" * 32,
+        "nonce": 7,
+        "mech_address": "0x" + "aa" * 20,
+        "mech_url": "https://m",
+        "sender": "0x" + "bb" * 20,
+        "delivery_rate": 1,
+        "ipfs_hash": "0x" + "cc" * 31,
+        "ipfs_data": "{}",
+        "metadata_nonce": "meta-nonce",
+    }
+
+
+class TestRunFallbackPlaceholder:
+    """``run`` with no pre-populated response for the pending request."""
+
+    def test_fresh_placeholder_is_attributed_to_posted_mech(self) -> None:
+        """The appended placeholder carries the pending request's mech."""
+        stub = _StubBehaviour(
+            http_responses=[
+                _http_response(200, json.dumps({"result": "done"}).encode())
+            ],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        (response,) = _drive(poller.run())
+        assert response.mech_address == "0x" + "aa" * 20
+        assert response.nonce == "meta-nonce"
+        assert response.requestId == int("ab" * 32, 16)
+
+
 class TestPollUntilTerminal:
     """End-to-end behaviour of :meth:`_poll_until_terminal`."""
 

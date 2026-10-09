@@ -1180,7 +1180,7 @@ class OffchainRequestExecutor:
                     offchain_result=Event.OFFCHAIN_DONE.value,
                     mech_requests_json=self._serialise_mech_requests([request_meta]),
                     mech_responses_json=self._serialise_pending_response(
-                        request_id_bytes, request_meta.nonce
+                        request_id_bytes, request_meta.nonce, pending.mech_address
                     ),
                     pending_request_json=pending.to_json(),
                 )
@@ -1380,7 +1380,7 @@ class OffchainRequestExecutor:
                     self._synced.mech_requests
                 ),
                 mech_responses_json=self._serialise_pending_response(
-                    request_id_bytes, pending.metadata_nonce
+                    request_id_bytes, pending.metadata_nonce, pending.mech_address
                 ),
                 pending_request_json=pending.to_json(),
             )
@@ -2566,9 +2566,12 @@ class OffchainRequestExecutor:
         )
 
     def _serialise_pending_response(
-        self, request_id_bytes: bytes, metadata_nonce: str
+        self, request_id_bytes: bytes, metadata_nonce: str, mech_address: str
     ) -> str:
         """Initial ``MechInteractionResponse`` placeholder for the polling round.
+
+        ``mech_address`` is the mech the request was POSTed to; off-chain
+        deliveries only ever come from that mech, so it is final here.
 
         ``nonce`` carries the caller-supplied metadata UUID so downstream
         consumers (e.g. market-resolver's ``build_answer_tx``) can correlate
@@ -2586,6 +2589,7 @@ class OffchainRequestExecutor:
             nonce=metadata_nonce,
             result=None,
             error="Unknown",
+            mech_address=mech_address.lower(),
         )
         return json.dumps([dataclasses.asdict(placeholder)], ensure_ascii=True)
 

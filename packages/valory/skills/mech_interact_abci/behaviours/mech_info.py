@@ -36,6 +36,10 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechToolsSpecs,
     MechsSubgraphResponseType,
 )
+from packages.valory.skills.mech_interact_abci.operator_identity import (
+    is_operator_domain_verified,
+    parse_operator_domain,
+)
 from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
 from packages.valory.skills.mech_interact_abci.states.base import MechInfoEncoder
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
@@ -145,13 +149,37 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             # behaviour falls back to ``MechMarketplaceConfig.offchain_url``
             # for those mechs.
             manifest_url = self._extract_manifest_url(res_raw)
+            operator_domain = parse_operator_domain(self._parse_manifest(res_raw))
             for mech in mechs:
                 mech.relevant_tools |= metadata_tools
                 if manifest_url is not None:
                     mech.http_url = manifest_url
+                mech.operator_domain = operator_domain
+                mech.operator_domain_verified = is_operator_domain_verified(
+                    mech.address, operator_domain, self.params.verified_operator_domains
+                )
             self.mech_tools_api.reset_retries()
 
         return True
+
+    @staticmethod
+    def _parse_manifest(res_raw: Any) -> Optional[Dict[str, Any]]:
+        """Decode the full manifest from ``res_raw.body``.
+
+        :param res_raw: the raw HTTP response of the manifest fetch.
+        :return: the manifest, or ``None`` when the body is missing,
+            unparseable, or not a JSON object.
+        """
+        body = getattr(res_raw, "body", None)
+        if not body:
+            return None
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return payload
 
     def _extract_manifest_url(self, res_raw: Any) -> Optional[str]:
         """Parse the manifest body once more to extract the off-chain ``url``.
@@ -163,14 +191,8 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         callers treat that as ``http_url`` simply not being published yet
         for the mechs sharing this CID.
         """
-        body = getattr(res_raw, "body", None)
-        if not body:
-            return None
-        try:
-            payload = json.loads(body)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
-        if not isinstance(payload, dict):
+        payload = self._parse_manifest(res_raw)
+        if payload is None:
             return None
         url = payload.get("url")
         if not isinstance(url, str) or not url:
