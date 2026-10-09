@@ -240,63 +240,6 @@ class TestPopulateTools:
         assert result is True
         assert mech.http_url == "https://mech.example/agent/abc"
 
-    def test_operator_domain_is_read_and_verified_against_the_approval(
-        self,
-    ) -> None:
-        """Every mech sharing the manifest gets its domain; only approved ones verify."""
-        import json as _json
-        from types import SimpleNamespace
-
-        approved, other = "0x" + "a" * 40, "0x" + "b" * 40
-        behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour)
-        api.process_response.return_value = ["tool_a"]
-        behaviour._context.params.verified_operator_domains = {
-            approved: "www.valory.xyz"
-        }
-        http_message = SimpleNamespace(
-            body=_json.dumps(
-                {"tools": ["tool_a"], "operator": {"domain": "WWW.Valory.xyz"}}
-            ).encode("utf-8")
-        )
-        _wire_get_http_response(behaviour, [http_message])
-        mechs = [
-            _make_mech_info(address=approved.upper().replace("0X", "0x")),
-            _make_mech_info(address=other),
-        ]
-
-        assert _drive(behaviour.populate_tools(mechs)) is True
-
-        assert [m.operator_domain for m in mechs] == ["www.valory.xyz"] * 2
-        assert [m.operator_domain_verified for m in mechs] == [True, False]
-        assert [m.record_identity for m in mechs] == ["www.valory.xyz", other]
-
-    def test_malformed_operator_domain_is_not_carried(self) -> None:
-        """A domain that is not a bare hostname is dropped, so the mech keys by address."""
-        import json as _json
-        from types import SimpleNamespace
-
-        mech_address = "0x" + "a" * 40
-        behaviour = _make_mech_info_behaviour()
-        api = _setup_api(behaviour)
-        api.process_response.return_value = ["tool_a"]
-        behaviour._context.params.verified_operator_domains = {
-            mech_address: "https://www.valory.xyz"
-        }
-        http_message = SimpleNamespace(
-            body=_json.dumps(
-                {"tools": ["tool_a"], "operator": {"domain": "https://www.valory.xyz"}}
-            ).encode("utf-8")
-        )
-        _wire_get_http_response(behaviour, [http_message])
-        mech = _make_mech_info(address=mech_address)
-
-        assert _drive(behaviour.populate_tools([mech])) is True
-
-        assert mech.operator_domain is None
-        assert mech.operator_domain_verified is False
-        assert mech.record_identity == mech_address
-
     def test_http_url_stays_none_when_manifest_lacks_key(self) -> None:
         """Older manifests without ``url`` leave ``http_url`` set to ``None``."""
         import json as _json

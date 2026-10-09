@@ -668,74 +668,48 @@ class TestTermsNotice:
         get.assert_not_called()
 
 
-def _build_mech_params(context: MagicMock, **overrides: Any) -> MechParams:
-    """Run the real ``MechParams.__init__`` with the base class and validation stubbed.
-
-    ``MechParams.__init__`` is excluded from coverage, so only a test that runs
-    it can catch a parameter being parsed wrongly or a log line being dropped.
-    """
-    kwargs: Dict[str, Any] = {
-        "skill_context": context,
-        "multisend_address": "0x" + "1" * 40,
-        "multisend_batch_size": 50,
-        "mech_contract_address": "0x" + "2" * 40,
-        "ipfs_address": "https://gateway.test/ipfs/",
-        "mech_chain_id": "gnosis",
-        "mech_wrapped_native_token_address": "0x" + "3" * 40,
-        "mech_interaction_sleep_time": 10,
-        "use_mech_marketplace": True,
-        "mech_marketplace_config": {
-            "mech_marketplace_address": "0x" + "4" * 40,
-            "response_timeout": 300,
-            "priority_mech_address": "0x" + "5" * 40,
-            "use_dynamic_mech_selection": False,
-        },
-        "use_offchain": False,
-        "offchain_deposit_target_calls": 10,
-        "agent_registry_address": "0x" + "6" * 40,
-        "use_acn_for_delivers": False,
-        "valid_mechs": [],
-        "verified_operator_domains": {},
-        "penalize_mech_time_window": 3600,
-        "deliveries_lookback_days": 30,
-    }
-    kwargs.update(overrides)
-    params = MechParams.__new__(MechParams)
-    with (
-        patch.object(MechParams, "context", new_callable=PropertyMock) as ctx,
-        patch.object(BaseParams, "__init__", return_value=None),
-        patch.object(MechParams, "validate_configuration"),
-    ):
-        ctx.return_value = context
-        MechParams.__init__(params, **kwargs)
-    return params
-
-
 class TestMechParamsLogsTermsNotice:
     """MechParams logs the notice once when the skill's params are built."""
 
     def test_the_notice_is_logged_once_at_startup(self) -> None:
         """The headline behaviour: building the params logs the notice exactly once."""
+        # MechParams.__init__ is excluded from coverage, so only a test that
+        # runs it can catch the log line being dropped. The base class and
+        # the final validation are stubbed; everything else runs for real.
         context = MagicMock()
-        _build_mech_params(context)
+        kwargs: Dict[str, Any] = {
+            "skill_context": context,
+            "multisend_address": "0x" + "1" * 40,
+            "multisend_batch_size": 50,
+            "mech_contract_address": "0x" + "2" * 40,
+            "ipfs_address": "https://gateway.test/ipfs/",
+            "mech_chain_id": "gnosis",
+            "mech_wrapped_native_token_address": "0x" + "3" * 40,
+            "mech_interaction_sleep_time": 10,
+            "use_mech_marketplace": True,
+            "mech_marketplace_config": {
+                "mech_marketplace_address": "0x" + "4" * 40,
+                "response_timeout": 300,
+                "priority_mech_address": "0x" + "5" * 40,
+                "use_dynamic_mech_selection": False,
+            },
+            "use_offchain": False,
+            "offchain_deposit_target_calls": 10,
+            "agent_registry_address": "0x" + "6" * 40,
+            "use_acn_for_delivers": False,
+            "valid_mechs": [],
+            "penalize_mech_time_window": 3600,
+            "deliveries_lookback_days": 30,
+        }
+        params = MechParams.__new__(MechParams)
+        with (
+            patch.object(MechParams, "context", new_callable=PropertyMock) as ctx,
+            patch.object(BaseParams, "__init__", return_value=None),
+            patch.object(MechParams, "validate_configuration"),
+        ):
+            ctx.return_value = context
+            MechParams.__init__(params, **kwargs)
         notices = [
             c for c in context.logger.info.call_args_list if c == call(APPROVED_NOTICE)
         ]
         assert len(notices) == 1
-
-
-class TestVerifiedOperatorDomains:
-    """MechParams parses the approval outcome into lowercase pairs."""
-
-    def test_addresses_and_domains_are_lowercased(self) -> None:
-        """Mixed-case config compares equal to the lowercase manifest values."""
-        params = _build_mech_params(
-            MagicMock(),
-            verified_operator_domains={"0x" + "AB" * 20: "WWW.Valory.XYZ"},
-        )
-        assert params.verified_operator_domains == {"0x" + "ab" * 20: "www.valory.xyz"}
-
-    def test_missing_param_is_rejected(self) -> None:
-        """The param is required, so a skill.yaml without it fails at startup."""
-        with pytest.raises(Exception, match="verified_operator_domains"):
-            _build_mech_params(MagicMock(), verified_operator_domains=None)

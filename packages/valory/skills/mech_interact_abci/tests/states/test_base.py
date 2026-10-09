@@ -22,7 +22,7 @@
 import json
 import time
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import pytest
 
@@ -1367,35 +1367,23 @@ class TestSynchronizedData:
         )
         assert sd.ranked_mechs_addresses == ["0x3", "0x2", "0x1"]
 
-    def test_mechs_info_round_trips_operator_identity(self) -> None:
-        """The operator fields survive the serialized synced-data round trip."""
-        info = self._three_ranked_mechs()[0]
-        info.update(operator_domain="www.valory.xyz", operator_domain_verified=True)
-        sd = _make_synced_data(mechs_info=json.dumps([info]))
-        (mech,) = sd.mechs_info
-        assert mech.operator_domain == "www.valory.xyz"
-        assert mech.operator_domain_verified is True
-        assert mech.record_identity == "www.valory.xyz"
-
-    def test_mechs_info_without_operator_fields_default_to_the_address(self) -> None:
-        """Mech info written before the fields existed records by address."""
-        sd = _make_synced_data(mechs_info=json.dumps(self._three_ranked_mechs()[:1]))
-        (mech,) = sd.mechs_info
-        assert mech.operator_domain is None
-        assert mech.operator_domain_verified is False
-        assert mech.record_identity == "0x1"
-
-    @pytest.mark.parametrize(
-        "domain, verified", [("www.valory.xyz", False), (None, True)]
-    )
-    def test_record_identity_needs_both_a_domain_and_verification(
-        self, domain: Optional[str], verified: bool
+    @pytest.mark.parametrize("key", ["selected_mechs", "preferred_mechs"])
+    def test_malformed_address_list_is_logged_at_debug(
+        self, key: str, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """An unverified domain, or a verified flag with no domain, keys by address."""
-        info = self._three_ranked_mechs()[0]
-        info.update(operator_domain=domain, operator_domain_verified=verified)
-        (mech,) = _make_synced_data(mechs_info=json.dumps([info])).mechs_info
-        assert mech.record_identity == "0x1"
+        """A malformed list reads as empty and leaves a debug line naming the key."""
+        sd = _make_synced_data(**{key: "not-json"})
+        with caplog.at_level("DEBUG"):
+            assert getattr(sd, key) == []
+        assert f"Ignoring a malformed {key!r} value" in caplog.text
+
+    def test_unset_address_list_is_not_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unset key is the normal case and logs nothing."""
+        with caplog.at_level("DEBUG"):
+            assert _make_synced_data(preferred_mechs=None).preferred_mechs == []
+        assert "malformed" not in caplog.text
 
     def test_mech_responses_round_trip_mech_address(self) -> None:
         """``mech_address`` survives the serialized synced-data round trip."""

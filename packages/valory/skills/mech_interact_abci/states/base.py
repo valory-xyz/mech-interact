@@ -273,12 +273,6 @@ class MechInfo:
     # offchain rollout; consumers fall back to the static ``offchain_url``
     # config when None.
     http_url: Optional[str] = None
-    # Lowercase ``operator.domain`` the manifest declares; ``None`` when it
-    # declares none or a malformed one. Opaque: never resolved by the agent.
-    operator_domain: Optional[str] = None
-    # Whether ``operator_domain`` is the domain verified when the mech was
-    # approved (see ``operator_identity``).
-    operator_domain_verified: bool = False
 
     def __post_init__(
         self,
@@ -337,16 +331,6 @@ class MechInfo:
             return self.karma < other.karma
 
         return s1 < s2
-
-    @property
-    def record_identity(self) -> str:
-        """The identity this mech's results are recorded under.
-
-        :return: the verified operator domain, or else the lowercase address.
-        """
-        if self.operator_domain_verified and self.operator_domain:
-            return self.operator_domain
-        return self.address.lower()
 
     @property
     def delivery_rate_metric(self) -> float:
@@ -418,46 +402,39 @@ class SynchronizedData(TxSynchronizedData):
         """Get the selected mech tool."""
         return str(self.db.get_strict("mech_tool"))
 
+    def _address_list(self, key: str) -> List[str]:
+        """Read a JSON list of mech addresses from the db, lowercased.
+
+        A malformed value (invalid JSON or not a list) reads as empty rather
+        than raising on every later round until the key is cleared.
+
+        :param key: the db key.
+        :return: the lowercase addresses; empty when unset or malformed.
+        """
+        raw = self.db.get(key, None)
+        if raw is None:
+            return []
+        try:
+            value = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            value = None
+        if not isinstance(value, list):
+            _LOGGER.debug(f"Ignoring a malformed {key!r} value: {raw!r}")
+            return []
+        return [str(addr).lower() for addr in value]
+
     @property
     def selected_mechs(self) -> List[str]:
-        """Get the consumer-pinned mech addresses (lowercase). Empty means no pin.
-
-        A malformed value in the db key (wrong shape or invalid JSON) returns
-        an empty list rather than raising on every subsequent round until
-        the key is cleared.
-
-        :return: lowercase mech addresses.
-        """
-        raw = self.db.get("selected_mechs", SERIALIZED_EMPTY_LIST)
-        try:
-            if isinstance(raw, str):
-                raw = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return []
-        if not isinstance(raw, list):
-            return []
-        return [str(addr).lower() for addr in raw]
+        """Get the consumer-pinned mech addresses (lowercase). Empty means no pin."""
+        return self._address_list("selected_mechs")
 
     @property
     def preferred_mechs(self) -> List[str]:
-        """Get the mechs the consumer prefers for the selected tool, lowercase.
+        """Get the mechs the consumer prefers for the selected tool (lowercase).
 
-        Written by the consumer next to ``mech_tool``, as a JSON list. Preferred
-        mechs that serve the selected tool rank ahead of the others in
-        ``ranked_mechs``, keeping their relative order. A missing or malformed
-        value leaves the ranking untouched.
-
-        :return: the lowercase addresses; empty when unset or malformed.
+        Written by the consumer next to ``mech_tool``; see ``ranked_mechs``.
         """
-        raw = self.db.get("preferred_mechs", SERIALIZED_EMPTY_LIST)
-        try:
-            if isinstance(raw, str):
-                raw = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return []
-        if not isinstance(raw, list):
-            return []
-        return [str(addr).lower() for addr in raw]
+        return self._address_list("preferred_mechs")
 
     @property
     def relevant_mechs_info(self) -> MechsInfo:
@@ -520,8 +497,8 @@ class SynchronizedData(TxSynchronizedData):
     ) -> MechsInfo:
         """Get the mechs ranked from the best to the worse.
 
-        The ranking follows ``MechInfo``'s ordering, except that the
-        ``preferred_mechs`` serving the selected tool come first.
+        Follows ``MechInfo``'s ordering, except that ``preferred_mechs`` come
+        first, keeping their relative order.
 
         :return: the relevant mechs, best first.
         """

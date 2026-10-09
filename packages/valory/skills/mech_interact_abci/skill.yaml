@@ -12,7 +12,7 @@ fingerprint:
   __init__.py: bafybeic6zmplvwsgp5gh2rse2ushtaqnodvmb4kxooace5ghabz4exqbt4
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
   behaviours/base.py: bafybeid5dma3o2jykbd6v6btr56pyh2uayy4lngcrpo5rv4e3trk5qjfca
-  behaviours/mech_info.py: bafybeibv3mib4bqzuw7ndmivsnakf7b754mfc23ildfc2f6vds462p66nm
+  behaviours/mech_info.py: bafybeidajqcqn6mo2rparhopcunubvymrnyuuwxzx4xyviydcrwbjfrfou
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
   behaviours/offchain_request.py: bafybeihvdxgd4ab47srgg3zmkffyh5zt5hdco67jqcctzyodzfeu73lbpi
   behaviours/offchain_response.py: bafybeie7hmprwi3hxqdjzqcnlrozjqnbjpc6imhh7d7exragrvih3n3diy
@@ -27,13 +27,12 @@ fingerprint:
   graph_tooling/queries/mechs_info.py: bafybeifklh73m2zkd447f6e3nk6xsv53l5eg4xip3rk6gyi6s6ptuivux4
   graph_tooling/requests.py: bafybeiblfdl22brohgmholbcir3f344as5nk6fwnwuljfc7rovd6dnifea
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
-  models.py: bafybeie6ojjuijykkmyjp3oxmjh5sfludcni3iynrqidzc2s7hpekqz3di
+  models.py: bafybeihrlxebyg74iapw7c74sqbtrl3sw43dk3angygmq4kibhturmlroa
   nonce_allocator.py: bafybeigqjy3cjchtpbaskqgqwujw4ofcgv6xklsxfm25td3uumro7waezy
-  operator_identity.py: bafybeieevbtq2nznwpyu4o4ez3emtqplinknw4nncfajei2cfn3u7r7igm
   payloads.py: bafybeict2xbdyk7caajfprlzralqeiyrk7avvbh5gn2hni42edbtqbl7nm
   rounds.py: bafybeihi64plsdpu2u6zf7lzplcjm3xguueoqsio2gqfpo2oi6yxbaeuma
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
-  states/base.py: bafybeiacvqvqox2nw2ku4pfe2nvf5fspzygxnu2vbcpnv26t74rayukcta
+  states/base.py: bafybeidp36migruxwau34quv4ktuqpeaf4bn22yfgyvygibweus37hpzfi
   states/final_states.py: bafybeiflwvwybwaa3q3bcqhbmr7ifh6ubc3dipyod7mag5o73bekmpsev4
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
   states/mech_version.py: bafybeig62u4mklkod7gz7h2sh5ytm42nnryltyqaze2w52ovjaa6q7ogma
@@ -52,16 +51,15 @@ fingerprint:
   tests/behaviours/test_response.py: bafybeibhepom6sqgp2cq3k2h6e4ybodiupl6ighjns44iksht6fyyalhei
   tests/registry_stub.py: bafybeiem35xfcqu4w24i25btl3ex7niw56olvonicloutahfleyv3bbtt4
   tests/states/__init__.py: bafybeieo3txynlsaxtuqxvvhjyjn2hft3ztsnr5v6byoccqg2allecx2vm
-  tests/states/test_base.py: bafybeihlmc7vkylwdexk52oegisnbrjttyievbnra6zhbry4zmdsotsltq
+  tests/states/test_base.py: bafybeihrmdc65z2x65jmqelqaqsiqjgcykuqdzhfngna2mjvxyxwwmknrq
   tests/test_base_behaviour.py: bafybeih33kcrhjqb3khr6gkhfhgaczzstgiehaajv2coieuqgtx2ijc3cu
   tests/test_behaviours.py: bafybeihsqjmxiossblhy4k643ylsslrhvvdqy7ozkgairlqllpl7oxklfi
   tests/test_dialogues.py: bafybeicztq6kz273kpq6qtp4arh5btyovj7tiwcyy227bomblv52rx2rjq
   tests/test_graph_tooling.py: bafybeiaxihwxdhsjodefdbu42qibeqyhexdob3sqfs5hyo5ylgg7xzpzg4
   tests/test_handlers.py: bafybeihvo4mw3f3oizodlnysaw5nyup7rd3pm4zt2xkaa7nj6rr62vbjhq
-  tests/test_mech_info_behaviour.py: bafybeihfk5srt6z2db2rfta7v6gqnzkoekdukasejl4zfo5s6mkx4jchie
-  tests/test_models.py: bafybeigh7ufbino5bnnkedcyk3wn2acgygixv5khkgv4kp7mbzs2qi2vby
+  tests/test_mech_info_behaviour.py: bafybeiggjsiainmkn3ohjt5bnstcqmjxl32k6tlfq4xxiqxkgqosqrvey4
+  tests/test_models.py: bafybeiekgvr32pgoigl5nzhmxhzqt6dtvbkc6vvtoiy47glzkcubx4nfte
   tests/test_nonce_allocator.py: bafybeifp6ueutxxt47ekslwlkw2rujn3ihggyllgzwnbv62pmdeszr36xm
-  tests/test_operator_identity.py: bafybeigbp4odkltms6mylxz5ylm3f7tjxd65k2ij3od3jbj5l4gy5uh7km
   tests/test_payloads.py: bafybeibjkrdwkxqw73d7eaxwtqepigi4gutkvqaxqhj3os5nsmjffqkc4y
   tests/test_request_behaviour.py: bafybeiamtj5qqdptawfdcb7c6sxqgooz3jcl6krmkjqn36pzv77sc7p4ea
   tests/test_response_behaviour.py: bafybeiekz5ky2ahwssevfbu3m5mt5vnyannnbieybbfcfwuvomvxm5qtdq
@@ -235,7 +233,6 @@ models:
       offchain_deposit_target_calls: 10
       deliveries_lookback_days: 30
       valid_mechs: []
-      verified_operator_domains: {}
       penalize_mech_time_window: 1800
     class_name: Params
   mech_tools:
