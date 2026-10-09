@@ -835,6 +835,7 @@ class TestMechInteractionResponse:
         assert response.error == "Unknown"
         assert response.response_data is None
         assert response.sender_address is None
+        assert response.mech_address is None
 
     def test_retries_exceeded(self) -> None:
         """Test retries_exceeded method."""
@@ -1294,6 +1295,106 @@ class TestSynchronizedData:
         """Test ranked_mechs_addresses returns empty list."""
         sd = _make_synced_data(mech_tool="none")
         assert sd.ranked_mechs_addresses == []
+
+    def test_preferred_mechs_unset_is_empty(self) -> None:
+        """An absent key means no preference."""
+        sd = _make_synced_data()
+        assert sd.preferred_mechs == []
+
+    def test_preferred_mechs_lowercases(self) -> None:
+        """Consumers may write checksummed addresses; the list is lowercase."""
+        sd = _make_synced_data(preferred_mechs=json.dumps(["0xAbC", "0xDEF"]))
+        assert sd.preferred_mechs == ["0xabc", "0xdef"]
+
+    @pytest.mark.parametrize(
+        "raw", ["not-json", json.dumps("0xabc"), json.dumps({"0xabc": 1}), 42]
+    )
+    def test_preferred_mechs_malformed_is_empty(self, raw: Any) -> None:
+        """A malformed value is treated as no preference, not raised."""
+        sd = _make_synced_data(preferred_mechs=raw)
+        assert sd.preferred_mechs == []
+
+    @staticmethod
+    def _three_ranked_mechs() -> List[Dict[str, Any]]:
+        """Three mechs serving tool ``t`` whose natural rank is 0x3, 0x2, 0x1."""
+        return [
+            {
+                "id": str(i),
+                "address": f"0x{i}",
+                "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+                "karma": str(i * 10),
+                "receivedRequests": "100",
+                "selfDeliveredFromReceived": str(30 * i),
+                "maxDeliveryRate": "1",
+                "relevant_tools": ["t"],
+            }
+            for i in (1, 2, 3)
+        ]
+
+    def test_ranked_mechs_puts_preferred_mechs_first_in_natural_order(self) -> None:
+        """Preferred mechs lead, ranked among themselves; the rest follow."""
+        sd = _make_synced_data(
+            mechs_info=json.dumps(self._three_ranked_mechs()),
+            mech_tool="t",
+            preferred_mechs=json.dumps(["0x1", "0x2"]),
+        )
+        assert sd.ranked_mechs_addresses == ["0x2", "0x1", "0x3"]
+        assert sd.priority_mech_address == "0x2"
+
+    def test_ranked_mechs_preferred_lookup_is_case_insensitive(self) -> None:
+        """A checksummed preference still matches the lowercase mech address."""
+        sd = _make_synced_data(
+            mechs_info=json.dumps(self._three_ranked_mechs()),
+            mech_tool="t",
+            preferred_mechs=json.dumps(["0X1"]),
+        )
+        assert sd.ranked_mechs_addresses == ["0x1", "0x3", "0x2"]
+
+    def test_ranked_mechs_ignores_preferences_outside_the_relevant_set(self) -> None:
+        """Preferring mechs that do not serve the tool changes nothing."""
+        sd = _make_synced_data(
+            mechs_info=json.dumps(self._three_ranked_mechs()),
+            mech_tool="t",
+            preferred_mechs=json.dumps(["0x9"]),
+        )
+        assert sd.ranked_mechs_addresses == ["0x3", "0x2", "0x1"]
+        assert sd.priority_mech_address == "0x3"
+
+    def test_ranked_mechs_without_preference_keeps_natural_order(self) -> None:
+        """No preference means the ``MechInfo`` ordering decides alone."""
+        sd = _make_synced_data(
+            mechs_info=json.dumps(self._three_ranked_mechs()), mech_tool="t"
+        )
+        assert sd.ranked_mechs_addresses == ["0x3", "0x2", "0x1"]
+
+    @pytest.mark.parametrize("key", ["selected_mechs", "preferred_mechs"])
+    def test_malformed_address_list_is_logged_at_debug(
+        self, key: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A malformed list reads as empty and leaves a debug line naming the key."""
+        sd = _make_synced_data(**{key: "not-json"})
+        with caplog.at_level("DEBUG"):
+            assert getattr(sd, key) == []
+        assert f"Ignoring a malformed {key!r} value" in caplog.text
+
+    def test_unset_address_list_is_not_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unset key is the normal case and logs nothing."""
+        with caplog.at_level("DEBUG"):
+            assert _make_synced_data(preferred_mechs=None).preferred_mechs == []
+        assert "malformed" not in caplog.text
+
+    def test_mech_responses_round_trip_mech_address(self) -> None:
+        """``mech_address`` survives the serialized synced-data round trip."""
+        response = MechInteractionResponse(nonce="n1", mech_address="0xmech")
+        sd = _make_synced_data(mech_responses=json.dumps([asdict(response)]))
+        assert sd.mech_responses[0].mech_address == "0xmech"
+
+    def test_mech_responses_without_mech_address_default_to_none(self) -> None:
+        """Responses written before the field existed still deserialize."""
+        sd = _make_synced_data(mech_responses=json.dumps([{"nonce": "n1"}]))
+        assert sd.mech_responses[0].mech_address is None
 
     def test_mech_price(self) -> None:
         """Test mech_price property."""

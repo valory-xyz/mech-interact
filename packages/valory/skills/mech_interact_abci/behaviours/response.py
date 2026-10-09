@@ -403,6 +403,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             request_id_bytes, request_id_for_specs
         )
         if result:
+            self._record_delivery_mech()
             self.context.logger.info(
                 f"The response was served by {self.delivery_mech=} "
                 f"for bytes32 request ID {Ox}{request_id_bytes.hex() if request_id_bytes else 'None'}"
@@ -410,6 +411,20 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             self.set_mech_response_specs(request_id_for_specs)
 
         return result
+
+    def _record_delivery_mech(self) -> None:
+        """Attribute the current response to the mech that delivered it.
+
+        Only the marketplace v2 flow can be served by a mech other than the
+        one requested; the other flows keep the requested mech that was set
+        when the request was sent.
+        """
+        if not (self.params.use_mech_marketplace and self.should_use_marketplace_v2()):
+            return
+        delivery_mech = self.delivery_mech
+        if delivery_mech == ADDRESS_ZERO:
+            return
+        self.current_mech_response.mech_address = delivery_mech.lower()
 
     def _handle_response(
         self,

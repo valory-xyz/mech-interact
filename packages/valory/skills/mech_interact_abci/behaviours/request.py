@@ -663,7 +663,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.context.logger.info(f"Prompt uploaded: {ipfs_link}")
         mech_request_data = v1_file_hash_hex[9:]
         pending_response = MechInteractionResponse(
-            nonce=metadata.nonce, data=mech_request_data
+            nonce=metadata.nonce,
+            data=mech_request_data,
+            mech_address=self.priority_mech_address.lower() or None,
         )
         self._v1_hex_truncated = Ox + mech_request_data
         self._pending_responses.append(pending_response)

@@ -19,9 +19,12 @@
 
 """Tests for the response behaviour module properties."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from packages.valory.skills.mech_interact_abci.behaviours.response import (
+    ADDRESS_ZERO,
     MechResponseBehaviour,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
@@ -108,6 +111,56 @@ class TestDeliveryMech:
         response_behaviour._context.state = MagicMock()
         response_behaviour._context.state.last_called_mech = "0xlast"
         assert response_behaviour.delivery_mech == "0xlast"
+
+
+class TestRecordDeliveryMech:
+    """Tests for _record_delivery_mech."""
+
+    REQUESTED = "0xrequested"
+
+    @pytest.fixture(autouse=True)
+    def _requested_mech(self, response_behaviour: MechResponseBehaviour) -> None:
+        """Start from a response attributed to the requested mech."""
+        response_behaviour.current_mech_response = MechInteractionResponse(
+            mech_address=self.REQUESTED
+        )
+        response_behaviour._context.params.use_mech_marketplace = True
+
+    def test_marketplace_v2_attributes_to_delivering_mech_lowercased(
+        self, response_behaviour: MechResponseBehaviour
+    ) -> None:
+        """On v2 the on-chain delivery mech replaces the requested one."""
+        response_behaviour._request_info = ["data", "0xDeLiVeRy"]
+        with patch.object(
+            MechResponseBehaviour, "should_use_marketplace_v2", return_value=True
+        ):
+            response_behaviour._record_delivery_mech()
+        assert response_behaviour.current_mech_response.mech_address == "0xdelivery"
+
+    def test_marketplace_v2_unknown_delivery_keeps_requested_mech(
+        self, response_behaviour: MechResponseBehaviour
+    ) -> None:
+        """A zero delivery address is no information, so nothing is overwritten."""
+        response_behaviour._request_info = []
+        response_behaviour._context.state = MagicMock()
+        response_behaviour._context.state.last_called_mech = None
+        with patch.object(
+            MechResponseBehaviour, "should_use_marketplace_v2", return_value=True
+        ):
+            response_behaviour._record_delivery_mech()
+        assert response_behaviour.delivery_mech == ADDRESS_ZERO
+        assert response_behaviour.current_mech_response.mech_address == self.REQUESTED
+
+    def test_legacy_flows_keep_requested_mech(
+        self, response_behaviour: MechResponseBehaviour
+    ) -> None:
+        """Outside v2 only the requested mech can deliver, so it stays."""
+        response_behaviour._request_info = ["data", "0xother"]
+        with patch.object(
+            MechResponseBehaviour, "should_use_marketplace_v2", return_value=False
+        ):
+            response_behaviour._record_delivery_mech()
+        assert response_behaviour.current_mech_response.mech_address == self.REQUESTED
 
 
 class TestResponseHex:

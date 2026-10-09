@@ -3979,10 +3979,26 @@ class TestSerialisePendingResponseNonce:
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         request_id_bytes = bytes.fromhex("aa" * 32)
         metadata_nonce = "b0d591e2-b340-4fc0-b663-65301ca2c673"
-        raw = executor._serialise_pending_response(request_id_bytes, metadata_nonce)
+        raw = executor._serialise_pending_response(
+            request_id_bytes, metadata_nonce, "0x" + "ab" * 20
+        )
         responses = json.loads(raw)
         assert len(responses) == 1
         assert responses[0]["nonce"] == metadata_nonce
+
+    def test_mech_address_is_the_posted_mech_lowercased(self) -> None:
+        """The placeholder is attributed to the mech the request was POSTed to."""
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        raw = executor._serialise_pending_response(
+            bytes.fromhex("aa" * 32), "nonce", "0x" + "AB" * 20
+        )
+        (response,) = json.loads(raw)
+        assert response["mech_address"] == "0x" + "ab" * 20
 
 
 class TestReadContractState:

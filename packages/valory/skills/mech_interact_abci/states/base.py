@@ -188,6 +188,10 @@ class MechInteractionResponse(MechRequest):
     error: str = "Unknown"
     response_data: Optional[bytes] = None
     sender_address: Optional[str] = None
+    # Lowercase address of the mech that serves this request: the mech the
+    # request was sent to until a delivery is observed, then the delivering
+    # mech. ``None`` on responses that predate the field.
+    mech_address: Optional[str] = None
 
     def retries_exceeded(self) -> None:
         """Set an incorrect format response."""
@@ -398,25 +402,39 @@ class SynchronizedData(TxSynchronizedData):
         """Get the selected mech tool."""
         return str(self.db.get_strict("mech_tool"))
 
+    def _address_list(self, key: str) -> List[str]:
+        """Read a JSON list of mech addresses from the db, lowercased.
+
+        A malformed value (invalid JSON or not a list) reads as empty rather
+        than raising on every later round until the key is cleared.
+
+        :param key: the db key.
+        :return: the lowercase addresses; empty when unset or malformed.
+        """
+        raw = self.db.get(key, None)
+        if raw is None:
+            return []
+        try:
+            value = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            value = None
+        if not isinstance(value, list):
+            _LOGGER.debug(f"Ignoring a malformed {key!r} value: {raw!r}")
+            return []
+        return [str(addr).lower() for addr in value]
+
     @property
     def selected_mechs(self) -> List[str]:
-        """Get the consumer-pinned mech addresses (lowercase). Empty means no pin.
+        """Get the consumer-pinned mech addresses (lowercase). Empty means no pin."""
+        return self._address_list("selected_mechs")
 
-        A malformed value in the db key (wrong shape or invalid JSON) returns
-        an empty list rather than raising on every subsequent round until
-        the key is cleared.
+    @property
+    def preferred_mechs(self) -> List[str]:
+        """Get the mechs the consumer prefers for the selected tool (lowercase).
 
-        :return: lowercase mech addresses.
+        Written by the consumer next to ``mech_tool``; see ``ranked_mechs``.
         """
-        raw = self.db.get("selected_mechs", SERIALIZED_EMPTY_LIST)
-        try:
-            if isinstance(raw, str):
-                raw = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return []
-        if not isinstance(raw, list):
-            return []
-        return [str(addr).lower() for addr in raw]
+        return self._address_list("preferred_mechs")
 
     @property
     def relevant_mechs_info(self) -> MechsInfo:
@@ -457,9 +475,10 @@ class SynchronizedData(TxSynchronizedData):
     def priority_mech(
         self,
     ) -> Optional[MechInfo]:
-        """Get the priority mech."""
-        if self.relevant_mechs_info:
-            return max(self.relevant_mechs_info)
+        """Get the priority mech, i.e., the first of the ranked mechs."""
+        ranked_mechs = self.ranked_mechs
+        if ranked_mechs:
+            return ranked_mechs[0]
         return None
 
     @property
@@ -476,11 +495,20 @@ class SynchronizedData(TxSynchronizedData):
     def ranked_mechs(
         self,
     ) -> MechsInfo:
-        """Get the mechs ranked from the best to the worse."""
-        relevant_mechs_info = self.relevant_mechs_info
-        if relevant_mechs_info:
-            return sorted(relevant_mechs_info, reverse=True)
-        return []
+        """Get the mechs ranked from the best to the worse.
+
+        Follows ``MechInfo``'s ordering, except that ``preferred_mechs`` come
+        first, keeping their relative order.
+
+        :return: the relevant mechs, best first.
+        """
+        ranked = sorted(self.relevant_mechs_info, reverse=True)
+        preferred = set(self.preferred_mechs)
+        if not preferred:
+            return ranked
+        first = [mech for mech in ranked if mech.address.lower() in preferred]
+        rest = [mech for mech in ranked if mech.address.lower() not in preferred]
+        return first + rest
 
     @property
     def ranked_mechs_addresses(

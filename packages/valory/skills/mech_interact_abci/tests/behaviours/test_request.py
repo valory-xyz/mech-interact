@@ -19,7 +19,8 @@
 
 """Tests for the request behaviour module properties."""
 
-from typing import Any, Callable, Dict, Generator
+from typing import Any, Callable, Dict, Generator, Optional
+from unittest.mock import patch
 
 import pytest
 
@@ -34,9 +35,13 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import (
     PaymentType,
     TOKEN_PAYMENT_TYPES,
 )
+from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
 from packages.valory.skills.mech_interact_abci.tests.behaviours.conftest import (
     assert_unset_property_logs,
 )
+
+# A valid CIDv0 so the v1 conversion in ``_send_metadata_to_ipfs`` runs for real.
+SAMPLE_METADATA_CID = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG"
 
 
 def _drive_generator(gen: Generator[Any, Any, Any]) -> Any:
@@ -455,3 +460,42 @@ class TestBuildTokenApproval:
         request_behaviour.context.logger.error.assert_called_once_with(
             "Failed to build approval data."
         )
+
+
+class TestSendMetadataToIpfs:
+    """Tests for the pending response built by _send_metadata_to_ipfs."""
+
+    @staticmethod
+    def _send(
+        request_behaviour: MechRequestBehaviour, priority_mech_address: str
+    ) -> bool:
+        """Upload one request with ``send_to_ipfs`` stubbed and return the result."""
+        request_behaviour._mech_requests = [
+            MechMetadata(prompt="p", tool="prediction-online", nonce="n")
+        ]
+        request_behaviour.priority_mech_address = priority_mech_address
+        request_behaviour._context.params.ipfs_address = "https://ipfs/"
+
+        def _send_to_ipfs(*_args: Any, **_kwargs: Any) -> Generator[None, None, str]:
+            yield
+            return SAMPLE_METADATA_CID
+
+        with patch.object(MechRequestBehaviour, "send_to_ipfs", _send_to_ipfs):
+            return _drive_generator(request_behaviour._send_metadata_to_ipfs())
+
+    @pytest.mark.parametrize(
+        "priority_mech_address, expected",
+        [("0xMeCh", "0xmech"), ("0xmech", "0xmech"), ("", None)],
+    )
+    def test_pending_response_is_attributed_to_requested_mech(
+        self,
+        request_behaviour: MechRequestBehaviour,
+        priority_mech_address: str,
+        expected: Optional[str],
+    ) -> None:
+        """The placeholder names the mech the request goes to, lowercase."""
+        assert self._send(request_behaviour, priority_mech_address) is True
+        (pending,) = request_behaviour._pending_responses
+        assert pending.mech_address == expected
+        assert pending.nonce == "n"
+        assert pending.result is None

@@ -132,6 +132,7 @@ class OffchainResponsePoller:
                 nonce=pending.metadata_nonce,
                 result=None,
                 error="Unknown",
+                mech_address=pending.mech_address,
             )
             responses.append(target)
 
