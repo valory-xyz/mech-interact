@@ -47,7 +47,7 @@ Repository = "https://github.com/valory-xyz/mech-interact"
 
 [dependency-groups]
 dev = [
-    "tomte[cli, tests]==0.7.2",
+    "tomte[cli, tests]==0.7.3",
 ]
 
 [tool.uv]
@@ -64,7 +64,7 @@ pytest_targets = [
 upstream_pins = [
     "valory-xyz/mech@v0.34.2-rc2",
 ]
-tomte_dep_pin = "==0.7.2"
+tomte_dep_pin = "==0.7.3"
 
 [tool.uv.build-backend]
 module-name = ["packages"]
