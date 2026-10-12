@@ -514,14 +514,6 @@ class MechParams(BaseParams):
             return self._ipfs_address
         return f"{self._ipfs_address}/"
 
-    def delivery_rate_cap_for(self, payment_type: PaymentType) -> Optional[int]:
-        """Get the cap on a mech's `maxDeliveryRate` for a payment asset, if configured.
-
-        :param payment_type: the mech's payment type.
-        :return: the cap in the asset's smallest unit; None when the asset has no cap.
-        """
-        return self.delivery_rate_caps.get(payment_type)
-
     @property
     def nvm_config(self) -> NVMConfig:  # pragma: no cover
         """Return the NVM configuration for the specified mech chain id."""

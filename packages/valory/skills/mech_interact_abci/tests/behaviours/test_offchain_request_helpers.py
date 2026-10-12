@@ -1239,6 +1239,20 @@ def _ledger_non_numeric_resp(value: Any) -> Any:
     )
 
 
+class _StubSharedState:
+    """The two penalty hooks the executor uses on the skill's shared state."""
+
+    def __init__(self, penalized: List[str]) -> None:
+        self._penalized = penalized
+
+    def penalize_mech(self, address: str) -> None:
+        self._penalized.append(address)
+
+    @property
+    def penalized_mechs(self) -> Dict[str, int]:
+        return {address: 0 for address in self._penalized}
+
+
 class _StubBehaviour:
     """Minimal stub of the parent behaviour the executor talks back to.
 
@@ -1270,7 +1284,7 @@ class _StubBehaviour:
     ) -> None:
         # Mechs the executor penalized this cycle, for the next period's ranking.
         self.penalized_mechs: List[str] = []
-        self.shared_state = SimpleNamespace(penalize_mech=self.penalized_mechs.append)
+        self.shared_state = _StubSharedState(self.penalized_mechs)
         self.context = SimpleNamespace(
             logger=SimpleNamespace(
                 info=lambda *a, **k: None,
@@ -1351,6 +1365,7 @@ class _StubBehaviour:
         "get_max_delivery_rate": set(),
         "get_balance_tracker_for_mech_type": {"mech_type"},
         "get_token_address": set(),
+        "get_requester_balance": {"requester"},
         "build_deposit_for_data": {"account", "amount"},
         "build_approval_tx": {"spender", "amount"},
         "check_balance": {"account"},
@@ -1437,6 +1452,24 @@ class TestPickNextMechFallback:
             offchain_url="https://static.example",
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        assert executor._pick_next_mech([]) == (None, None)
+
+    def test_penalized_mechs_are_skipped_like_on_chain(self) -> None:
+        """A mech under penalty is not picked, so a refusal does not repeat every cycle."""
+        mech_a = "0x" + "aa" * 20
+        mech_b = "0x" + "bb" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(mech_a, "https://mech-aa.example"),
+                _FakeMechInfo(mech_b, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[],
+            http_responses=[],
+        )
+        stub.shared_state.penalize_mech(mech_a.upper().replace("0X", "0x"))
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        assert executor._pick_next_mech([]) == (mech_b, "https://mech-bb.example")
+        stub.shared_state.penalize_mech(mech_b)
         assert executor._pick_next_mech([]) == (None, None)
 
     def test_static_fallback_used_with_real_priority(self) -> None:
@@ -1595,6 +1628,8 @@ class TestFreshCycle:
                 *self._native_reads(),
                 # _validate_402_destination → marketplace.get_balance_tracker_for_mech_type
                 _state_resp({"data": canonical_tracker}),
+                # _read_requester_balance → BalanceTracker.get_requester_balance
+                _state_resp({"requester_balance": 0}),
                 # _build_native_deposit_tx → BalanceTracker.build_deposit_for_data
                 _state_resp({"data": b"\x01\x02\x03"}),
                 # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
@@ -1678,6 +1713,7 @@ class TestFreshCycle:
             contract_api_responses=[
                 *self._native_reads(),
                 _state_resp({"data": canonical_tracker}),
+                _state_resp({"requester_balance": 0}),
                 _state_resp({"data": b"\x01\x02\x03"}),
                 # _build_safe_tx_for_single_call → GnosisSafe.get_raw_safe_transaction_hash
                 _state_resp({"tx_hash": "0x" + "fe" * 32}),
@@ -2317,6 +2353,99 @@ class TestComputeDepositAmount:
         assert result == 1000
 
 
+class TestDepositIsSizedFromTheTrackerBalance:
+    """The 402's own balance figures are the mech's claim; the deposit follows the chain."""
+
+    _TRACKER = "0x" + "11" * 20
+    _RATE = 10**16
+    _DEPOSIT_BUILD_READS = [
+        _state_resp({"data": b"\x01\x02\x03"}),
+        _state_resp({"tx_hash": "0x" + "fe" * 32}),
+    ]
+
+    def _cycle(
+        self,
+        tracker_balance: Any,
+        http_responses: List[Any],
+        tail_reads: List[Any],
+        **kw: Any,
+    ) -> Any:
+        reads = [
+            _state_resp({"data": 100}),
+            _state_resp({"data": 7}),
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            _state_resp({"max_delivery_rate": self._RATE}),
+            _state_resp({"data": self._TRACKER}),
+            tracker_balance,
+            *tail_reads,
+        ]
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example"),
+                _FakeMechInfo("0x" + "bb" * 20, "https://mech-bb.example"),
+            ],
+            contract_api_responses=reads,
+            http_responses=http_responses,
+            ledger_api_responses=[_ledger_balance_resp(10 * 10**18)],
+            auto_deposit_cap=10**18,
+            deposit_target_calls=10,
+            **kw,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        return stub, _drive(executor._fresh_cycle())
+
+    def _challenge(self) -> Any:
+        """A 402 claiming an empty balance for one request at the rate."""
+        return _make_http_response(
+            402, _make_402_body(pay_to=self._TRACKER, required=self._RATE, current=0)
+        )
+
+    def test_a_mech_reporting_zero_balance_does_not_inflate_the_deposit(self) -> None:
+        """The deposit tops the tracker balance up to the target, whatever the 402 claims."""
+        stub, result = self._cycle(
+            _state_resp({"requester_balance": self._RATE - 1}),
+            [self._challenge()],
+            self._DEPOSIT_BUILD_READS,
+        )
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        # ten calls' worth minus what the tracker already holds; the 402's
+        # "current 0" would have sized it at ten full calls
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        assert deposit_call["amount"] == 9 * self._RATE + 1
+
+    def test_a_402_the_tracker_balance_already_covers_is_a_bad_response(self) -> None:
+        """A mech claiming a shortfall the chain does not show is refused; the next mech is tried."""
+        stub, result = self._cycle(
+            _state_resp({"requester_balance": self._RATE}),
+            [self._challenge(), _make_http_response(200)],
+            [
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": self._RATE}),
+            ],
+        )
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls[-1] == "https://mech-bb.example/send_signed_requests"
+        assert not any(
+            c.get("contract_callable") == "build_deposit_for_data"
+            for c in stub.contract_api_calls
+        )
+
+    def test_a_failed_tracker_balance_read_fails_over_without_depositing(self) -> None:
+        """An RPC blip on the balance read is a transient failure, not a reason to deposit."""
+        bad = SimpleNamespace(performative="ERROR", state=SimpleNamespace(body={}))
+        stub, result = self._cycle(bad, [self._challenge()], [], failover_retries=0)
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+        assert not any(
+            c.get("contract_callable") == "build_deposit_for_data"
+            for c in stub.contract_api_calls
+        )
+
+
 class TestDepositScalesWithDeliveryRate:
     """Integration: a delivery_rate change → the next deposit scales linearly.
 
@@ -2347,6 +2476,7 @@ class TestDepositScalesWithDeliveryRate:
                 # _validate_402_destination → tracker + token
                 _state_resp({"data": self._CANONICAL_TRACKER}),
                 _state_resp({"token_address": self._CANONICAL_TOKEN}),
+                _state_resp({"requester_balance": 0}),
                 # _read_safe_token_balance → Safe holds enough token to
                 # cover any deposit sized within the auto-deposit cap.
                 _state_resp({"token": 10 * 10**18}),
@@ -3690,6 +3820,7 @@ class TestFreshCycleSafeBalanceGuard:
                 *self._native_pre_402_reads(),
                 # _validate_402_destination → canonical tracker read
                 _state_resp({"data": self._CANONICAL_TRACKER}),
+                _state_resp({"requester_balance": 0}),
             ],
             http_responses=[
                 _make_http_response(
@@ -3729,6 +3860,7 @@ class TestFreshCycleSafeBalanceGuard:
             contract_api_responses=[
                 *self._native_pre_402_reads(),
                 _state_resp({"data": self._CANONICAL_TRACKER}),
+                _state_resp({"requester_balance": 0}),
             ],
             http_responses=[
                 _make_http_response(
@@ -3968,6 +4100,7 @@ class TestValidate402Destination:
                 # validation: both tracker and token match
                 _state_resp({"data": self._CANONICAL_TRACKER}),
                 _state_resp({"token_address": self._CANONICAL_TOKEN}),
+                _state_resp({"requester_balance": 0}),
                 # _read_safe_token_balance → ERC20.check_balance (Safe holds
                 # enough of the token to fund the sized deposit).
                 _state_resp({"token": 10 * 10**18}),
@@ -5052,6 +5185,7 @@ class TestTheDepositPathKeepsItsSlot:
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
                 _state_resp({"max_delivery_rate": 10**16}),
                 _state_resp({"data": canonical_tracker}),
+                _state_resp({"requester_balance": 0}),
                 _state_resp({"data": b"\x01\x02\x03"}),
                 _state_resp({"tx_hash": "0x" + "fe" * 32}),
             ],
