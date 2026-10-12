@@ -429,6 +429,15 @@ class SynchronizedData(TxSynchronizedData):
         return self._address_list("selected_mechs")
 
     @property
+    def approved_mechs(self) -> List[str]:
+        """Get the mechs the consumer approved on top of `valid_mechs` (lowercase).
+
+        Approved mechs are discovered and eligible like allowlisted ones, but
+        never join `valid_mechs`, which consumers may derive identity from.
+        """
+        return self._address_list("approved_mechs")
+
+    @property
     def preferred_mechs(self) -> List[str]:
         """Get the mechs the consumer prefers for the selected tool (lowercase).
 

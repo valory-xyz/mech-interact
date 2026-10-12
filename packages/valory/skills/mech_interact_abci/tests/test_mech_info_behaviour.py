@@ -19,8 +19,11 @@
 
 """Tests for the mech_info behaviour module."""
 
+import json
 from typing import Any, Generator, List, Optional, Set
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pytest
 
 from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
     CID_PREFIX,
@@ -791,3 +794,79 @@ class TestCleanUp:
 
         assert behaviour._failed_mechs == set()
         api.reset_retries.assert_called_once()
+
+
+VALID_A = "0x" + "a" * 40
+VALID_B = "0x" + "b" * 40
+APPROVED_C = "0x" + "c" * 40
+
+
+def _with_discovery_inputs(
+    behaviour: MechInformationBehaviour, valid: Set[str], approved: List[str]
+) -> Any:
+    """Give the behaviour an allowlist and an approved list; returns the synced-data patcher."""
+    behaviour._context.params = MagicMock(valid_mechs=frozenset(valid))
+    patcher = patch.object(
+        MechInformationBehaviour, "synchronized_data", new_callable=PropertyMock
+    )
+    patcher.start().return_value = MagicMock(approved_mechs=approved)
+    return patcher
+
+
+class TestEligibleMechs:
+    """Discovery covers the allowlist plus the approved mechs."""
+
+    @pytest.mark.parametrize(
+        "valid, approved, expected",
+        [
+            ({VALID_B, VALID_A}, [APPROVED_C], [VALID_A, VALID_B, APPROVED_C]),
+            ({VALID_A}, [VALID_A], [VALID_A]),
+            ({VALID_A}, [], [VALID_A]),
+            (set(), [APPROVED_C], [APPROVED_C]),
+        ],
+    )
+    def test_union_is_sorted_and_deduplicated(
+        self, valid: Set[str], approved: List[str], expected: List[str]
+    ) -> None:
+        """The list is deterministic across agents and lists each mech once."""
+        behaviour = _make_mech_info_behaviour()
+        patcher = _with_discovery_inputs(behaviour, valid, approved)
+        try:
+            assert behaviour.eligible_mechs == expected
+        finally:
+            patcher.stop()
+
+    def test_query_filters_on_allowlisted_and_approved_mechs(self) -> None:
+        """The subgraph query asks for both the allowlist and the approved mechs."""
+        behaviour = _make_mech_info_behaviour()
+        patcher = _with_discovery_inputs(behaviour, {VALID_A}, [APPROVED_C])
+        behaviour._context.params.deliveries_lookback_days = 30
+        behaviour._context.mechs_subgraph.get_spec.return_value = {}
+        behaviour._context.mechs_subgraph.process_response.return_value = []
+        sent: List[Any] = []
+
+        def _get_http_response(**kwargs: Any) -> Generator[None, None, Any]:
+            sent.append(kwargs["content"])
+            yield
+            return MagicMock()
+
+        behaviour.get_http_response = _get_http_response  # type: ignore[method-assign,assignment]
+        try:
+            _drive(behaviour.fetch_mechs_info_batch(0))
+        finally:
+            patcher.stop()
+
+        (content,) = sent
+        query = json.loads(content)["query"]
+        assert f'address_in: ["{VALID_A}", "{APPROVED_C}"]' in query
+
+    def test_empty_allowlist_still_means_not_configured(self) -> None:
+        """Approved mechs alone do not start discovery while `valid_mechs` is empty."""
+        behaviour = _make_mech_info_behaviour()
+        patcher = _with_discovery_inputs(behaviour, set(), [APPROVED_C])
+        behaviour.fetch_mechs_info_batch = MagicMock()  # type: ignore[method-assign]
+        try:
+            assert _drive(behaviour.fetch_mechs_info()) == []
+        finally:
+            patcher.stop()
+        behaviour.fetch_mechs_info_batch.assert_not_called()

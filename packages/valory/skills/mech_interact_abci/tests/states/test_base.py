@@ -1367,7 +1367,19 @@ class TestSynchronizedData:
         )
         assert sd.ranked_mechs_addresses == ["0x3", "0x2", "0x1"]
 
-    @pytest.mark.parametrize("key", ["selected_mechs", "preferred_mechs"])
+    def test_approved_mechs_are_lowercased(self) -> None:
+        """Approved mechs read back as lowercase addresses."""
+        sd = _make_synced_data(approved_mechs=json.dumps(["0xAbC", "0xdef"]))
+        assert sd.approved_mechs == ["0xabc", "0xdef"]
+
+    @pytest.mark.parametrize("raw", [None, "not-json", json.dumps({"0xabc": 1})])
+    def test_approved_mechs_unset_or_malformed_is_empty(self, raw: Any) -> None:
+        """No approved mechs unless a well-formed list is written."""
+        assert _make_synced_data(approved_mechs=raw).approved_mechs == []
+
+    @pytest.mark.parametrize(
+        "key", ["selected_mechs", "preferred_mechs", "approved_mechs"]
+    )
     def test_malformed_address_list_is_logged_at_debug(
         self, key: str, caplog: pytest.LogCaptureFixture
     ) -> None:

@@ -23,7 +23,7 @@ import json
 import time
 from abc import ABC
 from enum import Enum, auto
-from typing import Any, Generator, cast
+from typing import Any, Generator, List, cast
 
 from packages.valory.skills.abstract_round_abci.behaviour_utils import BaseBehaviour
 from packages.valory.skills.abstract_round_abci.models import ApiSpecs
@@ -35,7 +35,10 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechsSubgraph,
     MechsSubgraphResponseType,
 )
-from packages.valory.skills.mech_interact_abci.states.base import MechsInfo
+from packages.valory.skills.mech_interact_abci.states.base import (
+    MechsInfo,
+    SynchronizedData,
+)
 
 MechsInfoFetcher = Generator[None, None, MechsSubgraphResponseType]
 
@@ -75,6 +78,12 @@ class QueryingBehaviour(BaseBehaviour, ABC):
     def params(self) -> MechParams:  # pragma: no cover
         """Return the params."""
         return cast(MechParams, super().params)
+
+    @property
+    def eligible_mechs(self) -> List[str]:
+        """Get the mechs to discover: `valid_mechs` plus the approved mechs, sorted."""
+        approved = cast(SynchronizedData, self.synchronized_data).approved_mechs
+        return sorted(set(self.params.valid_mechs) | set(approved))
 
     @property
     def mechs_subgraph(self) -> MechsSubgraph:  # pragma: no cover
@@ -130,7 +139,7 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         query = mechs_info_query.substitute(
             first=QUERY_BATCH_SIZE,
             mechs_id_gt=mechs_id_gt,
-            valid_mechs='", "'.join(sorted(self.params.valid_mechs)),
+            valid_mechs='", "'.join(self.eligible_mechs),
             block_timestamp_gt=block_timestamp_gt,
         )
         res_raw = yield from self.get_http_response(
