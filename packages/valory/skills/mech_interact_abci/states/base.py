@@ -22,6 +22,7 @@
 import json
 import logging
 import math
+import re
 import time
 from dataclasses import InitVar, asdict, dataclass, field, is_dataclass
 from enum import Enum
@@ -73,6 +74,11 @@ OFFCHAIN_NONCE_TAKEN = "offchain_nonce_taken"
 # off-chain path needs the request to reject cleanly so the FSM doesn't
 # crash-loop the same oversized ``mech_requests`` every period.
 OFFCHAIN_METADATA_OVERSIZE = "offchain_metadata_oversize"
+# The selected mech's live ``maxDeliveryRate`` is above the cap configured for
+# its payment asset, or that asset has no cap. Set by both request paths.
+DELIVERY_RATE_ABOVE_CAP = "delivery_rate_above_cap"
+
+ADDRESS_RE = re.compile(r"0x[0-9a-f]{40}")
 
 NestedSubgraphItemType = List[Dict[str, Any]]
 
@@ -263,9 +269,12 @@ class MechInfo:
     receivedRequests: InitVar[int] = 0
     selfDeliveredFromReceived: InitVar[int] = 0
     maxDeliveryRate: InitVar[int] = 0
+    paymentType: InitVar[str] = ""
     received_requests: int = 0
     self_delivered: int = 0
     max_delivery_rate: int = 0
+    # The ``paymentType`` selector the mech charges in, lowercase hex.
+    payment_type: str = ""
     relevant_tools: Set[str] = field(default_factory=set)
     # Offchain HTTP URL published by the mech operator in the IPFS metadata
     # manifest under the ``url`` key (see mech-deployments ``make
@@ -279,10 +288,14 @@ class MechInfo:
         receivedRequests: int,
         selfDeliveredFromReceived: int,
         maxDeliveryRate: int,
+        paymentType: str,
     ) -> None:
         """Handle camelCase fields, serialize service if passed as a dict and ensure int values."""
         if isinstance(self.service, dict):
             self.service = Service(**self.service)
+
+        if paymentType and not self.payment_type:
+            self.payment_type = str(paymentType).lower()
 
         if isinstance(self.relevant_tools, (list, tuple)):
             self.relevant_tools = set(self.relevant_tools)
@@ -406,7 +419,9 @@ class SynchronizedData(TxSynchronizedData):
         """Read a JSON list of mech addresses from the db, lowercased.
 
         A malformed value (invalid JSON or not a list) reads as empty rather
-        than raising on every later round until the key is cleared.
+        than raising on every later round until the key is cleared, and an
+        entry that is not an address is dropped: the lists are written by the
+        consumer and end up inside the discovery query.
 
         :param key: the db key.
         :return: the lowercase addresses; empty when unset or malformed.
@@ -421,7 +436,14 @@ class SynchronizedData(TxSynchronizedData):
         if not isinstance(value, list):
             _LOGGER.debug(f"Ignoring a malformed {key!r} value: {raw!r}")
             return []
-        return [str(addr).lower() for addr in value]
+        addresses = []
+        for entry in value:
+            address = str(entry).lower()
+            if ADDRESS_RE.fullmatch(address) is None:
+                _LOGGER.debug(f"Ignoring a non-address entry in {key!r}: {entry!r}")
+                continue
+            addresses.append(address)
+        return addresses
 
     @property
     def selected_mechs(self) -> List[str]:

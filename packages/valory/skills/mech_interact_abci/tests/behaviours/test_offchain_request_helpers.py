@@ -67,6 +67,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     sweep_dead_slots,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
+    DELIVERY_RATE_ABOVE_CAP,
     Event,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
@@ -1263,7 +1264,11 @@ class _StubBehaviour:
         use_dynamic_mech_selection: bool = True,
         ledger_api_responses: Optional[List[Any]] = None,
         mech_wrapped_native_token_address: Optional[str] = None,
+        delivery_rate_caps: Optional[Dict[PaymentType, int]] = None,
     ) -> None:
+        # Mechs the executor penalized this cycle, for the next period's ranking.
+        self.penalized_mechs: List[str] = []
+        self.shared_state = SimpleNamespace(penalize_mech=self.penalized_mechs.append)
         self.context = SimpleNamespace(
             logger=SimpleNamespace(
                 info=lambda *a, **k: None,
@@ -1293,6 +1298,11 @@ class _StubBehaviour:
             multisend_address="0x" + "ee" * 20,
             mech_chain_id="gnosis",
             mech_wrapped_native_token_address=mech_wrapped_native_token_address,
+            delivery_rate_caps=(
+                {PaymentType.NATIVE: 10**18, PaymentType.TOKEN_USDC: 10**18}
+                if delivery_rate_caps is None
+                else delivery_rate_caps
+            ),
         )
         from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
 
@@ -1766,6 +1776,52 @@ class TestFreshCycle:
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert len(stub.posted_urls) == 2
+
+    def test_a_mech_above_its_cap_is_skipped_and_the_next_one_is_tried(self) -> None:
+        """The live rate is checked per attempt; an over-cap mech is penalized, not posted to."""
+        mech_a = "0x" + "aa" * 20
+        mech_b = "0x" + "bb" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(mech_a, "https://mech-aa.example"),
+                _FakeMechInfo(mech_b, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16 + 1}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+            ],
+            http_responses=[_make_http_response(200)],
+            delivery_rate_caps={PaymentType.NATIVE: 10**16},
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == ["https://mech-bb.example/send_signed_requests"]
+        assert stub.penalized_mechs == [mech_a]
+
+    def test_a_mech_paying_in_an_uncapped_asset_fails_with_the_cap_label(self) -> None:
+        """No cap for the mech's asset means no request; the label names the cause."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 1}),
+            ],
+            http_responses=[],
+            failover_retries=0,
+            delivery_rate_caps={PaymentType.NATIVE: 10**16},
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
+        assert stub.posted_urls == []
 
     def test_all_timeouts_all_failed(self) -> None:
         """All ranked mechs fail → ``OFFCHAIN_ALL_FAILED`` with the right label."""

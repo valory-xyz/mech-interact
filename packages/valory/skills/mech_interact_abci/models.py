@@ -20,7 +20,7 @@
 """This module contains the models for the abci skill of MechInteractAbciApp."""
 
 from dataclasses import dataclass
-from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Tuple, cast
+from typing import Any, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Tuple, cast
 
 from aea.exceptions import enforce
 from aea.skills.base import SkillContext
@@ -41,11 +41,9 @@ from packages.valory.skills.abstract_round_abci.models import Requests as BaseRe
 from packages.valory.skills.abstract_round_abci.models import (
     SharedState as BaseSharedState,
 )
+from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
 from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
-from packages.valory.skills.mech_interact_abci.states.base import (
-    MechInfo,
-    MechsInfo,
-)
+from packages.valory.skills.mech_interact_abci.states.base import MechInfo, MechsInfo
 
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
@@ -111,24 +109,79 @@ class MechToolsSpecs(ApiSpecs):
         return False
 
 
+DeliveryRateCaps = Dict[PaymentType, int]
+
+
+def parse_delivery_rate_caps(raw: Mapping[str, Any]) -> DeliveryRateCaps:
+    """Parse the `delivery_rate_caps` param.
+
+    :param raw: payment type name (lowercase `PaymentType` member) to the cap
+        on a mech's `maxDeliveryRate`, in that asset's smallest unit.
+    :return: the caps by payment type.
+    :raises ValueError: on an unknown payment type or a cap that is not a
+        non-negative integer.
+    """
+    names = [member.name.lower() for member in PaymentType]
+    caps: DeliveryRateCaps = {}
+    for name, cap in raw.items():
+        try:
+            payment_type = PaymentType[str(name).upper()]
+        except KeyError:
+            raise ValueError(
+                f"Unknown payment type {name!r} in `delivery_rate_caps`; "
+                f"expected one of {names}."
+            )
+        if isinstance(cap, bool) or not isinstance(cap, int) or cap < 0:
+            raise ValueError(
+                f"The `delivery_rate_caps` entry for {name!r} must be a "
+                f"non-negative integer, got {cap!r}."
+            )
+        caps[payment_type] = cap
+    return caps
+
+
+def within_delivery_rate_cap(
+    payment_type_id: str, rate: int, caps: DeliveryRateCaps
+) -> bool:
+    """Whether a mech's rate is within the cap for its payment asset.
+
+    :param payment_type_id: the mech's `paymentType` selector, hex.
+    :param rate: the mech's `maxDeliveryRate`, in the asset's smallest unit.
+    :param caps: the configured caps.
+    :return: False for an unknown payment type or an asset without a cap.
+    """
+    try:
+        payment_type = PaymentType(str(payment_type_id).lower())
+    except ValueError:
+        return False
+    cap = caps.get(payment_type)
+    return cap is not None and rate <= cap
+
+
 class MechsSubgraph(ApiSpecs):
     """Specifies `ApiSpecs` with common functionality for the Mechs' subgraph."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
-        """Initialize MechsSubgraph."""
-        self.delivery_rate_cap: int = self._ensure("delivery_rate_cap", kwargs, int)
-        super().__init__(*args, **kwargs)
 
     def filter_info(
         self, unfiltered: List[Dict[str, Any]]
     ) -> MechsInfo:  # pragma: no cover
-        """Filter the information based on the metadata."""
-        return [
-            mech_info
-            for info in unfiltered
-            if not (mech_info := MechInfo(**info)).empty_metadata
-            and mech_info.max_delivery_rate <= self.delivery_rate_cap
-        ]
+        """Keep the mechs with metadata whose rate is within the cap for their payment asset."""
+        caps = cast(MechParams, self.context.params).delivery_rate_caps
+        kept: MechsInfo = []
+        for info in unfiltered:
+            mech_info = MechInfo(**info)
+            if mech_info.empty_metadata:
+                continue
+            if not within_delivery_rate_cap(
+                mech_info.payment_type, mech_info.max_delivery_rate, caps
+            ):
+                self.context.logger.info(
+                    f"Excluding mech {mech_info.address}: delivery rate "
+                    f"{mech_info.max_delivery_rate} for payment type "
+                    f"{mech_info.payment_type!r} is above the configured cap."
+                )
+                continue
+            kept.append(mech_info)
+        return kept
 
     def process_response(
         self, response: HttpMessage
@@ -429,6 +482,9 @@ class MechParams(BaseParams):
         self.deliveries_lookback_days: int = self._ensure(
             "deliveries_lookback_days", kwargs, int
         )
+        self.delivery_rate_caps: DeliveryRateCaps = parse_delivery_rate_caps(
+            self._ensure("delivery_rate_caps", kwargs, Dict[str, int])
+        )
 
         super().__init__(*args, **kwargs)
 
@@ -461,6 +517,14 @@ class MechParams(BaseParams):
         if self._ipfs_address.endswith("/"):
             return self._ipfs_address
         return f"{self._ipfs_address}/"
+
+    def delivery_rate_cap_for(self, payment_type: PaymentType) -> Optional[int]:
+        """Get the cap on a mech's `maxDeliveryRate` for a payment asset, if configured.
+
+        :param payment_type: the mech's payment type.
+        :return: the cap in the asset's smallest unit; None when the asset has no cap.
+        """
+        return self.delivery_rate_caps.get(payment_type)
 
     @property
     def nvm_config(self) -> NVMConfig:  # pragma: no cover

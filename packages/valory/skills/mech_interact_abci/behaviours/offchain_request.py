@@ -88,6 +88,7 @@ from packages.valory.contracts.multisend.contract import (
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
+from packages.valory.skills.mech_interact_abci.models import within_delivery_rate_cap
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     SLOT_BLOCKED_GIVE_UP_SECS,
     clear_slot_blocked,
@@ -99,6 +100,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     sweep_dead_slots,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
+    DELIVERY_RATE_ABOVE_CAP,
     Event,
     MechInteractionResponse,
     MechMetadata,
@@ -1098,6 +1100,21 @@ class OffchainRequestExecutor:
             delivery_rate = yield from self._resolve_delivery_rate(mech_address)
             if delivery_rate is None:
                 last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
+                continue
+
+            # mech-client charges at the live rate, so the cap is checked
+            # here and not only at discovery.
+            payment_type_hex = "0x" + payment_type_bytes.hex()
+            if not within_delivery_rate_cap(
+                payment_type_hex, delivery_rate, self._b.params.delivery_rate_caps
+            ):
+                self._logger.warning(
+                    f"Skipping mech {mech_address}: its delivery rate "
+                    f"{delivery_rate} for payment type {payment_type_hex} is "
+                    "above the configured cap."
+                )
+                self._b.shared_state.penalize_mech(mech_address)
+                last_failure = DELIVERY_RATE_ABOVE_CAP
                 continue
 
             # ``data`` must be the 32-byte ipfs multihash the mech will
