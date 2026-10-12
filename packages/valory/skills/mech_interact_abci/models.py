@@ -140,22 +140,30 @@ def parse_delivery_rate_caps(raw: Mapping[str, Any]) -> DeliveryRateCaps:
     return caps
 
 
-def within_delivery_rate_cap(
-    payment_type_id: str, rate: int, caps: DeliveryRateCaps
-) -> bool:
-    """Whether a mech's rate is within the cap for its payment asset.
+def delivery_rate_bound(
+    address: str,
+    payment_type_id: str,
+    caps: DeliveryRateCaps,
+    approved_rates: Mapping[str, int],
+) -> Optional[int]:
+    """The most a mech may charge per request, or None when it may not be requested.
 
+    :param address: the mech's address.
     :param payment_type_id: the mech's `paymentType` selector, hex.
-    :param rate: the mech's `maxDeliveryRate`, in the asset's smallest unit.
-    :param caps: the configured caps.
-    :return: False for an unknown payment type or an asset without a cap.
+    :param caps: the configured per-asset caps.
+    :param approved_rates: the rate the consumer accepted per approved mech.
+    :return: the asset's cap, lowered to the accepted rate for an approved
+        mech; None for an unknown payment type or an asset without a cap.
     """
     try:
         payment_type = PaymentType(str(payment_type_id).lower())
     except ValueError:
-        return False
+        return None
     cap = caps.get(payment_type)
-    return cap is not None and rate <= cap
+    if cap is None:
+        return None
+    accepted = approved_rates.get(str(address).lower())
+    return cap if accepted is None else min(cap, accepted)
 
 
 class MechsSubgraph(ApiSpecs):
@@ -164,24 +172,12 @@ class MechsSubgraph(ApiSpecs):
     def filter_info(
         self, unfiltered: List[Dict[str, Any]]
     ) -> MechsInfo:  # pragma: no cover
-        """Keep the mechs with metadata whose rate is within the cap for their payment asset."""
-        caps = cast(MechParams, self.context.params).delivery_rate_caps
-        kept: MechsInfo = []
-        for info in unfiltered:
-            mech_info = MechInfo(**info)
-            if mech_info.empty_metadata:
-                continue
-            if not within_delivery_rate_cap(
-                mech_info.payment_type, mech_info.max_delivery_rate, caps
-            ):
-                self.context.logger.info(
-                    f"Excluding mech {mech_info.address}: delivery rate "
-                    f"{mech_info.max_delivery_rate} for payment type "
-                    f"{mech_info.payment_type!r} is above the configured cap."
-                )
-                continue
-            kept.append(mech_info)
-        return kept
+        """Keep the mechs that have metadata; the rate bound is applied by the fetching behaviour."""
+        return [
+            mech_info
+            for info in unfiltered
+            if not (mech_info := MechInfo(**info)).empty_metadata
+        ]
 
     def process_response(
         self, response: HttpMessage

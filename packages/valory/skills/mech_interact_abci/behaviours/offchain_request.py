@@ -88,7 +88,7 @@ from packages.valory.contracts.multisend.contract import (
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
-from packages.valory.skills.mech_interact_abci.models import within_delivery_rate_cap
+from packages.valory.skills.mech_interact_abci.models import delivery_rate_bound
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     SLOT_BLOCKED_GIVE_UP_SECS,
     clear_slot_blocked,
@@ -1102,16 +1102,20 @@ class OffchainRequestExecutor:
                 last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                 continue
 
-            # mech-client charges at the live rate, so the cap is checked
+            # mech-client charges at the live rate, so the bound is checked
             # here and not only at discovery.
             payment_type_hex = "0x" + payment_type_bytes.hex()
-            if not within_delivery_rate_cap(
-                payment_type_hex, delivery_rate, self._b.params.delivery_rate_caps
-            ):
+            bound = delivery_rate_bound(
+                mech_address,
+                payment_type_hex,
+                self._b.params.delivery_rate_caps,
+                self._synced.approved_mech_rates,
+            )
+            if bound is None or delivery_rate > bound:
                 self._logger.warning(
                     f"Skipping mech {mech_address}: its delivery rate "
                     f"{delivery_rate} for payment type {payment_type_hex} is "
-                    "above the configured cap."
+                    f"above the bound ({bound})."
                 )
                 self._b.shared_state.penalize_mech(mech_address)
                 last_failure = DELIVERY_RATE_ABOVE_CAP
@@ -1521,6 +1525,19 @@ class OffchainRequestExecutor:
         if status == 402:
             challenge = parse_payment_challenge(body_bytes)
             if challenge is None:
+                return OffchainAttemptResult(
+                    outcome=OffchainAttemptOutcome.BAD_RESPONSE,
+                    mech_address=mech_address,
+                    mech_url=mech_url,
+                    status_code=status,
+                )
+            if challenge.required > delivery_rate:
+                # The mech asks for more than the rate this request was
+                # signed at, which bounds what the deposit may be sized from.
+                self._logger.warning(
+                    f"Mech {mech_address} requires {challenge.required} for a "
+                    f"request signed at {delivery_rate}; refusing the 402."
+                )
                 return OffchainAttemptResult(
                     outcome=OffchainAttemptOutcome.BAD_RESPONSE,
                     mech_address=mech_address,

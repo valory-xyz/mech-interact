@@ -34,6 +34,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechParams,
     MechsSubgraph,
     MechsSubgraphResponseType,
+    delivery_rate_bound,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechsInfo,
@@ -84,6 +85,37 @@ class QueryingBehaviour(BaseBehaviour, ABC):
         """Get the mechs to discover: `valid_mechs` plus the approved mechs, sorted."""
         approved = cast(SynchronizedData, self.synchronized_data).approved_mechs
         return sorted(set(self.params.valid_mechs) | set(approved))
+
+    def within_delivery_rate_bound(self, mechs_info: MechsInfo) -> MechsInfo:
+        """Keep the mechs whose rate is within the bound for their payment asset.
+
+        The bound is the asset's cap, lowered to the accepted rate for an
+        approved mech. Excluded mechs are logged, since the operator or the
+        approving user is the one who can change the outcome.
+
+        :param mechs_info: the discovered mechs.
+        :return: the mechs that may be requested.
+        """
+        approved_rates = cast(
+            SynchronizedData, self.synchronized_data
+        ).approved_mech_rates
+        kept: MechsInfo = []
+        for mech_info in mechs_info:
+            bound = delivery_rate_bound(
+                mech_info.address,
+                mech_info.payment_type,
+                self.params.delivery_rate_caps,
+                approved_rates,
+            )
+            if bound is None or mech_info.max_delivery_rate > bound:
+                self.context.logger.info(
+                    f"Excluding mech {mech_info.address}: delivery rate "
+                    f"{mech_info.max_delivery_rate} for payment type "
+                    f"{mech_info.payment_type!r} is above the bound ({bound})."
+                )
+                continue
+            kept.append(mech_info)
+        return kept
 
     @property
     def mechs_subgraph(self) -> MechsSubgraph:  # pragma: no cover
@@ -187,7 +219,7 @@ class QueryingBehaviour(BaseBehaviour, ABC):
                 # no more information to fetch
                 return mechs_info
 
-            mechs_info.extend(info_batch)
+            mechs_info.extend(self.within_delivery_rate_bound(info_batch))
             mechs_id_gt = info_batch[-1].id
 
     def clean_up(self) -> None:  # pragma: no cover

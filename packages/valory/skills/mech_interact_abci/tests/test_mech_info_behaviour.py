@@ -30,6 +30,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
     MechInformationBehaviour,
 )
 from packages.valory.skills.mech_interact_abci.graph_tooling.requests import FetchStatus
+from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
 from packages.valory.skills.mech_interact_abci.states.base import MechInfo, Service
 
 
@@ -811,6 +812,65 @@ def _with_discovery_inputs(
     )
     patcher.start().return_value = MagicMock(approved_mechs=approved)
     return patcher
+
+
+MECH_A = "0x" + "aa" * 20
+MECH_B = "0x" + "bb" * 20
+NATIVE = "0xba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
+
+
+def _priced_mech(address: str, rate: int, payment_type: str = NATIVE) -> MechInfo:
+    """A discovered mech charging ``rate`` in ``payment_type``."""
+    return MechInfo(
+        id=address,
+        address=address,
+        service=Service(metadata=[{"metadata": "0xabc"}], deliveries=[]),
+        karma=0,
+        maxDeliveryRate=rate,
+        paymentType=payment_type,
+    )
+
+
+class TestWithinDeliveryRateBound:
+    """Discovery keeps only mechs within the asset cap, lowered by any consent."""
+
+    @staticmethod
+    def _behaviour(caps: dict, approved_rates: dict) -> MechInformationBehaviour:
+        behaviour = _make_mech_info_behaviour()
+        behaviour._context.params = MagicMock(delivery_rate_caps=caps)
+        patcher = patch.object(
+            MechInformationBehaviour, "synchronized_data", new_callable=PropertyMock
+        )
+        patcher.start().return_value = MagicMock(approved_mech_rates=approved_rates)
+        return behaviour
+
+    def test_keeps_mechs_within_the_cap_and_drops_the_rest(self) -> None:
+        """The asset cap applies to every mech; another asset's cap does not count."""
+        behaviour = self._behaviour({PaymentType.NATIVE: 10**16}, {})
+        try:
+            kept = behaviour.within_delivery_rate_bound(
+                [
+                    _priced_mech(MECH_A, 10**16),
+                    _priced_mech(MECH_B, 10**16 + 1),
+                    _priced_mech("0x" + "cc" * 20, 1, PaymentType.TOKEN_USDC.value),
+                ]
+            )
+        finally:
+            patch.stopall()
+        assert [mech.address for mech in kept] == [MECH_A]
+
+    def test_consent_lowers_the_bound_for_an_approved_mech(self) -> None:
+        """An approved mech that raised its rate past the accepted one is excluded."""
+        behaviour = self._behaviour(
+            {PaymentType.NATIVE: 10**16}, {MECH_A: 10**15, MECH_B: 10**15}
+        )
+        try:
+            kept = behaviour.within_delivery_rate_bound(
+                [_priced_mech(MECH_A, 10**15), _priced_mech(MECH_B, 10**15 + 1)]
+            )
+        finally:
+            patch.stopall()
+        assert [mech.address for mech in kept] == [MECH_A]
 
 
 class TestEligibleMechs:

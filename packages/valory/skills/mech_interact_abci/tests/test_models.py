@@ -37,10 +37,10 @@ from packages.valory.skills.mech_interact_abci.models import (
     NVMConfig,
     Ox,
     SharedState,
+    delivery_rate_bound,
     parse_delivery_rate_caps,
     terms_notice,
     validate_offchain_params,
-    within_delivery_rate_cap,
 )
 from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
 
@@ -717,6 +717,9 @@ class TestMechParamsLogsTermsNotice:
         assert len(notices) == 1
 
 
+MECH = "0x" + "aa" * 20
+
+
 class TestDeliveryRateCaps:
     """`delivery_rate_caps` is keyed by payment type, in each asset's smallest unit."""
 
@@ -726,10 +729,10 @@ class TestDeliveryRateCaps:
         caps = parse_delivery_rate_caps(raw)
         assert caps == {member: i for i, member in enumerate(PaymentType)}
 
-    def test_no_caps_is_valid_and_caps_nothing(self) -> None:
-        """An empty mapping parses; every asset is then uncapped, i.e. refused."""
+    def test_no_caps_is_valid_and_bounds_nothing(self) -> None:
+        """An empty mapping parses; every asset is then unbounded, i.e. refused."""
         assert parse_delivery_rate_caps({}) == {}
-        assert within_delivery_rate_cap(PaymentType.NATIVE.value, 0, {}) is False
+        assert delivery_rate_bound(MECH, PaymentType.NATIVE.value, {}, {}) is None
 
     @pytest.mark.parametrize("name", ["xdai", "NATIVE_TOKEN", "", "usdc"])
     def test_unknown_payment_type_name_raises(self, name: str) -> None:
@@ -743,29 +746,65 @@ class TestDeliveryRateCaps:
         with pytest.raises(ValueError, match="non-negative integer"):
             parse_delivery_rate_caps({"native": cap})
 
-    @pytest.mark.parametrize(
-        ("rate", "within"),
-        [(0, True), (10**16 - 1, True), (10**16, True), (10**16 + 1, False)],
-    )
-    def test_rate_within_cap_is_inclusive(self, rate: int, within: bool) -> None:
-        """A rate equal to the cap is allowed; one unit above is not."""
+    def test_bound_is_the_asset_cap_for_a_mech_without_consent(self) -> None:
+        """An allowlisted mech is bounded by its asset's cap alone."""
+        caps = {PaymentType.NATIVE: 10**16, PaymentType.TOKEN_USDC: 10000}
+        assert delivery_rate_bound(MECH, PaymentType.NATIVE.value, caps, {}) == 10**16
+        assert (
+            delivery_rate_bound(MECH, PaymentType.TOKEN_USDC.value, caps, {}) == 10000
+        )
+
+    def test_consent_below_the_cap_lowers_the_bound(self) -> None:
+        """An approved mech may not charge more than the rate the owner accepted."""
+        caps = {PaymentType.TOKEN_USDC: 10000}
+        assert (
+            delivery_rate_bound(MECH, PaymentType.TOKEN_USDC.value, caps, {MECH: 7000})
+            == 7000
+        )
+
+    def test_consent_above_the_cap_is_still_bounded_by_the_cap(self) -> None:
+        """The cap is the ceiling for every mech, approved or not."""
+        caps = {PaymentType.TOKEN_USDC: 10000}
+        assert (
+            delivery_rate_bound(MECH, PaymentType.TOKEN_USDC.value, caps, {MECH: 30000})
+            == 10000
+        )
+
+    def test_consent_is_looked_up_by_lowercase_address(self) -> None:
+        """A checksummed address at either end still finds its consent."""
         caps = {PaymentType.NATIVE: 10**16}
-        assert within_delivery_rate_cap(PaymentType.NATIVE.value, rate, caps) is within
+        assert (
+            delivery_rate_bound(MECH.upper(), PaymentType.NATIVE.value, caps, {MECH: 5})
+            == 5
+        )
+
+    def test_consent_for_another_mech_does_not_apply(self) -> None:
+        """Consent is per mech."""
+        caps = {PaymentType.NATIVE: 10**16}
+        other = "0x" + "bb" * 20
+        assert (
+            delivery_rate_bound(MECH, PaymentType.NATIVE.value, caps, {other: 5})
+            == 10**16
+        )
 
     def test_payment_type_id_is_matched_case_insensitively(self) -> None:
         """Contract reads may return the selector in upper-case hex."""
         caps = {PaymentType.TOKEN_USDC: 10000}
-        assert within_delivery_rate_cap(
-            PaymentType.TOKEN_USDC.value.upper(), 10000, caps
+        assert (
+            delivery_rate_bound(MECH, PaymentType.TOKEN_USDC.value.upper(), caps, {})
+            == 10000
         )
 
-    def test_asset_without_a_cap_is_refused(self) -> None:
-        """A cap for one asset says nothing about another."""
+    def test_asset_without_a_cap_is_refused_even_with_consent(self) -> None:
+        """A cap for one asset says nothing about another, and consent cannot replace a cap."""
         caps = {PaymentType.NATIVE: 10**18}
-        assert within_delivery_rate_cap(PaymentType.TOKEN_USDC.value, 1, caps) is False
+        assert (
+            delivery_rate_bound(MECH, PaymentType.TOKEN_USDC.value, caps, {MECH: 1})
+            is None
+        )
 
     @pytest.mark.parametrize("payment_type_id", ["", "0x1234", "native"])
     def test_unknown_payment_type_is_refused(self, payment_type_id: str) -> None:
         """A selector that is not a known payment type cannot be priced, so it is refused."""
         caps = {member: 10**30 for member in PaymentType}
-        assert within_delivery_rate_cap(payment_type_id, 1, caps) is False
+        assert delivery_rate_bound(MECH, payment_type_id, caps, {}) is None

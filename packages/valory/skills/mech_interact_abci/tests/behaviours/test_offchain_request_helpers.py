@@ -71,6 +71,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
+    OFFCHAIN_BAD_RESPONSE,
     OFFCHAIN_NONCE_TAKEN,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     merge_extra_attributes,
@@ -1265,6 +1266,7 @@ class _StubBehaviour:
         ledger_api_responses: Optional[List[Any]] = None,
         mech_wrapped_native_token_address: Optional[str] = None,
         delivery_rate_caps: Optional[Dict[PaymentType, int]] = None,
+        approved_mech_rates: Optional[Dict[str, int]] = None,
     ) -> None:
         # Mechs the executor penalized this cycle, for the next period's ranking.
         self.penalized_mechs: List[str] = []
@@ -1315,6 +1317,7 @@ class _StubBehaviour:
             ),
             safe_contract_address="0x" + "cc" * 20,
             offchain_pending_request=offchain_pending_request,
+            approved_mech_rates=approved_mech_rates or {},
         )
         self._contract_api_responses = list(contract_api_responses)
         self._http_responses = list(http_responses)
@@ -1736,7 +1739,7 @@ class TestFreshCycle:
             ],
             contract_api_responses=self._native_reads(),
             http_responses=[
-                _make_http_response(402, _make_402_body(required=10**20)),
+                _make_http_response(402, _make_402_body(required=10**16, current=0)),
             ],
             auto_deposit_cap=1,
         )
@@ -1802,6 +1805,54 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert stub.posted_urls == ["https://mech-bb.example/send_signed_requests"]
         assert stub.penalized_mechs == [mech_a]
+
+    def test_an_approved_mech_above_its_accepted_rate_is_skipped(self) -> None:
+        """Consent bounds an approved mech below the asset cap; the next mech is tried."""
+        mech_a = "0x" + "aa" * 20
+        mech_b = "0x" + "bb" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(mech_a, "https://mech-aa.example"),
+                _FakeMechInfo(mech_b, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**15 + 1}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+            ],
+            http_responses=[_make_http_response(200)],
+            delivery_rate_caps={PaymentType.NATIVE: 10**16},
+            approved_mech_rates={mech_a: 10**15},
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == ["https://mech-bb.example/send_signed_requests"]
+        assert stub.penalized_mechs == [mech_a]
+
+    def test_a_402_asking_more_than_the_signed_rate_is_a_bad_response(self) -> None:
+        """The deposit is sized from our rate, so a 402 above it is refused, not funded."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+            ],
+            http_responses=[
+                _make_http_response(402, _make_402_body(required=10**16 + 1, current=0))
+            ],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        result = _drive(executor._fresh_cycle())
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_BAD_RESPONSE
+        assert stub.safe_tx_calls == []
 
     def test_a_mech_paying_in_an_uncapped_asset_fails_with_the_cap_label(self) -> None:
         """No cap for the mech's asset means no request; the label names the cause."""

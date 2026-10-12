@@ -1408,15 +1408,42 @@ class TestSynchronizedData:
         )
         assert sd.ranked_mechs_addresses == [MECH_3, MECH_2, MECH_1]
 
-    def test_approved_mechs_are_lowercased(self) -> None:
-        """Approved mechs read back as lowercase addresses."""
-        sd = _make_synced_data(approved_mechs=json.dumps([MECH_1.upper(), MECH_2]))
+    def test_approved_mechs_are_the_sorted_lowercase_keys(self) -> None:
+        """Approved mechs read back as sorted lowercase addresses, whatever the write order."""
+        raw = json.dumps({MECH_2: 20, MECH_1.upper(): 10})
+        sd = _make_synced_data(approved_mechs=raw)
         assert sd.approved_mechs == [MECH_1, MECH_2]
+        assert sd.approved_mech_rates == {MECH_1: 10, MECH_2: 20}
 
-    @pytest.mark.parametrize("raw", [None, "not-json", json.dumps({"0xabc": 1})])
+    @pytest.mark.parametrize(
+        "raw", [None, "not-json", json.dumps([MECH_1]), json.dumps("x"), json.dumps(3)]
+    )
     def test_approved_mechs_unset_or_malformed_is_empty(self, raw: Any) -> None:
-        """No approved mechs unless a well-formed list is written."""
-        assert _make_synced_data(approved_mechs=raw).approved_mechs == []
+        """No approved mechs unless a well-formed address-to-rate object is written."""
+        sd = _make_synced_data(approved_mechs=raw)
+        assert sd.approved_mechs == []
+        assert sd.approved_mech_rates == {}
+
+    def test_approved_mech_rates_keeps_only_addresses_with_a_rate(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Keys that are not addresses and values that are not non-negative ints are dropped."""
+        raw = json.dumps(
+            {
+                MECH_1.upper(): 10,
+                '0x"': 1,
+                "0xabc": 1,
+                MECH_2: -1,
+                MECH_3: True,
+                _addr(4): "5",
+                _addr(5): 0,
+            }
+        )
+        sd = _make_synced_data(approved_mechs=raw)
+        with caplog.at_level("DEBUG"):
+            assert sd.approved_mech_rates == {MECH_1: 10, _addr(5): 0}
+        assert "Ignoring a non-address entry in 'approved_mechs'" in caplog.text
+        assert "Ignoring a non-rate entry in 'approved_mechs'" in caplog.text
 
     @pytest.mark.parametrize(
         "key", ["selected_mechs", "preferred_mechs", "approved_mechs"]
@@ -1430,9 +1457,7 @@ class TestSynchronizedData:
             assert getattr(sd, key) == []
         assert f"Ignoring a malformed {key!r} value" in caplog.text
 
-    @pytest.mark.parametrize(
-        "key", ["selected_mechs", "preferred_mechs", "approved_mechs"]
-    )
+    @pytest.mark.parametrize("key", ["selected_mechs", "preferred_mechs"])
     def test_address_list_keeps_only_addresses(
         self, key: str, caplog: pytest.LogCaptureFixture
     ) -> None:

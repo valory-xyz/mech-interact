@@ -54,7 +54,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     OffchainCycleResult,
     OffchainRequestExecutor,
 )
-from packages.valory.skills.mech_interact_abci.models import MultisendBatch
+from packages.valory.skills.mech_interact_abci.models import (
+    MultisendBatch,
+    delivery_rate_bound,
+)
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     SLOT_BLOCKED_GIVE_UP_SECS,
     clear_slot_blocked,
@@ -113,6 +116,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self._mech_payment_type: PaymentType = PaymentType.NATIVE
         self._unknown_payment_type: Optional[str] = None
         self._mech_max_delivery_rate: Optional[int] = None
+        self._delivery_rate_bound: Optional[int] = None
         self._subscription_balance: Optional[int] = None
         self._nvm_balance: Optional[int] = None
         self._subscription_address: Optional[str] = None
@@ -159,6 +163,18 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         except ValueError:
             self._unknown_payment_type = payment_type
             self.context.logger.warning(f"Unknown {payment_type=}.")
+
+    @property
+    def request_max_delivery_rate(self) -> Optional[int]:
+        """The requester's `maxDeliveryRate` for the on-chain request.
+
+        The bound `_price_within_bound` settled on, so the marketplace refuses
+        the request if the mech raises its rate before it is mined; the live
+        rate when no bound applies (legacy paths).
+        """
+        if self._delivery_rate_bound is not None:
+            return self._delivery_rate_bound
+        return self.mech_max_delivery_rate
 
     @property
     def using_native(self) -> bool:
@@ -870,7 +886,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
             chain_id=self.params.mech_chain_id,
-            max_delivery_rate=self.mech_max_delivery_rate,
+            max_delivery_rate=self.request_max_delivery_rate,
         )
         return status
 
@@ -958,13 +974,14 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return result
 
-    def _price_within_cap(self) -> Generator[None, None, bool]:
-        """Read the selected mech's payment type and price and check them against the caps.
+    def _price_within_bound(self) -> Generator[None, None, bool]:
+        """Read the selected mech's payment type and price and check them against the bound.
 
         The reads are the ones `_prepare_safe_tx` builds on, so it must run
-        first. On marketplace v2 the mech is penalized and skipped when its
-        live `maxDeliveryRate` is above the cap configured for its payment
-        asset, when that asset has no cap, or when its payment type is unknown.
+        first. On marketplace v2 the bound is the cap configured for the
+        mech's payment asset, lowered to the rate the consumer accepted when
+        approving the mech. A mech above it, in an uncapped asset, or with an
+        unknown payment type is penalized and skipped.
 
         :yield: the contract reads.
         :return: whether the request may proceed.
@@ -981,18 +998,23 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         rate = self.mech_max_delivery_rate
         unknown = self._unknown_payment_type
-        cap = (
-            None
-            if unknown is not None
-            else self.params.delivery_rate_cap_for(self.mech_payment_type)
+        payment_type_id = (
+            unknown if unknown is not None else self.mech_payment_type.value
         )
-        if cap is not None and rate is not None and rate <= cap:
+        bound = delivery_rate_bound(
+            self.priority_mech_address or "",
+            payment_type_id,
+            self.params.delivery_rate_caps,
+            self.synchronized_data.approved_mech_rates,
+        )
+        if bound is not None and rate is not None and rate <= bound:
+            self._delivery_rate_bound = bound
             return True
 
         asset = unknown if unknown is not None else self.mech_payment_type.name.lower()
         self.context.logger.warning(
             f"Skipping mech {self.priority_mech_address}: its delivery rate {rate} "
-            f"for payment type {asset!r} is above the configured cap ({cap})."
+            f"for payment type {asset!r} is above the bound ({bound})."
         )
         self.shared_state.penalize_mech(self.priority_mech_address)
         self.shared_state.last_failure_reason = DELIVERY_RATE_ABOVE_CAP
@@ -1001,7 +1023,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     def _prepare_safe_tx(self) -> Generator[None, None, bool]:  # pragma: no cover
         """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill.
 
-        Assumes `_price_within_cap` has run, so the payment type and price are set.
+        Assumes `_price_within_bound` has run, so the payment type and price are set.
         """
         steps: List[Callable[[], Generator[None, None, bool]]] = []
         if self.using_nevermined:
@@ -1204,7 +1226,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             yield from self.finish_behaviour(payload)
             return
 
-        affordable = yield from self._price_within_cap()
+        affordable = yield from self._price_within_bound()
         if not affordable:
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
                 payload = self._build_skip_payload()

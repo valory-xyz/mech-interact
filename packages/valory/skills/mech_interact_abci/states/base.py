@@ -450,14 +450,55 @@ class SynchronizedData(TxSynchronizedData):
         """Get the consumer-pinned mech addresses (lowercase). Empty means no pin."""
         return self._address_list("selected_mechs")
 
+    def _address_rate_map(self, key: str) -> Dict[str, int]:
+        """Read a JSON object of mech address to a per-request rate from the db.
+
+        Same hygiene as `_address_list`: a malformed value reads as empty,
+        and an entry whose key is not an address or whose value is not a
+        non-negative integer is dropped.
+
+        :param key: the db key.
+        :return: lowercase address to rate; empty when unset or malformed.
+        """
+        raw = self.db.get(key, None)
+        if raw is None:
+            return {}
+        try:
+            value = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            value = None
+        if not isinstance(value, dict):
+            _LOGGER.debug(f"Ignoring a malformed {key!r} value: {raw!r}")
+            return {}
+        rates: Dict[str, int] = {}
+        for entry, rate in value.items():
+            address = str(entry).lower()
+            if ADDRESS_RE.fullmatch(address) is None:
+                _LOGGER.debug(f"Ignoring a non-address entry in {key!r}: {entry!r}")
+                continue
+            if isinstance(rate, bool) or not isinstance(rate, int) or rate < 0:
+                _LOGGER.debug(
+                    f"Ignoring a non-rate entry in {key!r}: {entry!r}={rate!r}"
+                )
+                continue
+            rates[address] = rate
+        return rates
+
+    @property
+    def approved_mech_rates(self) -> Dict[str, int]:
+        """Get the mechs the consumer approved, with the per-request rate accepted for each.
+
+        Written by the consumer as a JSON object of address to rate, in the
+        mech's payment asset's smallest unit. Approved mechs are discovered
+        and eligible like allowlisted ones, but never join `valid_mechs`,
+        which consumers may derive identity from.
+        """
+        return self._address_rate_map("approved_mechs")
+
     @property
     def approved_mechs(self) -> List[str]:
-        """Get the mechs the consumer approved on top of `valid_mechs` (lowercase).
-
-        Approved mechs are discovered and eligible like allowlisted ones, but
-        never join `valid_mechs`, which consumers may derive identity from.
-        """
-        return self._address_list("approved_mechs")
+        """Get the approved mechs' addresses (lowercase, sorted)."""
+        return sorted(self.approved_mech_rates)
 
     @property
     def preferred_mechs(self) -> List[str]:

@@ -20,7 +20,7 @@
 """Tests for the request behaviour module."""
 
 from types import SimpleNamespace
-from typing import Any, Dict, Generator
+from typing import Any, Dict, Generator, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -52,6 +52,7 @@ def _make_request_behaviour(**overrides: Any) -> MechRequestBehaviour:
     behaviour._mech_payment_type = PaymentType.NATIVE
     behaviour._unknown_payment_type = None
     behaviour._mech_max_delivery_rate = None
+    behaviour._delivery_rate_bound = None
     behaviour._subscription_balance = None
     behaviour._nvm_balance = None
     behaviour._subscription_address = None
@@ -551,15 +552,22 @@ MECH_ADDRESS = "0x" + "aa" * 20
 
 
 def _price_behaviour(
-    payment_type: str, rate: int, caps: dict, v2: bool = True
+    payment_type: str,
+    rate: int,
+    caps: dict,
+    v2: bool = True,
+    approved_rates: Optional[dict] = None,
 ) -> MechRequestBehaviour:
     """A request behaviour whose contract reads return the given payment type and rate."""
     behaviour = _make_request_behaviour()
     behaviour.priority_mech_address = MECH_ADDRESS
-    behaviour._context.params.delivery_rate_cap_for = caps.get
+    behaviour._context.params.delivery_rate_caps = caps
     behaviour._context.state = MagicMock()
     behaviour._context.state.last_failure_reason = None
     behaviour.should_use_marketplace_v2 = lambda: v2  # type: ignore[method-assign]
+    synced = MagicMock()
+    synced.approved_mech_rates = approved_rates or {}
+    behaviour._synced_for_test = synced  # type: ignore[attr-defined]
 
     def read_payment_type() -> Any:
         yield
@@ -576,6 +584,17 @@ def _price_behaviour(
     return behaviour
 
 
+def _check_price(behaviour: MechRequestBehaviour) -> bool:
+    """Run `_price_within_bound` with the behaviour's test synchronized data."""
+    synced = behaviour._synced_for_test  # type: ignore[attr-defined]
+    with patch.object(
+        type(behaviour),
+        "synchronized_data",
+        new_callable=lambda: property(lambda self: synced),
+    ):
+        return bool(_run(behaviour._price_within_bound()))
+
+
 def _run(gen: Generator[Any, Any, Any]) -> Any:
     try:
         while True:
@@ -585,24 +604,53 @@ def _run(gen: Generator[Any, Any, Any]) -> Any:
     raise AssertionError("the generator never returned")
 
 
-class TestPriceWithinCap:
-    """The live `maxDeliveryRate` is checked against the cap of the mech's payment asset."""
+class TestPriceWithinBound:
+    """The live `maxDeliveryRate` is checked against the asset cap, lowered by any consent."""
 
     def test_rate_within_cap_proceeds(self) -> None:
-        """A mech charging at most the cap for its asset is requested."""
+        """A mech charging at most the cap for its asset is requested at that cap."""
         behaviour = _price_behaviour(
             PaymentType.TOKEN_USDC.value, 10000, {PaymentType.TOKEN_USDC: 10000}
         )
-        assert _run(behaviour._price_within_cap()) is True
+        assert _check_price(behaviour) is True
         behaviour._context.state.penalize_mech.assert_not_called()
         assert behaviour._context.state.last_failure_reason is None
+        assert behaviour.request_max_delivery_rate == 10000
+
+    def test_consent_lowers_the_requester_max(self) -> None:
+        """An approved mech within its accepted rate is requested with that rate as the max."""
+        behaviour = _price_behaviour(
+            PaymentType.TOKEN_USDC.value,
+            7000,
+            {PaymentType.TOKEN_USDC: 10000},
+            approved_rates={MECH_ADDRESS: 7000},
+        )
+        assert _check_price(behaviour) is True
+        assert behaviour.request_max_delivery_rate == 7000
+
+    def test_rate_above_consent_is_refused_even_under_the_cap(self) -> None:
+        """A raise past what the owner accepted pauses the mech, cap or no cap."""
+        behaviour = _price_behaviour(
+            PaymentType.TOKEN_USDC.value,
+            7001,
+            {PaymentType.TOKEN_USDC: 10000},
+            approved_rates={MECH_ADDRESS: 7000},
+        )
+        assert _check_price(behaviour) is False
+        behaviour._context.state.penalize_mech.assert_called_once_with(MECH_ADDRESS)
+        assert behaviour._context.state.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
+
+    def test_request_max_falls_back_to_the_live_rate_without_a_bound(self) -> None:
+        """Legacy paths settle no bound; the live rate is sent as before."""
+        behaviour = _make_request_behaviour(_mech_max_delivery_rate=123)
+        assert behaviour.request_max_delivery_rate == 123
 
     def test_rate_above_cap_penalizes_and_skips(self) -> None:
         """One unit above the cap skips the mech and penalizes it for the next period."""
         behaviour = _price_behaviour(
             PaymentType.TOKEN_USDC.value, 10001, {PaymentType.TOKEN_USDC: 10000}
         )
-        assert _run(behaviour._price_within_cap()) is False
+        assert _check_price(behaviour) is False
         behaviour._context.state.penalize_mech.assert_called_once_with(MECH_ADDRESS)
         assert behaviour._context.state.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
 
@@ -611,19 +659,19 @@ class TestPriceWithinCap:
         behaviour = _price_behaviour(
             PaymentType.TOKEN_USDC.value, 1, {PaymentType.NATIVE: 10**16}
         )
-        assert _run(behaviour._price_within_cap()) is False
+        assert _check_price(behaviour) is False
         behaviour._context.state.penalize_mech.assert_called_once_with(MECH_ADDRESS)
 
     def test_unknown_payment_type_is_refused(self) -> None:
         """A payment type the skill cannot price is refused even if native is capped."""
         behaviour = _price_behaviour("0x" + "99" * 32, 1, {PaymentType.NATIVE: 10**16})
-        assert _run(behaviour._price_within_cap()) is False
+        assert _check_price(behaviour) is False
         assert behaviour._context.state.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
 
     def test_legacy_paths_are_not_capped(self) -> None:
         """Without marketplace v2 the reads run and the request proceeds."""
         behaviour = _price_behaviour(PaymentType.NATIVE.value, 10**30, {}, v2=False)
-        assert _run(behaviour._price_within_cap()) is True
+        assert _check_price(behaviour) is True
         assert behaviour._mech_max_delivery_rate == 10**30
         behaviour._context.state.penalize_mech.assert_not_called()
 
@@ -660,7 +708,7 @@ class TestPriceWithinCap:
             seen["payload"] = payload
             yield
 
-        behaviour._price_within_cap = over_cap  # type: ignore[method-assign]
+        behaviour._price_within_bound = over_cap  # type: ignore[method-assign]
         behaviour._prepare_safe_tx = fake_prepare  # type: ignore[method-assign]
         behaviour._on_chain_slot_is_taken = fake_slot  # type: ignore[method-assign]
         behaviour.finish_behaviour = capture_finish  # type: ignore[method-assign]
@@ -828,12 +876,12 @@ class TestTheOnChainPathWaitsOnASlotInUse:
             yield
             return slot
 
-        def fake_price_within_cap() -> Any:
+        def fake_price_within_bound() -> Any:
             yield
             return True
 
         behaviour._read_marketplace_nonce = fake_read  # type: ignore[assignment]
-        behaviour._price_within_cap = fake_price_within_cap  # type: ignore[method-assign]
+        behaviour._price_within_bound = fake_price_within_bound  # type: ignore[method-assign]
         return behaviour
 
     def _drive(self, behaviour: Any) -> dict:
