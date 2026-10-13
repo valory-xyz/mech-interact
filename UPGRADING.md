@@ -83,6 +83,22 @@ Below, we describe the additional manual steps required to upgrade between diffe
   old behavior should adjust their penalty windows accordingly.
 
 #### New features
+- New `mech_interact_abci.mech_reader` module for reading one mech from a
+  handler (a chat, an API endpoint), where the behaviour helpers are not
+  available. `read_mech(context, address, callback)` reads the marketplace
+  subgraph record (price, payment type, service, delivery counters,
+  creation time) and then the marketplace agent card (name, tools, operator
+  verdict) and calls back once with `MechFacts`. `read_live_rate(context,
+  address, callback)` reads the mech contract's `maxDeliveryRate`. Both
+  register their callbacks under the request nonce in `context.requests`,
+  so the skill's existing HTTP and contract API handlers deliver the replies.
+  The module returns facts only: approvals and any text shown to users stay
+  with the consumer.
+- New optional `marketplace_api_url` skill param (default
+  `https://marketplace.olas.network/api/erc8004`), the root `read_mech`
+  builds agent card URLs from.
+- Discovery leaves out a mech the subgraph lists without `maxDeliveryRate`
+  instead of failing the whole batch.
 - New `SynchronizedData.approved_mech_rates` / `approved_mechs`: the
   consumer-approved mechs and their accepted rates. Approved mechs are
   discovered and eligible like allowlisted ones (`valid_mechs` plus
