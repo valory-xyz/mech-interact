@@ -88,6 +88,7 @@ from packages.valory.contracts.multisend.contract import (
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
+from packages.valory.skills.mech_interact_abci.models import delivery_rate_bound
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     SLOT_BLOCKED_GIVE_UP_SECS,
     clear_slot_blocked,
@@ -99,6 +100,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     sweep_dead_slots,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
+    DELIVERY_RATE_ABOVE_CAP,
     Event,
     MechInteractionResponse,
     MechMetadata,
@@ -1100,6 +1102,25 @@ class OffchainRequestExecutor:
                 last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                 continue
 
+            # mech-client charges at the live rate, so the bound is checked
+            # here and not only at discovery.
+            payment_type_hex = "0x" + payment_type_bytes.hex()
+            bound = delivery_rate_bound(
+                mech_address,
+                payment_type_hex,
+                self._b.params.delivery_rate_caps,
+                self._synced.approved_mech_rates,
+            )
+            if bound is None or delivery_rate > bound:
+                self._logger.warning(
+                    f"Skipping mech {mech_address}: its delivery rate "
+                    f"{delivery_rate} for payment type {payment_type_hex} is "
+                    f"above the bound ({bound})."
+                )
+                self._b.shared_state.penalize_mech(mech_address)
+                last_failure = DELIVERY_RATE_ABOVE_CAP
+                continue
+
             # ``data`` must be the 32-byte ipfs multihash the mech will
             # submit as ``requestData`` at settlement, not the JSON body.
             # The marketplace computes ``keccak256(requestData)`` inside
@@ -1193,11 +1214,28 @@ class OffchainRequestExecutor:
                 # registered for the mech's ``paymentType``. A mismatch is
                 # treated as a misbehaving mech (BAD_RESPONSE) and failover
                 # moves on rather than landing a redirected deposit.
-                destination_ok = yield from self._validate_402_destination(
+                tracker = yield from self._validate_402_destination(
                     challenge=attempt.challenge,  # type: ignore[arg-type]
                     payment_type=payment_type_bytes,
                 )
-                if not destination_ok:
+                if tracker is None:
+                    last_outcome = OffchainAttemptOutcome.BAD_RESPONSE
+                    last_failure = OFFCHAIN_BAD_RESPONSE
+                    continue
+                # The deposit is sized from the chain's view of the Safe's
+                # balance, not from the balance the mech reports.
+                tracker_balance = yield from self._read_requester_balance(tracker)
+                if tracker_balance is None:
+                    last_outcome = OffchainAttemptOutcome.TIMEOUT
+                    last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
+                    continue
+                required = attempt.challenge.required  # type: ignore[union-attr]
+                if tracker_balance >= required:
+                    self._logger.warning(
+                        f"Mech {mech_address} reports a shortfall but the Safe "
+                        f"holds {tracker_balance} on {tracker}, enough for the "
+                        f"{required} required; refusing the 402."
+                    )
                     last_outcome = OffchainAttemptOutcome.BAD_RESPONSE
                     last_failure = OFFCHAIN_BAD_RESPONSE
                     continue
@@ -1205,6 +1243,7 @@ class OffchainRequestExecutor:
                     challenge=attempt.challenge,  # type: ignore[arg-type]
                     payment_type=payment_type_bytes,
                     delivery_rate=delivery_rate,
+                    tracker_balance=tracker_balance,
                 )
                 tx_hex = build.tx_hex
                 if tx_hex is None:
@@ -1504,6 +1543,19 @@ class OffchainRequestExecutor:
         if status == 402:
             challenge = parse_payment_challenge(body_bytes)
             if challenge is None:
+                return OffchainAttemptResult(
+                    outcome=OffchainAttemptOutcome.BAD_RESPONSE,
+                    mech_address=mech_address,
+                    mech_url=mech_url,
+                    status_code=status,
+                )
+            if challenge.required > delivery_rate:
+                # The mech asks for more than the rate this request was
+                # signed at, which bounds what the deposit may be sized from.
+                self._logger.warning(
+                    f"Mech {mech_address} requires {challenge.required} for a "
+                    f"request signed at {delivery_rate}; refusing the 402."
+                )
                 return OffchainAttemptResult(
                     outcome=OffchainAttemptOutcome.BAD_RESPONSE,
                     mech_address=mech_address,
@@ -1862,13 +1914,13 @@ class OffchainRequestExecutor:
         self,
         challenge: PaymentChallenge,
         payment_type: bytes,
-    ) -> Generator[None, None, bool]:
+    ) -> Generator[None, None, Optional[str]]:
         """Cross-check the 402 ``payTo`` (and ``asset``) against the on-chain tracker.
 
-        Returns ``True`` when the 402 destination matches the canonical
-        BalanceTracker the marketplace has registered for this
-        ``paymentType``, and (on the token path) when ``challenge.asset``
-        matches the tracker's ``token()`` getter. Without this check a
+        Returns the canonical BalanceTracker (lowercase) the marketplace has
+        registered for this ``paymentType`` when the 402 destination matches
+        it, and (on the token path) when ``challenge.asset`` matches the
+        tracker's ``token()`` getter; ``None`` otherwise. Without this check a
         malicious mech could direct a real native transfer / ERC20
         approval to an attacker-chosen address — bounded by
         ``auto_deposit_cap_per_cycle`` but recurring (review: bennyjo on
@@ -1883,13 +1935,13 @@ class OffchainRequestExecutor:
             # The deposit builder won't act on these labels anyway; treat
             # validation as a no-op so the existing surface (None tx hex →
             # OFFCHAIN_402_INSUFFICIENT) drives the outcome.
-            return True
+            return challenge.pay_to.lower()
 
         canonical = yield from self._resolve_canonical_tracker(payment_type)
         if canonical is None:
             # Read failure or no tracker registered; we cannot prove the
             # destination is safe, so refuse to deposit.
-            return False
+            return None
 
         challenge_pay_to = challenge.pay_to.lower()
         if challenge_pay_to != canonical:
@@ -1899,12 +1951,12 @@ class OffchainRequestExecutor:
                 f"paymentType 0x{payment_type.hex()} is {canonical!r}. "
                 "Refusing to deposit and failing over."
             )
-            return False
+            return None
 
         if payment_label == _PAYMENT_TOKEN:
             tracker_token = yield from self._resolve_tracker_token(canonical)
             if tracker_token is None:
-                return False
+                return None
             challenge_asset = challenge.asset.lower()
             if challenge_asset != tracker_token:
                 self._logger.error(
@@ -1913,9 +1965,41 @@ class OffchainRequestExecutor:
                     f"accepts {tracker_token!r}. Refusing to deposit and "
                     "failing over."
                 )
-                return False
+                return None
 
-        return True
+        return canonical
+
+    def _read_requester_balance(
+        self, tracker_address: str
+    ) -> Generator[None, None, Optional[int]]:
+        """Read the Safe's deposited balance on a BalanceTracker.
+
+        What the mech reports in its 402 is the mech's claim; this is the
+        chain's answer, and it is what the deposit is sized from.
+
+        :param tracker_address: the canonical tracker for the payment type.
+        :yield: the contract read.
+        :return: the balance in the asset's smallest unit; None on a failed read.
+        """
+        raw = yield from self._read_contract_state(
+            contract_address=tracker_address,
+            contract_id=str(BalanceTracker.contract_id),
+            contract_callable="get_requester_balance",
+            error_label=f"BalanceTracker.mapRequesterBalances at {tracker_address}",
+            result_key="requester_balance",
+            requester=self._safe_address(),
+        )
+        if raw is None:
+            return None
+        try:
+            balance = int(raw)
+        except (TypeError, ValueError):
+            self._logger.warning(
+                f"BalanceTracker {tracker_address} returned a non-numeric "
+                f"requester balance: {raw!r}"
+            )
+            return None
+        return balance if balance >= 0 else None
 
     # ---------- mech selection ---------------------------------------------
 
@@ -1926,7 +2010,7 @@ class OffchainRequestExecutor:
 
         Reuses ``synchronized_data.ranked_mechs`` from the existing on-chain
         selection (no separate ranking for offchain), filtering out mechs
-        already tried this cycle. URL comes from ``MechInfo.http_url`` (set
+        already tried this cycle and mechs under penalty. URL comes from ``MechInfo.http_url`` (set
         by :func:`mech_info.populate_tools` from the manifest) and falls
         back to the static ``offchain_url`` config when the per-mech field
         is empty.
@@ -1938,6 +2022,8 @@ class OffchainRequestExecutor:
         an explicit address is configured.
         """
         attempted_lc = {a.lower() for a in attempted}
+        # Same rule as the on-chain selection: a penalized mech is not picked.
+        penalized_lc = {a.lower() for a in self._b.shared_state.penalized_mechs}
         # ``ranked_mechs`` reads ``mech_tool`` strictly from db, which is
         # only written by the v2 dynamic-selection round. Consumers using a
         # hardcoded ``priority_mech_address`` never write it, so traversing
@@ -1945,7 +2031,7 @@ class OffchainRequestExecutor:
         # Mirrors the same gate request.py uses on the on-chain path.
         if self._config.use_dynamic_mech_selection:
             for mech in self._synced.ranked_mechs:
-                if mech.address.lower() in attempted_lc:
+                if mech.address.lower() in attempted_lc | penalized_lc:
                     continue
                 url = mech.http_url or self._config.offchain_url
                 if not url:
@@ -1967,6 +2053,7 @@ class OffchainRequestExecutor:
         challenge: PaymentChallenge,
         payment_type: bytes,
         delivery_rate: int,
+        tracker_balance: int,
     ) -> Generator[None, None, _DepositBuildResult]:
         """Build the Safe-multisend hash for the 402 retry path.
 
@@ -1974,6 +2061,8 @@ class OffchainRequestExecutor:
         so an empty-balance first request lands enough USDC (or native) to
         cover ``offchain_deposit_target_calls`` forward calls at the current
         mech ``delivery_rate``, clamped by ``auto_deposit_cap_per_cycle``.
+        ``tracker_balance`` is the Safe's balance read from the canonical
+        tracker; the 402's own ``currentBalance`` is not used.
 
         ERC20: bundles ``approve(BalanceTracker, deposit_amount) +
         depositFor(safe, deposit_amount)`` atomically through MultiSend.
@@ -1995,6 +2084,9 @@ class OffchainRequestExecutor:
         attempt only happens if the consumer re-enters this skill with a
         fresh request.
         """
+        # From here on the challenge carries the chain's balance, so every
+        # shortfall the builders check is the real one.
+        challenge = dataclasses.replace(challenge, current_balance=tracker_balance)
         if challenge.shortfall <= 0:
             return _DepositBuildResult(None, None)
         payment_label = self._classify_payment_type(payment_type)
@@ -2007,7 +2099,7 @@ class OffchainRequestExecutor:
 
         deposit_amount = self._compute_deposit_amount(
             shortfall=challenge.shortfall,
-            current_balance=challenge.current_balance,
+            current_balance=tracker_balance,
             delivery_rate=delivery_rate,
         )
 

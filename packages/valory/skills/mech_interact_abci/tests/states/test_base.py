@@ -43,6 +43,14 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 TWO_MIN_IN_SEC = 2 * 60
 
 
+def _addr(n: int) -> str:
+    """A well-formed lowercase address for mech ``n``."""
+    return "0x" + f"{n:040x}"
+
+
+MECH_1, MECH_2, MECH_3 = _addr(1), _addr(2), _addr(3)
+
+
 class TestMechInfo:
     """Test the `MechInfo` class."""
 
@@ -485,6 +493,35 @@ class TestMechInfo:
         assert [i.id for i in instances] == [
             i.id for i in sorted(instances, reverse=True)
         ]
+
+    def test_payment_type_from_camel_case_is_lowercased(self) -> None:
+        """The subgraph's `paymentType` lands in `payment_type`, lowercase."""
+        instance = MechInfo(
+            id="1",
+            address=MECH_1,
+            service=Service(metadata=[], deliveries=[]),
+            karma=0,
+            paymentType="0xBA699A34",
+        )
+        assert instance.payment_type == "0xba699a34"
+
+    def test_payment_type_defaults_to_empty(self) -> None:
+        """A record without `paymentType` (older serializations) reads as empty."""
+        instance = MechInfo(
+            id="1", address=MECH_1, service=Service(metadata=[], deliveries=[]), karma=0
+        )
+        assert instance.payment_type == ""
+
+    def test_payment_type_round_trips_through_asdict(self) -> None:
+        """`payment_type` survives the serialization the synchronized data uses."""
+        instance = MechInfo(
+            id="1",
+            address=MECH_1,
+            service=Service(metadata=[], deliveries=[]),
+            karma=0,
+            paymentType="0xba699a34",
+        )
+        assert MechInfo(**asdict(instance)).payment_type == "0xba699a34"
 
     def test_init_with_snake_case_fields(self) -> None:
         """Test init when snake_case fields are provided directly (non-zero)."""
@@ -974,8 +1011,10 @@ class TestSynchronizedData:
 
     def test_selected_mechs_lowercases_addresses(self) -> None:
         """Consumers may send mixed-case addresses; selected_mechs returns lowercase."""
-        sd = _make_synced_data(selected_mechs=json.dumps(["0xAbC", "0xDEF"]))
-        assert sd.selected_mechs == ["0xabc", "0xdef"]
+        sd = _make_synced_data(
+            selected_mechs=json.dumps([MECH_1.upper(), MECH_2.upper()])
+        )
+        assert sd.selected_mechs == [MECH_1, MECH_2]
 
     def test_selected_mechs_falls_back_on_malformed_json(self) -> None:
         """A bad write (not-json or wrong shape) is tolerated, not raised."""
@@ -1002,7 +1041,7 @@ class TestSynchronizedData:
         info_data = [
             {
                 "id": "1",
-                "address": "0x1",
+                "address": MECH_1,
                 "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
                 "karma": "1",
                 "receivedRequests": "1",
@@ -1012,7 +1051,7 @@ class TestSynchronizedData:
             },
             {
                 "id": "2",
-                "address": "0x2",
+                "address": MECH_2,
                 "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
                 "karma": "1",
                 "receivedRequests": "1",
@@ -1024,7 +1063,7 @@ class TestSynchronizedData:
         sd = _make_synced_data(
             mechs_info=json.dumps(info_data),
             mech_tool="tool_a",
-            selected_mechs=json.dumps(["0x2"]),
+            selected_mechs=json.dumps([MECH_2]),
         )
         result = sd.relevant_mechs_info
         assert len(result) == 1
@@ -1066,7 +1105,7 @@ class TestSynchronizedData:
         info_data = [
             {
                 "id": "1",
-                "address": "0xabc",
+                "address": MECH_1,
                 "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
                 "karma": "1",
                 "receivedRequests": "1",
@@ -1078,7 +1117,7 @@ class TestSynchronizedData:
         sd = _make_synced_data(
             mechs_info=json.dumps(info_data),
             mech_tool="tool_a",
-            selected_mechs=json.dumps(["0xABC"]),
+            selected_mechs=json.dumps([MECH_1.upper()]),
         )
         assert len(sd.relevant_mechs_info) == 1
 
@@ -1118,7 +1157,7 @@ class TestSynchronizedData:
         info_data = [
             {
                 "id": "1",
-                "address": "0xa",
+                "address": MECH_1,
                 "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
                 "karma": "1",
                 "receivedRequests": "1",
@@ -1128,7 +1167,7 @@ class TestSynchronizedData:
             },
             {
                 "id": "2",
-                "address": "0xb",
+                "address": MECH_2,
                 "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
                 "karma": "1",
                 "receivedRequests": "1",
@@ -1139,7 +1178,7 @@ class TestSynchronizedData:
         ]
         sd = _make_synced_data(
             mechs_info=json.dumps(info_data),
-            selected_mechs=json.dumps(["0xb"]),
+            selected_mechs=json.dumps([MECH_2]),
         )
         assert sd.mech_tools == {"tool_b"}
 
@@ -1303,8 +1342,10 @@ class TestSynchronizedData:
 
     def test_preferred_mechs_lowercases(self) -> None:
         """Consumers may write checksummed addresses; the list is lowercase."""
-        sd = _make_synced_data(preferred_mechs=json.dumps(["0xAbC", "0xDEF"]))
-        assert sd.preferred_mechs == ["0xabc", "0xdef"]
+        sd = _make_synced_data(
+            preferred_mechs=json.dumps([MECH_1.upper(), MECH_2.upper()])
+        )
+        assert sd.preferred_mechs == [MECH_1, MECH_2]
 
     @pytest.mark.parametrize(
         "raw", ["not-json", json.dumps("0xabc"), json.dumps({"0xabc": 1}), 42]
@@ -1316,11 +1357,11 @@ class TestSynchronizedData:
 
     @staticmethod
     def _three_ranked_mechs() -> List[Dict[str, Any]]:
-        """Three mechs serving tool ``t`` whose natural rank is 0x3, 0x2, 0x1."""
+        """Three mechs serving tool ``t`` whose natural rank is 3, 2, 1."""
         return [
             {
                 "id": str(i),
-                "address": f"0x{i}",
+                "address": _addr(i),
                 "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
                 "karma": str(i * 10),
                 "receivedRequests": "100",
@@ -1336,38 +1377,77 @@ class TestSynchronizedData:
         sd = _make_synced_data(
             mechs_info=json.dumps(self._three_ranked_mechs()),
             mech_tool="t",
-            preferred_mechs=json.dumps(["0x1", "0x2"]),
+            preferred_mechs=json.dumps([MECH_1, MECH_2]),
         )
-        assert sd.ranked_mechs_addresses == ["0x2", "0x1", "0x3"]
-        assert sd.priority_mech_address == "0x2"
+        assert sd.ranked_mechs_addresses == [MECH_2, MECH_1, MECH_3]
+        assert sd.priority_mech_address == MECH_2
 
     def test_ranked_mechs_preferred_lookup_is_case_insensitive(self) -> None:
         """A checksummed preference still matches the lowercase mech address."""
         sd = _make_synced_data(
             mechs_info=json.dumps(self._three_ranked_mechs()),
             mech_tool="t",
-            preferred_mechs=json.dumps(["0X1"]),
+            preferred_mechs=json.dumps([MECH_1.upper()]),
         )
-        assert sd.ranked_mechs_addresses == ["0x1", "0x3", "0x2"]
+        assert sd.ranked_mechs_addresses == [MECH_1, MECH_3, MECH_2]
 
     def test_ranked_mechs_ignores_preferences_outside_the_relevant_set(self) -> None:
         """Preferring mechs that do not serve the tool changes nothing."""
         sd = _make_synced_data(
             mechs_info=json.dumps(self._three_ranked_mechs()),
             mech_tool="t",
-            preferred_mechs=json.dumps(["0x9"]),
+            preferred_mechs=json.dumps([_addr(9)]),
         )
-        assert sd.ranked_mechs_addresses == ["0x3", "0x2", "0x1"]
-        assert sd.priority_mech_address == "0x3"
+        assert sd.ranked_mechs_addresses == [MECH_3, MECH_2, MECH_1]
+        assert sd.priority_mech_address == MECH_3
 
     def test_ranked_mechs_without_preference_keeps_natural_order(self) -> None:
         """No preference means the ``MechInfo`` ordering decides alone."""
         sd = _make_synced_data(
             mechs_info=json.dumps(self._three_ranked_mechs()), mech_tool="t"
         )
-        assert sd.ranked_mechs_addresses == ["0x3", "0x2", "0x1"]
+        assert sd.ranked_mechs_addresses == [MECH_3, MECH_2, MECH_1]
 
-    @pytest.mark.parametrize("key", ["selected_mechs", "preferred_mechs"])
+    def test_approved_mechs_are_the_sorted_lowercase_keys(self) -> None:
+        """Approved mechs read back as sorted lowercase addresses, whatever the write order."""
+        raw = json.dumps({MECH_2: 20, MECH_1.upper(): 10})
+        sd = _make_synced_data(approved_mechs=raw)
+        assert sd.approved_mechs == [MECH_1, MECH_2]
+        assert sd.approved_mech_rates == {MECH_1: 10, MECH_2: 20}
+
+    @pytest.mark.parametrize(
+        "raw", [None, "not-json", json.dumps([MECH_1]), json.dumps("x"), json.dumps(3)]
+    )
+    def test_approved_mechs_unset_or_malformed_is_empty(self, raw: Any) -> None:
+        """No approved mechs unless a well-formed address-to-rate object is written."""
+        sd = _make_synced_data(approved_mechs=raw)
+        assert sd.approved_mechs == []
+        assert sd.approved_mech_rates == {}
+
+    def test_approved_mech_rates_keeps_only_addresses_with_a_rate(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Keys that are not addresses and values that are not non-negative ints are dropped."""
+        raw = json.dumps(
+            {
+                MECH_1.upper(): 10,
+                '0x"': 1,
+                "0xabc": 1,
+                MECH_2: -1,
+                MECH_3: True,
+                _addr(4): "5",
+                _addr(5): 0,
+            }
+        )
+        sd = _make_synced_data(approved_mechs=raw)
+        with caplog.at_level("DEBUG"):
+            assert sd.approved_mech_rates == {MECH_1: 10, _addr(5): 0}
+        assert "Ignoring a non-address entry in 'approved_mechs'" in caplog.text
+        assert "Ignoring a non-rate entry in 'approved_mechs'" in caplog.text
+
+    @pytest.mark.parametrize(
+        "key", ["selected_mechs", "preferred_mechs", "approved_mechs"]
+    )
     def test_malformed_address_list_is_logged_at_debug(
         self, key: str, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -1376,6 +1456,17 @@ class TestSynchronizedData:
         with caplog.at_level("DEBUG"):
             assert getattr(sd, key) == []
         assert f"Ignoring a malformed {key!r} value" in caplog.text
+
+    @pytest.mark.parametrize("key", ["selected_mechs", "preferred_mechs"])
+    def test_address_list_keeps_only_addresses(
+        self, key: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Entries that are not `0x` + 40 hex are dropped; the lists reach the discovery query."""
+        raw = json.dumps([MECH_1.upper(), '0x"', "0xabc", 7, MECH_1 + "0", MECH_2])
+        sd = _make_synced_data(**{key: raw})
+        with caplog.at_level("DEBUG"):
+            assert getattr(sd, key) == [MECH_1, MECH_2]
+        assert f"Ignoring a non-address entry in {key!r}" in caplog.text
 
     def test_unset_address_list_is_not_logged(
         self, caplog: pytest.LogCaptureFixture

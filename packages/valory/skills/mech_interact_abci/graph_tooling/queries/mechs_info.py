@@ -36,6 +36,7 @@ info = Template("""
                 id
                 address
                 maxDeliveryRate
+                paymentType
                 karma
                 receivedRequests
                 selfDeliveredFromReceived

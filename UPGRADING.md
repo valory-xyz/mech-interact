@@ -5,6 +5,26 @@ Below, we describe the additional manual steps required to upgrade between diffe
 ## Unreleased (built with `open-aea@2.2.6` and `open-autonomy@0.21.22`)
 
 #### Breaking Changes
+- `delivery_rate_cap` (under `mechs_subgraph`) is replaced by the
+  `delivery_rate_caps` skill param: one cap per payment type, keyed by the
+  lowercase `PaymentType` name (`native`, `token_olas`, `token_usdc`,
+  `native_nvm`, `token_nvm_usdc`), in that asset's smallest unit. A mech
+  whose payment asset has no cap, or whose payment type is unknown, is
+  refused. The old key was a single wei-denominated number applied only to
+  the subgraph's rate at discovery; the new caps are enforced at discovery,
+  against the live `maxDeliveryRate` before an on-chain request, and on
+  every off-chain attempt. Overlays must drop `delivery_rate_cap` and set
+  `delivery_rate_caps` (defaults: `native: 10000000000000000`,
+  `token_usdc: 10000`).
+- `approved_mechs` (db key written by the consumer) is a JSON object of
+  lowercase address to the per-request rate the owner accepted, in the
+  payment asset's smallest unit, not a list of addresses. A list, or any
+  other malformed value, reads as no approved mechs. An approved mech is
+  bounded by the lower of that rate and its asset's cap, so a price raise
+  pauses it until it is approved again. Approved mechs must never be added
+  to `valid_mechs`: consumers derive the `valory` identity for tool records
+  from `valid_mechs`, and merging a third party into it would pool its
+  results into Valory's record.
 - `use_offchain` and `offchain_deposit_target_calls` have moved out of
   `mech_marketplace_config` and are now top-level `mech_interact_abci`
   params (`USE_OFFCHAIN`, `OFFCHAIN_DEPOSIT_TARGET_CALLS`). Every overlay
@@ -63,6 +83,22 @@ Below, we describe the additional manual steps required to upgrade between diffe
   old behavior should adjust their penalty windows accordingly.
 
 #### New features
+- New `SynchronizedData.approved_mech_rates` / `approved_mechs`: the
+  consumer-approved mechs and their accepted rates. Approved mechs are
+  discovered and eligible like allowlisted ones (`valid_mechs` plus
+  approved, one sorted query), without joining `valid_mechs`.
+- New `last_failure_reason` value `delivery_rate_above_cap`, set by both
+  request paths when the selected mech's live rate is above its bound; the
+  mech is also penalized for `penalize_mech_time_window`, and the off-chain
+  failover now skips penalized mechs like the on-chain selection does.
+- The on-chain request passes the bound as the requester's
+  `maxDeliveryRate`, so the marketplace refuses a rate raised between the
+  read and the mined request.
+- Off-chain 402 handling: a challenge requiring more than the signed rate
+  is a bad response, and the auto-deposit is sized from the Safe's balance
+  read from the canonical BalanceTracker (`mapRequesterBalances`), not from
+  the balance the mech reports. A 402 the tracker balance already covers
+  is a bad response too.
 - New `valid_mechs: List[str]` skill param: a flat allowlist of mech
   addresses (case-insensitive, lowercased on load). Empty default. With
   marketplace v2 dynamic selection enabled and `valid_mechs` empty, the

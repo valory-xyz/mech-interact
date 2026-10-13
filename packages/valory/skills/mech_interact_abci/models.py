@@ -20,7 +20,7 @@
 """This module contains the models for the abci skill of MechInteractAbciApp."""
 
 from dataclasses import dataclass
-from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Tuple, cast
+from typing import Any, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Tuple, cast
 
 from aea.exceptions import enforce
 from aea.skills.base import SkillContext
@@ -41,11 +41,9 @@ from packages.valory.skills.abstract_round_abci.models import Requests as BaseRe
 from packages.valory.skills.abstract_round_abci.models import (
     SharedState as BaseSharedState,
 )
+from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
 from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
-from packages.valory.skills.mech_interact_abci.states.base import (
-    MechInfo,
-    MechsInfo,
-)
+from packages.valory.skills.mech_interact_abci.states.base import MechInfo, MechsInfo
 
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
@@ -111,23 +109,74 @@ class MechToolsSpecs(ApiSpecs):
         return False
 
 
+DeliveryRateCaps = Dict[PaymentType, int]
+
+
+def parse_delivery_rate_caps(raw: Mapping[str, Any]) -> DeliveryRateCaps:
+    """Parse the `delivery_rate_caps` param.
+
+    :param raw: payment type name (lowercase `PaymentType` member) to the cap
+        on a mech's `maxDeliveryRate`, in that asset's smallest unit.
+    :return: the caps by payment type.
+    :raises ValueError: on an unknown payment type or a cap that is not a
+        non-negative integer.
+    """
+    names = [member.name.lower() for member in PaymentType]
+    caps: DeliveryRateCaps = {}
+    for name, cap in raw.items():
+        try:
+            payment_type = PaymentType[str(name).upper()]
+        except KeyError:
+            raise ValueError(
+                f"Unknown payment type {name!r} in `delivery_rate_caps`; "
+                f"expected one of {names}."
+            )
+        if isinstance(cap, bool) or not isinstance(cap, int) or cap < 0:
+            raise ValueError(
+                f"The `delivery_rate_caps` entry for {name!r} must be a "
+                f"non-negative integer, got {cap!r}."
+            )
+        caps[payment_type] = cap
+    return caps
+
+
+def delivery_rate_bound(
+    address: str,
+    payment_type_id: str,
+    caps: DeliveryRateCaps,
+    approved_rates: Mapping[str, int],
+) -> Optional[int]:
+    """The most a mech may charge per request, or None when it may not be requested.
+
+    :param address: the mech's address.
+    :param payment_type_id: the mech's `paymentType` selector, hex.
+    :param caps: the configured per-asset caps.
+    :param approved_rates: the rate the consumer accepted per approved mech.
+    :return: the asset's cap, lowered to the accepted rate for an approved
+        mech; None for an unknown payment type or an asset without a cap.
+    """
+    try:
+        payment_type = PaymentType(str(payment_type_id).lower())
+    except ValueError:
+        return None
+    cap = caps.get(payment_type)
+    if cap is None:
+        return None
+    accepted = approved_rates.get(str(address).lower())
+    return cap if accepted is None else min(cap, accepted)
+
+
 class MechsSubgraph(ApiSpecs):
     """Specifies `ApiSpecs` with common functionality for the Mechs' subgraph."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
-        """Initialize MechsSubgraph."""
-        self.delivery_rate_cap: int = self._ensure("delivery_rate_cap", kwargs, int)
-        super().__init__(*args, **kwargs)
 
     def filter_info(
         self, unfiltered: List[Dict[str, Any]]
     ) -> MechsInfo:  # pragma: no cover
-        """Filter the information based on the metadata."""
+        """Keep the mechs that have metadata; the rate bound is applied by the fetching behaviour."""
         return [
             mech_info
             for info in unfiltered
             if not (mech_info := MechInfo(**info)).empty_metadata
-            and mech_info.max_delivery_rate <= self.delivery_rate_cap
         ]
 
     def process_response(
@@ -428,6 +477,9 @@ class MechParams(BaseParams):
         )
         self.deliveries_lookback_days: int = self._ensure(
             "deliveries_lookback_days", kwargs, int
+        )
+        self.delivery_rate_caps: DeliveryRateCaps = parse_delivery_rate_caps(
+            self._ensure("delivery_rate_caps", kwargs, Dict[str, int])
         )
 
         super().__init__(*args, **kwargs)

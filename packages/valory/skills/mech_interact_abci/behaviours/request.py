@@ -21,7 +21,6 @@
 
 import json
 from dataclasses import asdict, fields
-from enum import Enum
 from pathlib import Path
 from tempfile import mkdtemp
 from typing import Any, Callable, Generator, List, Optional, Tuple
@@ -55,7 +54,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     OffchainCycleResult,
     OffchainRequestExecutor,
 )
-from packages.valory.skills.mech_interact_abci.models import MultisendBatch
+from packages.valory.skills.mech_interact_abci.models import (
+    MultisendBatch,
+    delivery_rate_bound,
+)
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     SLOT_BLOCKED_GIVE_UP_SECS,
     clear_slot_blocked,
@@ -64,7 +66,13 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     slot_is_held,
 )
 from packages.valory.skills.mech_interact_abci.payloads import MechRequestPayload
+from packages.valory.skills.mech_interact_abci.payment_types import (
+    NVM_PAYMENT_TYPES,
+    PaymentType,
+    TOKEN_PAYMENT_TYPES,
+)
 from packages.valory.skills.mech_interact_abci.states.base import (
+    DELIVERY_RATE_ABOVE_CAP,
     MechInteractionResponse,
     MechMetadata,
     SERIALIZED_EMPTY_LIST,
@@ -81,23 +89,6 @@ DECIMALS_18 = 18
 DECIMALS_6 = 6
 
 
-class PaymentType(str, Enum):
-    """Mech payment types."""
-
-    # this is for native token payments, e.g. xDAI on Gnosis, ETH in Ethereum, etc.
-    NATIVE = "0xba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
-    # this is for OLAS token payments, e.g., OLAS on Gnosis, OLAS on Ethereum, etc.
-    TOKEN_OLAS = "0x3679d66ef546e66ce9057c4a052f317b135bc8e8c509638f7966edfd4fcf45e9"  # nosec B105
-    # This is for USDC token payments, e.g. USDC on Gnosis, USDC on Polygon, etc.
-    TOKEN_USDC = "0x6406bb5f31a732f898e1ce9fdd988a80a808d36ab5d9a4a4805a8be8d197d5e3"  # nosec B105
-    # This is for native token payments using NVM.
-    NATIVE_NVM = "0x803dd08fe79d91027fc9024e254a0942372b92f3ccabc1bd19f4a5c2b251c316"
-    # This is for USDC payments using NVM.
-    TOKEN_NVM_USDC = "0x0d6fd99afa9c4c580fab5e341922c2a5c4b61d880da60506193d7bf88944dd14"  # nosec B105
-
-
-TOKEN_PAYMENT_TYPES = frozenset({PaymentType.TOKEN_USDC, PaymentType.TOKEN_OLAS})
-NVM_PAYMENT_TYPES = frozenset({PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM_USDC})
 PAYMENT_TYPE_TO_NVM_CONTRACT = {
     PaymentType.NATIVE_NVM: BalanceTrackerNvmSubscriptionNative.contract_id,
     PaymentType.TOKEN_NVM_USDC: BalanceTrackerNvmSubscriptionToken.contract_id,
@@ -123,7 +114,9 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         self.token_balance: int = 0
         self.wallet_balance: int = 0
         self._mech_payment_type: PaymentType = PaymentType.NATIVE
+        self._unknown_payment_type: Optional[str] = None
         self._mech_max_delivery_rate: Optional[int] = None
+        self._delivery_rate_bound: Optional[int] = None
         self._subscription_balance: Optional[int] = None
         self._nvm_balance: Optional[int] = None
         self._subscription_address: Optional[str] = None
@@ -164,10 +157,24 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
     @mech_payment_type.setter
     def mech_payment_type(self, payment_type: str) -> None:
         """Set the fetched mech payment type."""
+        self._unknown_payment_type = None
         try:
             self._mech_payment_type = PaymentType(payment_type)
         except ValueError:
+            self._unknown_payment_type = payment_type
             self.context.logger.warning(f"Unknown {payment_type=}.")
+
+    @property
+    def request_max_delivery_rate(self) -> Optional[int]:
+        """The requester's `maxDeliveryRate` for the on-chain request.
+
+        The bound `_price_within_bound` settled on, so the marketplace refuses
+        the request if the mech raises its rate before it is mined; the live
+        rate when no bound applies (legacy paths).
+        """
+        if self._delivery_rate_bound is not None:
+            return self._delivery_rate_bound
+        return self.mech_max_delivery_rate
 
     @property
     def using_native(self) -> bool:
@@ -879,7 +886,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             payment_type=self.mech_payment_type.value,
             response_timeout=self.mech_marketplace_config.response_timeout,
             chain_id=self.params.mech_chain_id,
-            max_delivery_rate=self.mech_max_delivery_rate,
+            max_delivery_rate=self.request_max_delivery_rate,
         )
         return status
 
@@ -967,8 +974,18 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         )
         return result
 
-    def _prepare_safe_tx(self) -> Generator[None, None, bool]:  # pragma: no cover
-        """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill."""
+    def _price_within_bound(self) -> Generator[None, None, bool]:
+        """Read the selected mech's payment type and price and check them against the bound.
+
+        The reads are the ones `_prepare_safe_tx` builds on, so it must run
+        first. On marketplace v2 the bound is the cap configured for the
+        mech's payment asset, lowered to the rate the consumer accepted when
+        approving the mech. A mech above it, in an uncapped asset, or with an
+        unknown payment type is penalized and skipped.
+
+        :yield: the contract reads.
+        :return: whether the request may proceed.
+        """
         initial_steps: Tuple[Callable[[], Generator[None, None, bool]], ...] = (
             self._fetch_and_validate_payment_type,
             self._get_price,
@@ -976,6 +993,38 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
         for step in initial_steps:
             yield from self.wait_for_condition_with_sleep(step)
 
+        if not self.should_use_marketplace_v2():
+            return True
+
+        rate = self.mech_max_delivery_rate
+        unknown = self._unknown_payment_type
+        payment_type_id = (
+            unknown if unknown is not None else self.mech_payment_type.value
+        )
+        bound = delivery_rate_bound(
+            self.priority_mech_address or "",
+            payment_type_id,
+            self.params.delivery_rate_caps,
+            self.synchronized_data.approved_mech_rates,
+        )
+        if bound is not None and rate is not None and rate <= bound:
+            self._delivery_rate_bound = bound
+            return True
+
+        asset = unknown if unknown is not None else self.mech_payment_type.name.lower()
+        self.context.logger.warning(
+            f"Skipping mech {self.priority_mech_address}: its delivery rate {rate} "
+            f"for payment type {asset!r} is above the bound ({bound})."
+        )
+        self.shared_state.penalize_mech(self.priority_mech_address)
+        self.shared_state.last_failure_reason = DELIVERY_RATE_ABOVE_CAP
+        return False
+
+    def _prepare_safe_tx(self) -> Generator[None, None, bool]:  # pragma: no cover
+        """Prepare a multisend safe tx for sending requests to a mech and return the hex for the tx settlement skill.
+
+        Assumes `_price_within_bound` has run, so the payment type and price are set.
+        """
         steps: List[Callable[[], Generator[None, None, bool]]] = []
         if self.using_nevermined:
             yield from self.set_total_nvm_balance()
@@ -1172,6 +1221,13 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
                 "No priority mech available this round; skipping request "
                 f"(last_failure_reason={self.shared_state.last_failure_reason!r})."
             )
+            with self.context.benchmark_tool.measure(self.behaviour_id).local():
+                payload = self._build_skip_payload()
+            yield from self.finish_behaviour(payload)
+            return
+
+        affordable = yield from self._price_within_bound()
+        if not affordable:
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
                 payload = self._build_skip_payload()
             yield from self.finish_behaviour(payload)
