@@ -30,6 +30,7 @@ from packages.valory.skills.abstract_round_abci.models import BaseParams
 from packages.valory.skills.abstract_round_abci.test_tools.base import DummyContext
 from packages.valory.skills.mech_interact_abci.models import (
     CHAIN_TO_NVM_CONFIG,
+    DEFAULT_MARKETPLACE_API_URL,
     MechMarketplaceConfig,
     MechParams,
     MechToolsSpecs,
@@ -718,6 +719,65 @@ class TestMechParamsLogsTermsNotice:
 
 
 MECH = "0x" + "aa" * 20
+
+
+class TestMechParamsMarketplaceApiUrl:
+    """`marketplace_api_url` is optional, so consumers that don't set it keep working."""
+
+    @staticmethod
+    def _params(**extra: Any) -> Any:
+        context = MagicMock()
+        kwargs: Dict[str, Any] = {
+            "skill_context": context,
+            "multisend_address": "0x" + "1" * 40,
+            "multisend_batch_size": 50,
+            "mech_contract_address": "0x" + "2" * 40,
+            "ipfs_address": "https://gateway.test/ipfs/",
+            "mech_chain_id": "gnosis",
+            "mech_wrapped_native_token_address": "0x" + "3" * 40,
+            "mech_interaction_sleep_time": 10,
+            "use_mech_marketplace": True,
+            "mech_marketplace_config": {
+                "mech_marketplace_address": "0x" + "4" * 40,
+                "response_timeout": 300,
+                "priority_mech_address": "0x" + "5" * 40,
+                "use_dynamic_mech_selection": False,
+            },
+            "use_offchain": False,
+            "offchain_deposit_target_calls": 10,
+            "agent_registry_address": "0x" + "6" * 40,
+            "use_acn_for_delivers": False,
+            "valid_mechs": [],
+            "penalize_mech_time_window": 3600,
+            "deliveries_lookback_days": 30,
+            "delivery_rate_caps": {"native": 10**16},
+        }
+        kwargs.update(extra)
+        seen: Dict[str, Any] = {}
+
+        def base_init(_self: Any, *_args: Any, **rest: Any) -> None:
+            seen.update(rest)
+
+        params = MechParams.__new__(MechParams)
+        with (
+            patch.object(MechParams, "context", new_callable=PropertyMock) as ctx,
+            patch.object(BaseParams, "__init__", base_init),
+            patch.object(MechParams, "validate_configuration"),
+        ):
+            ctx.return_value = context
+            MechParams.__init__(params, **kwargs)
+        return params, seen
+
+    def test_defaults_to_the_marketplace_api(self) -> None:
+        """Without the key, the public marketplace API is used."""
+        params, _ = self._params()
+        assert params.marketplace_api_url == DEFAULT_MARKETPLACE_API_URL
+
+    def test_a_configured_url_is_used_and_not_passed_on(self) -> None:
+        """The value is read here and does not reach the base params as an unknown kwarg."""
+        params, seen = self._params(marketplace_api_url="https://staging.example/api")
+        assert params.marketplace_api_url == "https://staging.example/api"
+        assert "marketplace_api_url" not in seen
 
 
 class TestDeliveryRateCaps:

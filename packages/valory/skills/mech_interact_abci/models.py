@@ -166,18 +166,43 @@ def delivery_rate_bound(
     return cap if accepted is None else min(cap, accepted)
 
 
+def priced_mechs_with_metadata(
+    unfiltered: List[Dict[str, Any]],
+) -> Tuple[MechsInfo, List[Any]]:
+    """Split the subgraph's mechs into those that can be used and the addresses without a price.
+
+    A mech listed without `maxDeliveryRate` cannot be bounded, so it is left out
+    instead of failing the whole batch; a mech without metadata has no tools.
+
+    :param unfiltered: the subgraph's mech entries.
+    :return: the usable mechs, and the addresses of those left out for having no price.
+    """
+    kept: MechsInfo = []
+    unpriced: List[Any] = []
+    for info in unfiltered:
+        if info.get("maxDeliveryRate") is None:
+            unpriced.append(info.get("address"))
+            continue
+        mech_info = MechInfo(**info)
+        if not mech_info.empty_metadata:
+            kept.append(mech_info)
+    return kept, unpriced
+
+
 class MechsSubgraph(ApiSpecs):
     """Specifies `ApiSpecs` with common functionality for the Mechs' subgraph."""
 
     def filter_info(
         self, unfiltered: List[Dict[str, Any]]
     ) -> MechsInfo:  # pragma: no cover
-        """Keep the mechs that have metadata; the rate bound is applied by the fetching behaviour."""
-        return [
-            mech_info
-            for info in unfiltered
-            if not (mech_info := MechInfo(**info)).empty_metadata
-        ]
+        """Keep the mechs that have metadata and a price; the rate bound is applied by the fetching behaviour."""
+        kept, unpriced = priced_mechs_with_metadata(unfiltered)
+        if unpriced:
+            self.context.logger.info(
+                f"Excluding {len(unpriced)} mech(s) the subgraph has no price for: "
+                f"{unpriced}"
+            )
+        return kept
 
     def process_response(
         self, response: HttpMessage
@@ -384,6 +409,9 @@ MECH_TERMS_URL = "https://www.valory.xyz/terms/mechs"
 IDENTIFICATION_ZONE = "mech.valory.xyz"
 
 
+DEFAULT_MARKETPLACE_API_URL = "https://marketplace.olas.network/api/erc8004"
+
+
 def terms_notice() -> str:
     """Build the Mech Terms notice logged once at startup.
 
@@ -480,6 +508,9 @@ class MechParams(BaseParams):
         )
         self.delivery_rate_caps: DeliveryRateCaps = parse_delivery_rate_caps(
             self._ensure("delivery_rate_caps", kwargs, Dict[str, int])
+        )
+        self.marketplace_api_url: str = kwargs.pop(
+            "marketplace_api_url", DEFAULT_MARKETPLACE_API_URL
         )
 
         super().__init__(*args, **kwargs)
