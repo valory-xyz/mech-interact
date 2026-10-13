@@ -84,7 +84,7 @@ def _card(**overrides: Any) -> Dict[str, Any]:
         "name": "Bob's mech",
         "skills": [{"name": "superforcaster"}, {"name": "factual_research"}],
         "provider": None,
-        "metadata": {"mechAddress": f"eip155:100:{MECH}"},
+        "metadata": {"serviceId": "3786", "mechAddress": f"eip155:100:{MECH}"},
     }
     card.update(overrides)
     return card
@@ -177,6 +177,20 @@ def test_a_mech_is_read_from_its_record_and_then_its_card() -> None:
     ]
 
 
+def test_a_second_mech_of_the_service_reads_the_card_naming_the_first() -> None:
+    """The card names only the service's first mech; it still describes this one."""
+    context = _Context()
+    results = _read(context)
+    context.answer(_record())
+    context.answer(
+        _card(
+            metadata={"serviceId": "3786", "mechAddress": "eip155:100:0x" + "ab" * 20}
+        )
+    )
+    assert results[0].card is CardStatus.READ
+    assert results[0].name == "Bob's mech"
+
+
 def test_a_card_with_a_provider_names_a_verified_operator() -> None:
     """The marketplace sets `provider` only when the operator's domain proof holds."""
     context = _Context()
@@ -198,7 +212,12 @@ def test_a_card_with_a_provider_names_a_verified_operator() -> None:
         ({"error": "Invalid network"}, 400, CardStatus.UNAVAILABLE),
         (["not", "an", "object"], 200, CardStatus.UNAVAILABLE),
         (
-            _card(metadata={"mechAddress": "eip155:100:0x" + "ab" * 20}),
+            _card(metadata={"serviceId": "9999", "mechAddress": f"eip155:100:{MECH}"}),
+            200,
+            CardStatus.UNAVAILABLE,
+        ),
+        (
+            _card(metadata={"serviceId": "3786", "mechAddress": f"eip155:137:{MECH}"}),
             200,
             CardStatus.UNAVAILABLE,
         ),

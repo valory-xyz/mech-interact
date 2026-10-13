@@ -109,7 +109,10 @@ class TestTheReaderOnTheRealSkill(FSMBehaviourBaseCase):
             {
                 "name": "Bob's mech",
                 "skills": [{"name": "superforcaster"}],
-                "metadata": {"mechAddress": f"eip155:100:{MECH}"},
+                "metadata": {
+                    "serviceId": str(SERVICE_ID),
+                    "mechAddress": f"eip155:100:{MECH}",
+                },
             }
         )
 

@@ -17,16 +17,7 @@
 #
 # ------------------------------------------------------------------------------
 
-"""Read what is published about one marketplace mech, from a handler.
-
-`read_mech` reads the marketplace subgraph record (price, payment type,
-service, delivery counters, creation time) and then the marketplace agent card
-(name, tools, operator verdict) through the HTTP client connection.
-`read_live_rate` reads the mech contract's `maxDeliveryRate` through the ledger
-connection. Every reply is answered by a callback registered under its
-request's nonce, so a handler never blocks. The module returns facts only: it
-keeps no record of approvals and writes no text for users.
-"""
+"""Read what is published about one marketplace mech from a handler, as facts only."""
 
 import enum
 import json
@@ -84,13 +75,7 @@ class RecordStatus(enum.Enum):
 
 
 class CardStatus(enum.Enum):
-    """What came of reading the mech's marketplace agent card.
-
-    `NOT_PUBLISHED` is the marketplace's 404: the service publishes no manifest,
-    so there is nothing to retry. `UNAVAILABLE` is anything a retry may fix: an
-    outage, a malformed answer, or a card that names another mech. `NOT_TRIED`
-    means the record was not found or names no service.
-    """
+    """What came of reading the agent card; only `UNAVAILABLE` may change on a retry."""
 
     READ = "read"
     NOT_PUBLISHED = "not_published"
@@ -100,11 +85,7 @@ class CardStatus(enum.Enum):
 
 @dataclass(frozen=True)
 class MechFacts:  # pylint: disable=too-many-instance-attributes
-    """What is published about a mech, read for one address.
-
-    Operator fields come only from a card whose `provider` is set, which the
-    marketplace does only when the operator's domain proof holds.
-    """
+    """What is published about a mech; operator fields only from a card whose `provider` is set."""
 
     address: str
     chain_id: Optional[int]
@@ -217,12 +198,23 @@ def _created_at(created: Any) -> Optional[datetime]:
         return None
 
 
-def card_names_mech(card: Dict[str, Any], address: str) -> bool:
-    """Whether the card's `metadata.mechAddress` ends with the address, case-insensitively."""
+def card_is_for_service(
+    card: Dict[str, Any], service_id: Optional[int], chain_id: Optional[int]
+) -> bool:
+    """Whether the card describes the mech's service on its chain.
+
+    A card names only its service's first mech, so it is matched by service
+    and chain, which also covers every other mech of that service.
+    """
     metadata = card.get("metadata")
-    mech_address = metadata.get("mechAddress") if isinstance(metadata, dict) else None
-    return isinstance(mech_address, str) and mech_address.lower().endswith(
-        address.lower()
+    if not isinstance(metadata, dict) or service_id is None:
+        return False
+    if _as_int(metadata.get("serviceId")) != service_id:
+        return False
+    mech_address = metadata.get("mechAddress")
+    return chain_id is None or (
+        isinstance(mech_address, str)
+        and mech_address.lower().startswith(f"eip155:{chain_id}:")
     )
 
 
@@ -260,7 +252,9 @@ def with_card(facts: MechFacts, status_code: Optional[int], card: Any) -> MechFa
     """
     if status_code == HTTP_NOT_FOUND:
         return replace(facts, card=CardStatus.NOT_PUBLISHED)
-    if not isinstance(card, dict) or not card_names_mech(card, facts.address):
+    if not isinstance(card, dict) or not card_is_for_service(
+        card, facts.service_id, facts.chain_id
+    ):
         return replace(facts, card=CardStatus.UNAVAILABLE)
     skills = card.get("skills")
     names = (

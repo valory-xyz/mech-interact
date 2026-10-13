@@ -84,21 +84,9 @@ Below, we describe the additional manual steps required to upgrade between diffe
 
 #### New features
 - New `mech_interact_abci.mech_reader` module for reading one mech from a
-  handler (a chat, an API endpoint), where the behaviour helpers are not
-  available. `read_mech(context, address, callback)` reads the marketplace
-  subgraph record (price, payment type, service, delivery counters,
-  creation time) and then the marketplace agent card (name, tools, operator
-  verdict) and calls back exactly once with `MechFacts`, also when a reply
-  cannot be parsed. `MechFacts.record` says whether the subgraph lists the
-  mech; `MechFacts.card` says whether the card was read, never published (the
-  marketplace's 404, nothing to retry) or unavailable (an outage or an
-  unusable answer, worth a retry). Card URLs use the marketplace's network
-  names (`op-mainnet`, `arbitrum-one`, `mode-mainnet`). `read_live_rate(context,
-  address, callback)` reads the mech contract's `maxDeliveryRate`. Both
-  register their callbacks under the request nonce in `context.requests`,
-  so the skill's existing HTTP and contract API handlers deliver the replies.
-  The module returns facts only: approvals and any text shown to users stay
-  with the consumer.
+  handler, where the behaviour helpers are not available: `read_mech` (the
+  subgraph record, then the marketplace agent card) and `read_live_rate`
+  (the contract's `maxDeliveryRate`). See the module for `MechFacts`.
 - New optional `marketplace_api_url` skill param (default
   `https://marketplace.olas.network/api/erc8004`), the root `read_mech`
   builds agent card URLs from.

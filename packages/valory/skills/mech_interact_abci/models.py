@@ -197,9 +197,10 @@ class MechsSubgraph(ApiSpecs):
     ) -> MechsInfo:  # pragma: no cover
         """Keep the mechs that have metadata and a price; the rate bound is applied by the fetching behaviour."""
         kept, unpriced = priced_mechs_with_metadata(unfiltered)
-        for address in unpriced:
+        if unpriced:
             self.context.logger.info(
-                f"Excluding mech {address}: the subgraph has no price for it."
+                f"Excluding {len(unpriced)} mech(s) the subgraph has no price for: "
+                f"{unpriced}"
             )
         return kept
 
@@ -408,7 +409,6 @@ MECH_TERMS_URL = "https://www.valory.xyz/terms/mechs"
 IDENTIFICATION_ZONE = "mech.valory.xyz"
 
 
-# The marketplace's ERC-8004 API; agent cards live under `<network>/ai-agents/<service id>`.
 DEFAULT_MARKETPLACE_API_URL = "https://marketplace.olas.network/api/erc8004"
 
 
