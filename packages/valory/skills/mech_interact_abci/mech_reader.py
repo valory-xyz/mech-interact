@@ -70,6 +70,11 @@ MECH_RECORD_QUERY = Template(
 )
 
 
+# The marketplace names some networks differently from the chain names; by chain id.
+MARKETPLACE_NETWORKS = {10: "op-mainnet", 42161: "arbitrum-one", 34443: "mode-mainnet"}
+HTTP_NOT_FOUND = 404
+
+
 class RecordStatus(enum.Enum):
     """Whether the marketplace subgraph lists the mech."""
 
@@ -78,21 +83,33 @@ class RecordStatus(enum.Enum):
     UNAVAILABLE = "unavailable"
 
 
+class CardStatus(enum.Enum):
+    """What came of reading the mech's marketplace agent card.
+
+    `NOT_PUBLISHED` is the marketplace's 404: the service publishes no manifest,
+    so there is nothing to retry. `UNAVAILABLE` is anything a retry may fix: an
+    outage, a malformed answer, or a card that names another mech. `NOT_TRIED`
+    means the record was not found or names no service.
+    """
+
+    READ = "read"
+    NOT_PUBLISHED = "not_published"
+    UNAVAILABLE = "unavailable"
+    NOT_TRIED = "not_tried"
+
+
 @dataclass(frozen=True)
 class MechFacts:  # pylint: disable=too-many-instance-attributes
     """What is published about a mech, read for one address.
 
-    `card_read` is false when the card could not be fetched, was not a JSON
-    object about this mech, or was not tried because the record was not found
-    or names no service. Operator fields come only from a card whose
-    `provider` is set, which the marketplace does only when the operator's
-    domain proof holds.
+    Operator fields come only from a card whose `provider` is set, which the
+    marketplace does only when the operator's domain proof holds.
     """
 
     address: str
     chain_id: Optional[int]
     record: RecordStatus
-    card_read: bool = False
+    card: CardStatus = CardStatus.NOT_TRIED
     payment_type: Optional[str] = None
     max_delivery_rate: Optional[int] = None
     service_id: Optional[int] = None
@@ -105,6 +122,11 @@ class MechFacts:  # pylint: disable=too-many-instance-attributes
     operator_name: Optional[str] = None
     operator_domain: Optional[str] = None
     operator_verified: bool = False
+
+    @property
+    def card_read(self) -> bool:
+        """Whether the card was read and is about this mech."""
+        return self.card is CardStatus.READ
 
 
 def clean_text(value: Any) -> Optional[str]:
@@ -138,9 +160,17 @@ def chain_id_of(network: str) -> Optional[int]:
         return None
 
 
+def marketplace_network(network: str) -> str:
+    """The marketplace's name for a chain, which differs from the chain name for some chains."""
+    return MARKETPLACE_NETWORKS.get(chain_id_of(network) or 0, network.lower())
+
+
 def agent_card_url(api_url: str, network: str, service_id: int) -> str:
-    """The marketplace agent card of the service on the network."""
-    return f"{api_url.rstrip('/')}/{network}/ai-agents/{service_id}/agent-card.json"
+    """The marketplace agent card of the service on the chain."""
+    return (
+        f"{api_url.rstrip('/')}/{marketplace_network(network)}/ai-agents/"
+        f"{service_id}/agent-card.json"
+    )
 
 
 def _as_int(value: Any) -> Optional[int]:
@@ -174,14 +204,17 @@ def _graph_data(message: Message) -> Optional[Dict[str, Any]]:
 
 
 def _created_at(created: Any) -> Optional[datetime]:
-    """Read the creation time from the subgraph's `createMeches` list, in UTC."""
+    """Read the creation time from the subgraph's `createMeches` list, in UTC, or `None`."""
     first = created[0] if isinstance(created, list) and created else None
     timestamp = (
         _as_int(first.get("blockTimestamp")) if isinstance(first, dict) else None
     )
     if timestamp is None or timestamp < 0:
         return None
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    try:
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def card_names_mech(card: Dict[str, Any], address: str) -> bool:
@@ -217,10 +250,18 @@ def read_record(address: str, chain_id: Optional[int], data: Any) -> MechFacts:
     )
 
 
-def with_card(facts: MechFacts, card: Any) -> MechFacts:
-    """Add the agent card's facts, or mark the card unread when it is not about this mech."""
+def with_card(facts: MechFacts, status_code: Optional[int], card: Any) -> MechFacts:
+    """Add the agent card's facts, or the reason it could not be read.
+
+    :param facts: the facts read from the subgraph record.
+    :param status_code: the HTTP status of the card request.
+    :param card: the decoded body of a successful card request, else `None`.
+    :return: the facts with the card's, and its status.
+    """
+    if status_code == HTTP_NOT_FOUND:
+        return replace(facts, card=CardStatus.NOT_PUBLISHED)
     if not isinstance(card, dict) or not card_names_mech(card, facts.address):
-        return facts
+        return replace(facts, card=CardStatus.UNAVAILABLE)
     skills = card.get("skills")
     names = (
         (skill.get("name") for skill in skills if isinstance(skill, dict))
@@ -233,7 +274,7 @@ def with_card(facts: MechFacts, card: Any) -> MechFacts:
     verified = isinstance(raw_provider, dict)
     return replace(
         facts,
-        card_read=True,
+        card=CardStatus.READ,
         name=clean_text(card.get("name")),
         tools=tools[:MAX_TOOLS],
         operator_name=clean_text(provider.get("organization")),
@@ -282,7 +323,8 @@ def read_mech(
 
     :param context: the skill context.
     :param address: the mech address.
-    :param callback: called once with what was read.
+    :param callback: called exactly once with what was read, also when a reply
+        cannot be parsed, so a handler waiting on it always answers.
     """
     address = address.lower()
     network = str(context.params.mech_chain_id).lower()
@@ -291,8 +333,27 @@ def read_mech(
         callback(MechFacts(address, chain_id, RecordStatus.NOT_INDEXED))
         return
 
+    def on_card(facts: MechFacts, reply: Message) -> None:
+        status_code = getattr(reply, "status_code", None)
+        try:
+            with_facts = with_card(facts, status_code, _json_body(reply))
+        except Exception as error:  # pylint: disable=broad-except
+            context.logger.warning(
+                f"Could not read the agent card of {address}: {error}"
+            )
+            with_facts = replace(facts, card=CardStatus.UNAVAILABLE)
+        if with_facts.card is CardStatus.UNAVAILABLE:
+            context.logger.warning(
+                f"The agent card of {address} could not be read (status {status_code})."
+            )
+        callback(with_facts)
+
     def on_record(reply: Message) -> None:
-        facts = read_record(address, chain_id, _graph_data(reply))
+        try:
+            facts = read_record(address, chain_id, _graph_data(reply))
+        except Exception as error:  # pylint: disable=broad-except
+            context.logger.warning(f"Could not read the record of {address}: {error}")
+            facts = MechFacts(address, chain_id, RecordStatus.UNAVAILABLE)
         if facts.record is not RecordStatus.FOUND or facts.service_id is None:
             callback(facts)
             return
@@ -301,7 +362,7 @@ def read_mech(
             agent_card_url(
                 context.params.marketplace_api_url, network, facts.service_id
             ),
-            lambda card_reply: callback(with_card(facts, _json_body(card_reply))),
+            lambda card_reply: on_card(facts, card_reply),
         )
 
     _send_http(

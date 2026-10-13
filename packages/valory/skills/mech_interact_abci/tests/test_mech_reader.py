@@ -33,6 +33,7 @@ from packages.valory.skills.abstract_round_abci.behaviour_utils import (
     LEDGER_API_ADDRESS,
 )
 from packages.valory.skills.mech_interact_abci.mech_reader import (
+    CardStatus,
     MAX_TOOLS,
     MechFacts,
     RecordStatus,
@@ -162,7 +163,7 @@ def test_a_mech_is_read_from_its_record_and_then_its_card() -> None:
             address=MECH,
             chain_id=100,
             record=RecordStatus.FOUND,
-            card_read=True,
+            card=CardStatus.READ,
             payment_type=NATIVE,
             max_delivery_rate=RATE,
             service_id=3786,
@@ -190,25 +191,31 @@ def test_a_card_with_a_provider_names_a_verified_operator() -> None:
 
 
 @pytest.mark.parametrize(
-    "body, status",
+    "body, status, card",
     [
-        ({"error": "No metadata found"}, 404),
-        ({"error": "Failed to fetch metadata from IPFS"}, 502),
-        (["not", "an", "object"], 200),
-        (_card(metadata={"mechAddress": "eip155:100:0x" + "ab" * 20}), 200),
-        (_card(metadata=None), 200),
+        ({"error": "No metadata found"}, 404, CardStatus.NOT_PUBLISHED),
+        ({"error": "Failed to fetch metadata from IPFS"}, 502, CardStatus.UNAVAILABLE),
+        ({"error": "Invalid network"}, 400, CardStatus.UNAVAILABLE),
+        (["not", "an", "object"], 200, CardStatus.UNAVAILABLE),
+        (
+            _card(metadata={"mechAddress": "eip155:100:0x" + "ab" * 20}),
+            200,
+            CardStatus.UNAVAILABLE,
+        ),
+        (_card(metadata=None), 200, CardStatus.UNAVAILABLE),
     ],
 )
-def test_a_card_that_is_missing_or_about_another_mech_is_not_read(
-    body: Any, status: int
+def test_a_card_that_is_missing_or_unusable_says_which(
+    body: Any, status: int, card: CardStatus
 ) -> None:
-    """The record's facts are kept and the card is marked unread."""
+    """Never published (nothing to retry) is told apart from anything a retry may fix."""
     context = _Context()
     results = _read(context)
     context.answer(_record())
     context.answer(body, status=status)
     facts = results[0]
     assert facts.record is RecordStatus.FOUND
+    assert facts.card is card
     assert facts.card_read is False
     assert (facts.name, facts.tools, facts.operator_verified) == (None, (), False)
     assert facts.max_delivery_rate == RATE
@@ -231,6 +238,7 @@ def test_without_a_record_no_card_is_read(
     results = _read(context)
     context.answer(body, status=status)
     assert results == [MechFacts(MECH, 100, record)]
+    assert results[0].card is CardStatus.NOT_TRIED
     assert len(context.sent) == 1
 
 
@@ -240,8 +248,58 @@ def test_a_record_without_a_service_is_returned_without_a_card() -> None:
     results = _read(context)
     context.answer(_record(service=None))
     assert results[0].record is RecordStatus.FOUND
-    assert results[0].card_read is False
+    assert results[0].card is CardStatus.NOT_TRIED
     assert len(context.sent) == 1
+
+
+@pytest.mark.parametrize("timestamp", [str(10**20), "-5", "soon"])
+def test_a_creation_time_out_of_range_reads_as_unknown(timestamp: str) -> None:
+    """A bad timestamp leaves the age unknown instead of stopping the reply."""
+    context = _Context()
+    results = _read(context)
+    record = _record()
+    record["data"]["createMeches"] = [{"blockTimestamp": timestamp}]
+    context.answer(record)
+    context.answer(_card())
+    assert len(results) == 1
+    assert results[0].created_at is None
+    assert results[0].card is CardStatus.READ
+
+
+def test_a_reply_that_cannot_be_parsed_still_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Whatever breaks while reading a reply, the caller is called back exactly once."""
+    from packages.valory.skills.mech_interact_abci import mech_reader
+
+    def broken(*_args: Any) -> MechFacts:
+        raise RuntimeError("unexpected shape")
+
+    monkeypatch.setattr(mech_reader, "read_record", broken)
+    context = _Context()
+    results = _read(context)
+    context.answer(_record())
+    assert results == [MechFacts(MECH, 100, RecordStatus.UNAVAILABLE)]
+    context.logger.warning.assert_called_once()
+
+
+def test_a_card_that_cannot_be_parsed_still_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure inside the card step keeps the record's facts and marks the card unavailable."""
+    from packages.valory.skills.mech_interact_abci import mech_reader
+
+    def broken(*_args: Any) -> MechFacts:
+        raise RuntimeError("unexpected shape")
+
+    monkeypatch.setattr(mech_reader, "with_card", broken)
+    context = _Context()
+    results = _read(context)
+    context.answer(_record())
+    context.answer(_card())
+    assert len(results) == 1
+    assert results[0].card is CardStatus.UNAVAILABLE
+    assert results[0].max_delivery_rate == RATE
 
 
 def test_a_null_price_and_odd_values_read_as_unknown() -> None:
@@ -352,6 +410,36 @@ def test_card_url_is_built_from_the_api_root() -> None:
     """A trailing slash on the configured root does not double up."""
     assert agent_card_url(MARKETPLACE_API + "/", "gnosis", 3786) == CARD_URL
     assert DEFAULT_MARKETPLACE_API_URL == "https://marketplace.olas.network/api/erc8004"
+
+
+@pytest.mark.parametrize(
+    "network, slug",
+    [
+        ("gnosis", "gnosis"),
+        ("Polygon", "polygon"),
+        ("base", "base"),
+        ("optimism", "op-mainnet"),
+        ("arbitrum_one", "arbitrum-one"),
+        ("mode", "mode-mainnet"),
+    ],
+)
+def test_card_url_uses_the_marketplace_network_name(network: str, slug: str) -> None:
+    """The marketplace rejects `optimism`, `arbitrum` and `mode` with a 400."""
+    assert agent_card_url(MARKETPLACE_API, network, 1) == (
+        f"{MARKETPLACE_API}/{slug}/ai-agents/1/agent-card.json"
+    )
+
+
+def test_an_optimism_mech_card_is_requested_under_op_mainnet() -> None:
+    """The slug reaches the request a consumer on Optimism sends."""
+    context = _Context()
+    context.params.mech_chain_id = "optimism"
+    results = _read(context)
+    context.answer(_record())
+    assert context.sent[1]["url"] == (
+        f"{MARKETPLACE_API}/op-mainnet/ai-agents/3786/agent-card.json"
+    )
+    assert results == []
 
 
 @pytest.mark.parametrize(

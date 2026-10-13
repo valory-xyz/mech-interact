@@ -88,7 +88,12 @@ Below, we describe the additional manual steps required to upgrade between diffe
   available. `read_mech(context, address, callback)` reads the marketplace
   subgraph record (price, payment type, service, delivery counters,
   creation time) and then the marketplace agent card (name, tools, operator
-  verdict) and calls back once with `MechFacts`. `read_live_rate(context,
+  verdict) and calls back exactly once with `MechFacts`, also when a reply
+  cannot be parsed. `MechFacts.record` says whether the subgraph lists the
+  mech; `MechFacts.card` says whether the card was read, never published (the
+  marketplace's 404, nothing to retry) or unavailable (an outage or an
+  unusable answer, worth a retry). Card URLs use the marketplace's network
+  names (`op-mainnet`, `arbitrum-one`, `mode-mainnet`). `read_live_rate(context,
   address, callback)` reads the mech contract's `maxDeliveryRate`. Both
   register their callbacks under the request nonce in `context.requests`,
   so the skill's existing HTTP and contract API handlers deliver the replies.
