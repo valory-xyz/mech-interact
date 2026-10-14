@@ -683,8 +683,8 @@ class TestLastFailureReason:
         assert result is not None
         assert behaviour._context.state.last_failure_reason is None
 
-    def test_writes_pinned_mechs_offline_when_pin_not_in_mech_info(self) -> None:
-        """Pinned addresses absent from this round's mech_info write `pinned_mechs_offline`."""
+    def test_a_pin_on_an_undiscovered_mech_does_not_fail_discovery(self) -> None:
+        """A pinned address absent from mech_info is ignored, with a warning naming it."""
         behaviour = _make_mech_info_behaviour()
         api = _setup_api(behaviour)
         api.process_response.return_value = ["tool_a"]
@@ -708,13 +708,15 @@ class TestLastFailureReason:
         ):
             result = _drive(behaviour.get_mechs_info())
 
-        assert result is None
-        assert behaviour._context.state.last_failure_reason == "pinned_mechs_offline"
+        assert result is not None
+        assert behaviour._context.state.last_failure_reason is None
+        warning = behaviour.context.logger.warning.call_args.args[0]
+        assert "not discovered ['0xb']" in warning
 
-    def test_writes_pinned_mechs_no_usable_tools_when_pinned_visible_but_no_tools(
+    def test_a_pin_on_a_mech_without_usable_tools_does_not_fail_discovery(
         self,
     ) -> None:
-        """Pinned mech visible but with an empty manifest writes `pinned_mechs_no_usable_tools`."""
+        """A pinned mech with an empty manifest is ignored, with a warning naming it."""
         behaviour = _make_mech_info_behaviour()
         api = _setup_api(behaviour)
         # First CID ("good") advertises tool_x; second CID ("pinned") has
@@ -746,11 +748,10 @@ class TestLastFailureReason:
         ):
             result = _drive(behaviour.get_mechs_info())
 
-        assert result is None
-        assert (
-            behaviour._context.state.last_failure_reason
-            == "pinned_mechs_no_usable_tools"
-        )
+        assert result is not None
+        assert behaviour._context.state.last_failure_reason is None
+        warning = behaviour.context.logger.warning.call_args.args[0]
+        assert "no usable tools ['0xpinned']" in warning
 
     def test_pinned_mech_in_mech_info_does_not_trip_pinned_mechs_offline(self) -> None:
         """When a pinned address IS visible, no failure reason is written."""

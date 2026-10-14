@@ -509,14 +509,26 @@ class SynchronizedData(TxSynchronizedData):
         return self._address_list("preferred_mechs")
 
     @property
+    def usable_selected_mechs(self) -> List[str]:
+        """Get the pinned mechs that were discovered with a usable tool (lowercase).
+
+        Empty when none is usable, so a pin that cannot be served restricts
+        nothing and selection carries on as if no mech were pinned.
+        """
+        usable = {
+            info.address.lower() for info in self.mechs_info if info.relevant_tools
+        }
+        return [mech for mech in self.selected_mechs if mech in usable]
+
+    @property
     def relevant_mechs_info(self) -> MechsInfo:
         """Get the relevant mechs' information.
 
         :return: mechs that serve the selected tool. If a consumer has pinned
-            a subset of mechs via `selected_mechs`, the result is further
-            restricted to that subset.
+            a subset of mechs via `selected_mechs` and one of them is usable,
+            the result is further restricted to the usable pinned mechs.
         """
-        pinned = self.selected_mechs
+        pinned = self.usable_selected_mechs
         return [
             info
             for info in self.mechs_info
@@ -528,14 +540,14 @@ class SynchronizedData(TxSynchronizedData):
     def mech_tools(self) -> Set[str]:
         """Get the mechs' tools.
 
-        Mirrors `relevant_mechs_info`: when `selected_mechs` is non-empty,
-        only tools served by pinned mechs are exposed. Otherwise the
+        Mirrors `relevant_mechs_info`: when a pinned mech is usable, only
+        tools served by usable pinned mechs are exposed. Otherwise the
         consumer could pick a tool that no eligible mech serves and the
         round would dead-end at request prep.
 
         :return: tool names served by at least one eligible mech.
         """
-        pinned = self.selected_mechs
+        pinned = self.usable_selected_mechs
         return {
             tool
             for mech_info in self.mechs_info

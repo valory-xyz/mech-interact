@@ -82,6 +82,15 @@ Below, we describe the additional manual steps required to upgrade between diffe
   `get_priority_mech_address` returns `None`. Operators relying on the
   old behavior should adjust their penalty windows accordingly.
 
+- A `selected_mechs` pin restricts selection only to pinned mechs that were
+  discovered with a usable tool (`usable_selected_mechs`). When none is,
+  the pin is ignored with a warning and selection carries on as if nothing
+  were pinned, instead of failing discovery every period; the pin itself is
+  kept and applies again once a pinned mech is usable. `last_failure_reason`
+  is no longer set to `pinned_mechs_offline` or
+  `pinned_mechs_no_usable_tools`. Consumers that filter by the pin should
+  apply the same rule.
+
 #### New features
 - New `mech_interact_abci.mech_reader` module for reading one mech from a
   handler, where the behaviour helpers are not available: `read_mech` (the

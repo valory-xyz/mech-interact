@@ -606,7 +606,7 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             self.context.logger.warning("No whitelisted priority mech found!")
             if ranked:
                 self.shared_state.last_failure_reason = "no_non_penalized_valid_mech"
-            elif self.synchronized_data.selected_mechs:
+            elif self.synchronized_data.usable_selected_mechs:
                 self.shared_state.last_failure_reason = "no_overlap_with_selected_mechs"
             else:
                 self.shared_state.last_failure_reason = "no_overlap_with_selected_tool"

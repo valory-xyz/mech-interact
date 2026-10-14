@@ -214,28 +214,15 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             self.shared_state.last_failure_reason = "no_usable_tools_in_mechs"
             return None
 
-        pinned = self.synchronized_data.selected_mechs
-        if pinned:
-            pinned_set = {addr.lower() for addr in pinned}
-            visible = {mech.address.lower() for mech in mech_info}
-            visible_pinned = pinned_set & visible
-            if not visible_pinned:
-                self.context.logger.warning(
-                    f"Pinned mechs {sorted(pinned_set)} are not visible in this "
-                    f"round's mech_info (visible: {sorted(visible)})."
-                )
-                self.shared_state.last_failure_reason = "pinned_mechs_offline"
-                return None
-            if not any(
-                mech.address.lower() in visible_pinned and mech.relevant_tools
-                for mech in mech_info
-            ):
-                self.context.logger.warning(
-                    f"Pinned mechs {sorted(visible_pinned)} are visible but "
-                    f"have no usable tools (manifest empty or unreachable)."
-                )
-                self.shared_state.last_failure_reason = "pinned_mechs_no_usable_tools"
-                return None
+        pinned = {addr.lower() for addr in self.synchronized_data.selected_mechs}
+        visible = {mech.address.lower() for mech in mech_info}
+        usable = {mech.address.lower() for mech in mech_info if mech.relevant_tools}
+        if pinned and not pinned & usable:
+            self.context.logger.warning(
+                "No pinned mech is usable, so mechs are selected as if none were "
+                f"pinned until one is: not discovered {sorted(pinned - visible)}, "
+                f"no usable tools {sorted(pinned & visible)}."
+            )
 
         # truncate the information, otherwise logs get too big
         serialized_info = json.dumps(mech_info, cls=MechInfoEncoder)

@@ -1100,6 +1100,60 @@ class TestSynchronizedData:
         )
         assert len(sd.relevant_mechs_info) == 2
 
+    @staticmethod
+    def _two_mechs(second_tools: List[str]) -> str:
+        """The first mech serves tool_a and tool_b; the second's tools are given."""
+        base = {
+            "service": {"metadata": [{"metadata": "m"}], "deliveries": []},
+            "karma": "1",
+            "receivedRequests": "1",
+            "selfDeliveredFromReceived": "1",
+            "maxDeliveryRate": "1",
+        }
+        return json.dumps(
+            [
+                {
+                    **base,
+                    "id": "1",
+                    "address": MECH_1,
+                    "relevant_tools": ["tool_a", "tool_b"],
+                },
+                {**base, "id": "2", "address": MECH_2, "relevant_tools": second_tools},
+            ]
+        )
+
+    @pytest.mark.parametrize(
+        "pin, second_tools, usable, relevant_ids, tools",
+        [
+            ([MECH_2], ["tool_a"], [MECH_2], ["2"], {"tool_a"}),
+            ([MECH_2], [], [], ["1"], {"tool_a", "tool_b"}),
+            (["0x" + "9" * 40], ["tool_a"], [], ["1", "2"], {"tool_a", "tool_b"}),
+            ([MECH_2, "0x" + "9" * 40], ["tool_a"], [MECH_2], ["2"], {"tool_a"}),
+            ([], ["tool_a"], [], ["1", "2"], {"tool_a", "tool_b"}),
+        ],
+    )
+    def test_only_a_usable_pin_restricts_selection(
+        self,
+        pin: List[str],
+        second_tools: List[str],
+        usable: List[str],
+        relevant_ids: List[str],
+        tools: set,
+    ) -> None:
+        """A pinned mech restricts selection only when discovered with a usable tool.
+
+        A pin on an undiscovered mech, or on one without usable tools, is
+        ignored, so the mechs and tools available are as if nothing were pinned.
+        """
+        sd = _make_synced_data(
+            mechs_info=self._two_mechs(second_tools),
+            mech_tool="tool_a",
+            selected_mechs=json.dumps(pin),
+        )
+        assert sd.usable_selected_mechs == usable
+        assert [info.id for info in sd.relevant_mechs_info] == relevant_ids
+        assert sd.mech_tools == tools
+
     def test_relevant_mechs_info_pin_lookup_is_case_insensitive(self) -> None:
         """Pinning with mixed-case address still matches lowercase mech addresses."""
         info_data = [
