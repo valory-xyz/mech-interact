@@ -20,7 +20,7 @@
 """Tests for the request behaviour module."""
 
 from types import SimpleNamespace
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Generator, List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -334,7 +334,7 @@ class TestGetPriorityMechAddress:
 
         mock_synced = MagicMock()
         mock_synced.ranked_mechs_addresses = ["0xpinned"]
-        mock_synced.selected_mechs = ["0xpinned"]
+        mock_synced.usable_selected_mechs = ["0xpinned"]
 
         mock_shared = MagicMock()
         mock_shared.penalized_mechs = {"0xpinned"}
@@ -363,7 +363,7 @@ class TestGetPriorityMechAddress:
 
         mock_synced = MagicMock()
         mock_synced.ranked_mechs_addresses = []
-        mock_synced.selected_mechs = ["0xpinned"]
+        mock_synced.usable_selected_mechs = ["0xpinned"]
 
         mock_shared = MagicMock()
         mock_shared.penalized_mechs = set()
@@ -379,11 +379,15 @@ class TestGetPriorityMechAddress:
         assert result is None
         assert mock_shared.last_failure_reason == "no_overlap_with_selected_mechs"
 
+    @pytest.mark.parametrize("pinned", [[], ["0xpinned"]])
     @patch.object(MechRequestBehaviour, "should_use_marketplace_v2", return_value=True)
     def test_v2_dynamic_writes_no_overlap_with_selected_tool_when_no_pin(
-        self, _mock: MagicMock
+        self, _mock: MagicMock, pinned: List[str]
     ) -> None:
-        """No pin + no mech serves the chosen tool writes `no_overlap_with_selected_tool`."""
+        """No usable pin + no mech serves the chosen tool writes `no_overlap_with_selected_tool`.
+
+        A pin on mechs that are not usable is ignored, so it is not to blame.
+        """
         behaviour = _make_request_behaviour()
         behaviour._context.params.use_mech_marketplace = True
         behaviour._context.params.mech_marketplace_config.use_dynamic_mech_selection = (
@@ -392,7 +396,8 @@ class TestGetPriorityMechAddress:
 
         mock_synced = MagicMock()
         mock_synced.ranked_mechs_addresses = []
-        mock_synced.selected_mechs = []
+        mock_synced.selected_mechs = pinned
+        mock_synced.usable_selected_mechs = []
 
         mock_shared = MagicMock()
         mock_shared.penalized_mechs = set()
