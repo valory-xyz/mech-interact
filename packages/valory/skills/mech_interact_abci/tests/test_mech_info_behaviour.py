@@ -27,7 +27,9 @@ import pytest
 
 from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
     CID_PREFIX,
+    MAX_TOOLS_PER_MECH,
     MechInformationBehaviour,
+    manifest_tools,
 )
 from packages.valory.skills.mech_interact_abci.graph_tooling.requests import FetchStatus
 from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
@@ -134,6 +136,39 @@ class TestSetMechAgentSpecs:
 
         expected_url = "https://ipfs.io/" + CID_PREFIX + "abc123"
         assert mock_api.url == expected_url
+
+
+class TestManifestTools:
+    """Only short lowercase identifiers from a manifest's ``tools`` list are used."""
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            (
+                ["Prediction-Online", "superforcaster"],
+                {"prediction-online", "superforcaster"},
+            ),
+            (["a.b_c-1", " padded "], {"a.b_c-1", "padded"}),
+            (["dup", "DUP", "dup"], {"dup"}),
+            (
+                ["has space", "a::b", "a/b", "line\nbreak", "-lead", "x" * 65],
+                set(),
+            ),
+            (["ok", 5, None, {"name": "x"}, "x" * 64], {"ok", "x" * 64}),
+            ({"tools": ["x"]}, set()),
+            ("superforcaster", set()),
+            (None, set()),
+            ([], set()),
+        ],
+    )
+    def test_names_are_bounded_identifiers(self, raw: Any, expected: set) -> None:
+        """Entries outside the identifier pattern, and non-list values, contribute nothing."""
+        assert manifest_tools(raw) == expected
+
+    def test_at_most_max_tools_per_mech_are_kept(self) -> None:
+        """The first distinct names up to the cap are kept, in order."""
+        raw = [f"tool-{i}" for i in range(MAX_TOOLS_PER_MECH + 10)]
+        assert manifest_tools(raw) == {f"tool-{i}" for i in range(MAX_TOOLS_PER_MECH)}
 
 
 class TestPopulateTools:
@@ -296,7 +331,7 @@ class TestPopulateTools:
         assert "0xempty" in behaviour._failed_mechs
         assert mech.relevant_tools == set()
         warnings = behaviour.context.logger.warning.call_args_list
-        assert any("empty" in str(call) for call in warnings)
+        assert any("no usable tools" in str(call) for call in warnings)
         api.reset_retries.assert_called_once()
 
 

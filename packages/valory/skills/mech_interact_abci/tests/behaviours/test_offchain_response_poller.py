@@ -27,7 +27,7 @@ of canned responses and assert the terminal snapshot the loop emits.
 
 import json
 from types import SimpleNamespace
-from typing import Any, List
+from typing import Any, List, Optional, Tuple
 
 import pytest
 
@@ -68,6 +68,13 @@ class _StubBehaviour:
             mech_marketplace_config=SimpleNamespace(
                 offchain_poll_interval_seconds=poll_interval,
                 offchain_poll_timeout_seconds=poll_budget,
+            ),
+            unanswered_mech_penalty_window=UNANSWERED_PENALTY_WINDOW,
+        )
+        self.penalties: List[Tuple[str, Optional[int]]] = []
+        self.shared_state = SimpleNamespace(
+            penalize_mech=lambda address, window=None: self.penalties.append(
+                (address, window)
             )
         )
         self.synchronized_data = SimpleNamespace(
@@ -110,6 +117,60 @@ def _pending_dict() -> dict:
         "ipfs_data": "{}",
         "metadata_nonce": "meta-nonce",
     }
+
+
+UNANSWERED_PENALTY_WINDOW = 10800
+
+
+class TestAMechThatGivesNoAnswerIsSetAside:
+    """A mech whose response cannot be fetched sits out for the longer window."""
+
+    @pytest.mark.parametrize(
+        "http_responses, poll_budget, penalized",
+        [
+            ([_http_response(404) for _ in range(5)], 100.0, True),
+            ([_http_response(503) for _ in range(5)], 100.0, True),
+            ([_http_response(200, b'{"status":"processing"}')], 0.0, True),
+            (
+                [
+                    _http_response(
+                        200,
+                        json.dumps(
+                            {"status": "ok", "response": {"result": "r"}}
+                        ).encode(),
+                    )
+                ],
+                100.0,
+                False,
+            ),
+            (
+                [
+                    _http_response(
+                        200,
+                        json.dumps(
+                            {"status": "rejected", "error": "tool failed"}
+                        ).encode(),
+                    )
+                ],
+                100.0,
+                False,
+            ),
+        ],
+    )
+    def test_only_an_unanswered_request_penalizes_the_mech(
+        self, http_responses: List[Any], poll_budget: float, penalized: bool
+    ) -> None:
+        """No answer at all penalizes; an answer, even a refusal, does not."""
+        stub = _StubBehaviour(
+            http_responses=http_responses,
+            poll_budget=poll_budget,
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        expected = [("0x" + "aa" * 20, UNANSWERED_PENALTY_WINDOW)] if penalized else []
+        assert stub.penalties == expected
 
 
 class TestRunFallbackPlaceholder:

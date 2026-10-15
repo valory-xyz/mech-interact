@@ -464,6 +464,28 @@ class TestSharedStatePenalization:
         with self._patch_time_and_params(state, timestamp=1100):
             assert SAMPLE_MECH_ADDRESS in state.penalized_mechs
 
+    def test_a_penalty_can_outlast_the_default_window(self) -> None:
+        """A penalty given its own window lasts that long; others keep the default."""
+        state = self._make_shared_state()
+        with self._patch_timestamp(state, timestamp=1000):
+            state.penalize_mech(SAMPLE_MECH_ADDRESS, window=1000)
+            state.penalize_mech(SAMPLE_MECH_ADDRESS_2)
+
+        # default window is 300: the second has expired, the first has not
+        with self._patch_time_and_params(state, timestamp=1500):
+            assert list(state.penalized_mechs) == [SAMPLE_MECH_ADDRESS]
+        with self._patch_time_and_params(state, timestamp=2000):
+            assert state.penalized_mechs == {}
+
+    def test_a_default_penalty_replaces_a_longer_one(self) -> None:
+        """Penalizing again without a window falls back to the default length."""
+        state = self._make_shared_state()
+        with self._patch_timestamp(state, timestamp=1000):
+            state.penalize_mech(SAMPLE_MECH_ADDRESS, window=1000)
+            state.penalize_mech(SAMPLE_MECH_ADDRESS)
+        with self._patch_time_and_params(state, timestamp=1500):
+            assert state.penalized_mechs == {}
+
     def test_penalized_mechs_sorted_by_time(self) -> None:
         """Test that penalized mechs are sorted by penalization time."""
         state = self._make_shared_state()

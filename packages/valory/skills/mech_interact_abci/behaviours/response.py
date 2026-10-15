@@ -466,13 +466,16 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             return res
 
         artifacts = result_json.get(self.ARTIFACTS_KEY, None)
-        if not artifacts:
+        if not artifacts or not isinstance(artifacts, list):
             return res
 
         # For large responses with artifacts, create a summary to avoid consensus payload size issues
         artifact_count = len(artifacts)
         total_size = sum(
-            len(artifact.get(self.BASE64_KEY, "")) for artifact in artifacts
+            len(artifact[self.BASE64_KEY])
+            for artifact in artifacts
+            if isinstance(artifact, dict)
+            and isinstance(artifact.get(self.BASE64_KEY), str)
         )
 
         # Create a summary that doesn't include the full base64 data
