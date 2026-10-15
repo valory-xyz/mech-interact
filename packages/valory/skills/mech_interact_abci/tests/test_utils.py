@@ -20,6 +20,7 @@
 """Tests for the utils module."""
 
 import json
+import time
 
 import pytest
 
@@ -27,7 +28,15 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
     MechRequest,
 )
-from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
+from packages.valory.skills.mech_interact_abci.utils import (
+    DataclassEncoder,
+    MAX_JSON_DEPTH,
+    json_depth_exceeds,
+    loads_bounded,
+)
+
+AT_LIMIT = "[" * MAX_JSON_DEPTH + "]" * MAX_JSON_DEPTH
+OVER_LIMIT = "[" * (MAX_JSON_DEPTH + 1) + "]" * (MAX_JSON_DEPTH + 1)
 
 
 class TestDataclassEncoder:
@@ -76,3 +85,66 @@ class TestDataclassEncoder:
         assert len(parsed) == 2
         assert parsed[0]["nonce"] == "n1"
         assert parsed[1]["nonce"] == "n2"
+
+
+class TestJsonDepthExceeds:
+    """Tests for json_depth_exceeds."""
+
+    @pytest.mark.parametrize(
+        "text, exceeds",
+        [
+            (AT_LIMIT, False),
+            (OVER_LIMIT, True),
+            (OVER_LIMIT.encode(), True),
+            ("{" * (MAX_JSON_DEPTH + 1), True),
+            ('{"a": "' + "[" * 1_000 + '"}', False),
+            ('["\\"' + "[" * 1_000 + '"]', False),
+            ("[" * 50 + "]" * 50 + "[" * 50 + "]" * 50, False),
+            ("", False),
+            ("plain text", False),
+            ("]]]]", False),
+            ('["' + "[" * 1_000, False),
+        ],
+        ids=[
+            "at_limit",
+            "over_limit",
+            "over_limit_bytes",
+            "unclosed_objects",
+            "brackets_in_string",
+            "brackets_after_escaped_quote",
+            "siblings_not_nested",
+            "empty",
+            "no_brackets",
+            "only_closing",
+            "brackets_in_unclosed_string",
+        ],
+    )
+    def test_counts_only_nesting_outside_strings(
+        self, text: str, exceeds: bool
+    ) -> None:
+        """Depth is the deepest open bracket, ignoring brackets in strings."""
+        assert json_depth_exceeds(text) is exceeds
+
+
+def test_an_unclosed_string_is_read_in_linear_time() -> None:
+    """Escaped quotes in a string that never closes are scanned once, not per quote."""
+    text = '"' + '\\"' * 200_000
+    started = time.monotonic()
+    assert json_depth_exceeds(text) is False
+    assert time.monotonic() - started < 1.0
+
+
+class TestLoadsBounded:
+    """Tests for loads_bounded."""
+
+    def test_parses_a_document_within_the_limit(self) -> None:
+        """A document at the limit parses as json.loads would."""
+        assert loads_bounded(AT_LIMIT) == json.loads(AT_LIMIT)
+
+    @pytest.mark.parametrize(
+        "text", [OVER_LIMIT, "[" * 100_000 + "]" * 100_000], ids=["over", "deep"]
+    )
+    def test_refuses_a_document_over_the_limit(self, text: str) -> None:
+        """A document nested past the limit raises ValueError before parsing."""
+        with pytest.raises(ValueError, match="nested deeper"):
+            loads_bounded(text)

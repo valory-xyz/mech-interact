@@ -44,6 +44,7 @@ from packages.valory.skills.abstract_round_abci.models import (
 from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
 from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
 from packages.valory.skills.mech_interact_abci.states.base import MechInfo, MechsInfo
+from packages.valory.skills.mech_interact_abci.utils import json_depth_exceeds
 
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
@@ -59,6 +60,10 @@ class MechBodySpecs(ApiSpecs):
 
     def process_response(self, response: HttpMessage) -> Any:
         """Process the response; a body the JSON parser rejects is unusable."""
+        body = getattr(response, "body", None)
+        if isinstance(body, (bytes, str)) and json_depth_exceeds(body):
+            self.context.logger.error("Could not parse the response body!")
+            return None
         try:
             return super().process_response(response)
         except (ValueError, RecursionError):

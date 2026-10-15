@@ -42,6 +42,7 @@ from packages.valory.skills.mech_interact_abci.states.base import MechInfoEncode
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
     MechInformationRound,
 )
+from packages.valory.skills.mech_interact_abci.utils import loads_bounded
 
 CID_PREFIX = "f01701220"
 
@@ -196,7 +197,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         if not body:
             return None
         try:
-            payload = json.loads(body)
+            payload = loads_bounded(body)
         except (TypeError, ValueError, RecursionError):
             return None
         if not isinstance(payload, dict):

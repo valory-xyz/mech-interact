@@ -43,7 +43,10 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     MechRequest,
 )
 from packages.valory.skills.mech_interact_abci.states.response import MechResponseRound
-from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
+from packages.valory.skills.mech_interact_abci.utils import (
+    DataclassEncoder,
+    loads_bounded,
+)
 
 IPFS_HASH_PREFIX = f"{V1_HEX_PREFIX}701220"
 HEX_PREFIX_LENGTH = 2
@@ -458,7 +461,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         :return: processed response or original if no special handling needed
         """
         try:
-            result_json = json.loads(res)
+            result_json = loads_bounded(res)
         except (TypeError, ValueError, RecursionError):
             return res
 
