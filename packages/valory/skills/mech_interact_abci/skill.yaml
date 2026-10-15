@@ -68,8 +68,8 @@ fingerprint:
   tests/test_request_behaviour.py: bafybeicqrun35jgkxsilj5cypqcyv26oitzgh7m7e4g6djumeegar2r6ru
   tests/test_response_behaviour.py: bafybeidzvswo6blksnvtmggq33b34aafi4k7rd5dq7hmng6xnjh3wud4ta
   tests/test_rounds.py: bafybeie5qgtkqtbrxvnur475fysm3nkmq6hfd46hjlhid4kppjg5uqzise
-  tests/test_utils.py: bafybeicjaqn3yhbvsjeupdvj2a5nc76bf62ytorkr7zhw55ftgqbcfsabi
-  utils.py: bafybeiarwyu2xojcmzivv56dkp4wau2hbk74i4oxxonjkzczjnqlrlmia4
+  tests/test_utils.py: bafybeicxcxdvlxkbt3m7wmdtlx5px5l6ao6btrf3kii5m5c22s5wqpwzlu
+  utils.py: bafybeihgbk3ttlcsx6ciysyrkmtrnvlwwftyfkbw4zabzxyeg5i2clbiqm
 fingerprint_ignore_patterns: []
 connections: []
 contracts:
