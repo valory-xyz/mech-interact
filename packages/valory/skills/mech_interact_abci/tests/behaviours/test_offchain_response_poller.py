@@ -27,7 +27,7 @@ of canned responses and assert the terminal snapshot the loop emits.
 
 import json
 from types import SimpleNamespace
-from typing import Any, List, Optional, Tuple
+from typing import Any, List
 
 import pytest
 
@@ -69,14 +69,9 @@ class _StubBehaviour:
                 offchain_poll_interval_seconds=poll_interval,
                 offchain_poll_timeout_seconds=poll_budget,
             ),
-            unanswered_mech_penalty_window=UNANSWERED_PENALTY_WINDOW,
         )
-        self.penalties: List[Tuple[str, Optional[int]]] = []
-        self.shared_state = SimpleNamespace(
-            penalize_mech=lambda address, window=None: self.penalties.append(
-                (address, window)
-            )
-        )
+        self.penalties: List[str] = []
+        self.shared_state = SimpleNamespace(penalize_mech=self.penalties.append)
         self.synchronized_data = SimpleNamespace(
             offchain_pending_request=pending,
             mech_responses=mech_responses if mech_responses is not None else [],
@@ -119,11 +114,8 @@ def _pending_dict() -> dict:
     }
 
 
-UNANSWERED_PENALTY_WINDOW = 10800
-
-
 class TestAMechThatGivesNoAnswerIsSetAside:
-    """A mech whose response cannot be fetched sits out for the longer window."""
+    """A mech whose response cannot be fetched is penalized."""
 
     @pytest.mark.parametrize(
         "http_responses, poll_budget, penalized",
@@ -169,7 +161,7 @@ class TestAMechThatGivesNoAnswerIsSetAside:
         )
         _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
 
-        expected = [("0x" + "aa" * 20, UNANSWERED_PENALTY_WINDOW)] if penalized else []
+        expected = ["0x" + "aa" * 20] if penalized else []
         assert stub.penalties == expected
 
 
@@ -276,6 +268,19 @@ class TestPollUntilTerminal:
                 _http_response(200, b'{"status":"processing"}'),
                 _http_response(503),
                 _http_response(503),
+                _http_response(200, b'{"status":"ok","response":{"result":"answer"}}'),
+            ],
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
+        assert snapshot.status == "ok"
+        assert snapshot.result == "answer"
+
+    def test_body_the_parser_rejects_is_still_processing(self) -> None:
+        """A 200 whose JSON is too deep to parse is ignored, not fatal."""
+        stub = _StubBehaviour(
+            http_responses=[
+                _http_response(200, b"[" * 100_000 + b"]" * 100_000),
                 _http_response(200, b'{"status":"ok","response":{"result":"answer"}}'),
             ],
         )

@@ -147,12 +147,11 @@ class OffchainResponsePoller:
 
         self._apply_snapshot(target, snapshot)
         if snapshot.status != "ok" and snapshot.error in UNANSWERED_ERRORS:
-            window = self._b.params.unanswered_mech_penalty_window
             self._logger.warning(
-                f"Penalizing mech {pending.mech_address} for {window}s: its "
-                f"off-chain response could not be fetched ({snapshot.error})."
+                f"Penalizing mech {pending.mech_address}: its off-chain "
+                f"response could not be fetched ({snapshot.error})."
             )
-            self._b.shared_state.penalize_mech(pending.mech_address, window)
+            self._b.shared_state.penalize_mech(pending.mech_address)
         return responses
 
     # ---------- polling loop -----------------------------------------------
@@ -293,7 +292,7 @@ class OffchainResponsePoller:
             return _PollSnapshot(status="processing")
         try:
             payload = json.loads(body_bytes) if body_bytes else {}
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             self._logger.warning(
                 "Offchain poll returned a non-JSON body; ignoring and retrying."
             )

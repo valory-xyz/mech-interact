@@ -316,6 +316,23 @@ class TestPopulateTools:
         assert result is True
         assert mech.http_url is None
 
+    def test_http_url_stays_none_on_manifest_too_deep_to_parse(self) -> None:
+        """A manifest nested deeper than the parser follows leaves ``http_url=None``."""
+        from types import SimpleNamespace
+
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour)
+        api.process_response.return_value = ["tool_a"]
+
+        http_message = SimpleNamespace(body=b"[" * 100_000 + b"]" * 100_000)
+        _wire_get_http_response(behaviour, [http_message])
+
+        mech = _make_mech_info(relevant_tools=set())
+        result = _drive(behaviour.populate_tools([mech]))
+
+        assert result is True
+        assert mech.http_url is None
+
     def test_quarantines_on_empty_tools(self) -> None:
         """Empty tools list is deterministic per-CID; mech is quarantined."""
         behaviour = _make_mech_info_behaviour()

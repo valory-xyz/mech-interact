@@ -197,7 +197,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             return None
         try:
             payload = json.loads(body)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             return None
         if not isinstance(payload, dict):
             return None

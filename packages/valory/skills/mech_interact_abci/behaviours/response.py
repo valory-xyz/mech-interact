@@ -459,7 +459,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         """
         try:
             result_json = json.loads(res)
-        except (json.JSONDecodeError, TypeError):
+        except (TypeError, ValueError, RecursionError):
             return res
 
         if not isinstance(result_json, dict):

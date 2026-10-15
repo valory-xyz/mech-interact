@@ -54,7 +54,19 @@ PLAN_DID_PREFIX = "did:nv:"
 Ox = "0x"
 
 
-class MechToolsSpecs(ApiSpecs):
+class MechBodySpecs(ApiSpecs):
+    """ApiSpecs for bodies a mech publishes, which may be of any shape."""
+
+    def process_response(self, response: HttpMessage) -> Any:
+        """Process the response; a body the JSON parser rejects is unusable."""
+        try:
+            return super().process_response(response)
+        except (ValueError, RecursionError):
+            self.context.logger.error("Could not parse the response body!")
+            return None
+
+
+class MechToolsSpecs(MechBodySpecs):
     """A model that wraps ApiSpecs for the Mech agent's tools specifications."""
 
     # Substrings (case-insensitive) in a 5xx response body that indicate the
@@ -294,7 +306,7 @@ CHAIN_TO_PRICE_TOKEN = {
 }
 
 
-class MechResponseSpecs(ApiSpecs):
+class MechResponseSpecs(MechBodySpecs):
     """A model that wraps ApiSpecs for the Mech's response specifications."""
 
 
@@ -409,8 +421,6 @@ MECH_TERMS_URL = "https://www.valory.xyz/terms/mechs"
 IDENTIFICATION_ZONE = "mech.valory.xyz"
 
 
-# Seconds a mech whose off-chain response could not be fetched sits out.
-DEFAULT_UNANSWERED_MECH_PENALTY_WINDOW = 3 * 60 * 60
 DEFAULT_MARKETPLACE_API_URL = "https://marketplace.olas.network/api/erc8004"
 
 
@@ -510,9 +520,6 @@ class MechParams(BaseParams):
         )
         self.delivery_rate_caps: DeliveryRateCaps = parse_delivery_rate_caps(
             self._ensure("delivery_rate_caps", kwargs, Dict[str, int])
-        )
-        self.unanswered_mech_penalty_window: int = kwargs.pop(
-            "unanswered_mech_penalty_window", DEFAULT_UNANSWERED_MECH_PENALTY_WINDOW
         )
         self.marketplace_api_url: str = kwargs.pop(
             "marketplace_api_url", DEFAULT_MARKETPLACE_API_URL
@@ -627,8 +634,6 @@ class SharedState(BaseSharedState):
         super().__init__(*args, skill_context=skill_context, **kwargs)
         # defined here so developers can penalize mechs (e.g., based on the response) to lower their ranking
         self._penalized_mechs: Dict[str, int] = {}
-        # penalty length per mech, when it is not `penalize_mech_time_window`
-        self._penalty_windows: Dict[str, int] = {}
         self.last_called_mech: Optional[str] = None
         self.last_failure_reason: Optional[str] = None
 
@@ -652,26 +657,15 @@ class SharedState(BaseSharedState):
                 (
                     (addr, ts)
                     for addr, ts in self._penalized_mechs.items()
-                    if now - ts
-                    < self._penalty_windows.get(
-                        addr, self.params.penalize_mech_time_window
-                    )
+                    if now - ts < self.params.penalize_mech_time_window
                 ),
                 key=lambda x: x[1],
             )
         )
 
-    def penalize_mech(self, mech_address: str, window: Optional[int] = None) -> None:
-        """Penalize a mech for `window` seconds, `penalize_mech_time_window` by default.
-
-        :param mech_address: the mech to penalize.
-        :param window: how long the penalty lasts, in seconds.
-        """
+    def penalize_mech(self, mech_address: str) -> None:
+        """Penalize a mech."""
         self._penalized_mechs[mech_address] = self.synced_timestamp
-        if window is None:
-            self._penalty_windows.pop(mech_address, None)
-        else:
-            self._penalty_windows[mech_address] = window
 
     def penalize_last_called_mech(self) -> None:
         """Penalize the last called mech."""

@@ -482,7 +482,7 @@ def parse_payment_challenge(body: bytes) -> Optional[PaymentChallenge]:
         return None
     try:
         payload = json.loads(body)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None
@@ -590,7 +590,7 @@ def _is_nonce_rejection(body: Optional[bytes]) -> bool:
         return False
     try:
         reason = json.loads(body).get("reason", "")
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, RecursionError):
         return False
     if not isinstance(reason, str):
         return False

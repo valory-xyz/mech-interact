@@ -96,9 +96,7 @@ Below, we describe the additional manual steps required to upgrade between diffe
   ignored, and a manifest with none is treated like an empty one.
 - A mech whose off-chain response cannot be fetched (`not_found`,
   `poll_timeout`, `server_unavailable`) is penalized for
-  `unanswered_mech_penalty_window` seconds (default 10800, read with a
-  default so existing overlays need no change). `SharedState.penalize_mech`
-  takes an optional `window`.
+  `penalize_mech_time_window`, like other failing mechs.
 
 #### New features
 - New `mech_interact_abci.mech_reader` module for reading one mech from a

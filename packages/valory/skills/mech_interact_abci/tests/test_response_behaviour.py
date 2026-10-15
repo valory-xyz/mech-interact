@@ -114,6 +114,14 @@ class TestProcessResponseWithArtifacts:
         behaviour = _make_response_behaviour()
         assert behaviour._process_response_with_artifacts("plain text") == "plain text"
 
+    @pytest.mark.parametrize(
+        "raw", ["[" * 100_000 + "]" * 100_000, "1" + "0" * 5_000], ids=["deep", "long"]
+    )
+    def test_json_the_parser_rejects_returns_original(self, raw: str) -> None:
+        """JSON too deep or too long to parse is returned unchanged."""
+        behaviour = _make_response_behaviour()
+        assert behaviour._process_response_with_artifacts(raw) == raw
+
     def test_non_dict_json_returns_original(self) -> None:
         """Test that JSON arrays are returned unchanged."""
         raw = json.dumps([1, 2, 3])

@@ -33,6 +33,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     DEFAULT_MARKETPLACE_API_URL,
     MechMarketplaceConfig,
     MechParams,
+    MechResponseSpecs,
     MechToolsSpecs,
     MultisendBatch,
     NVMConfig,
@@ -464,28 +465,6 @@ class TestSharedStatePenalization:
         with self._patch_time_and_params(state, timestamp=1100):
             assert SAMPLE_MECH_ADDRESS in state.penalized_mechs
 
-    def test_a_penalty_can_outlast_the_default_window(self) -> None:
-        """A penalty given its own window lasts that long; others keep the default."""
-        state = self._make_shared_state()
-        with self._patch_timestamp(state, timestamp=1000):
-            state.penalize_mech(SAMPLE_MECH_ADDRESS, window=1000)
-            state.penalize_mech(SAMPLE_MECH_ADDRESS_2)
-
-        # default window is 300: the second has expired, the first has not
-        with self._patch_time_and_params(state, timestamp=1500):
-            assert list(state.penalized_mechs) == [SAMPLE_MECH_ADDRESS]
-        with self._patch_time_and_params(state, timestamp=2000):
-            assert state.penalized_mechs == {}
-
-    def test_a_default_penalty_replaces_a_longer_one(self) -> None:
-        """Penalizing again without a window falls back to the default length."""
-        state = self._make_shared_state()
-        with self._patch_timestamp(state, timestamp=1000):
-            state.penalize_mech(SAMPLE_MECH_ADDRESS, window=1000)
-            state.penalize_mech(SAMPLE_MECH_ADDRESS)
-        with self._patch_time_and_params(state, timestamp=1500):
-            assert state.penalized_mechs == {}
-
     def test_penalized_mechs_sorted_by_time(self) -> None:
         """Test that penalized mechs are sorted by penalization time."""
         state = self._make_shared_state()
@@ -546,6 +525,25 @@ def _classifier() -> MechToolsSpecs:
     instance.__dict__["_context"] = MagicMock()
     instance.__dict__["url"] = "https://gateway.example/ipfs/bafy..."
     return instance
+
+
+class TestMechBodySpecs:
+    """Mech-published bodies the JSON parser rejects are unusable, not fatal."""
+
+    @pytest.mark.parametrize("spec_class", [MechToolsSpecs, MechResponseSpecs])
+    @pytest.mark.parametrize(
+        "body",
+        [b"[" * 100_000 + b"]" * 100_000, b"1" + b"0" * 5_000],
+        ids=["deep", "long"],
+    )
+    def test_body_the_parser_rejects_yields_none(
+        self, spec_class: Any, body: bytes
+    ) -> None:
+        """JSON too deep or too long to parse is treated as no response."""
+        spec = spec_class.__new__(spec_class)
+        spec.__dict__["_context"] = MagicMock()
+        spec.__dict__["response_info"] = MagicMock()
+        assert spec.process_response(_http_response(200, body)) is None
 
 
 class TestIsPermanentError:

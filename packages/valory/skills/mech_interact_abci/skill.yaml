@@ -12,13 +12,13 @@ fingerprint:
   __init__.py: bafybeic6zmplvwsgp5gh2rse2ushtaqnodvmb4kxooace5ghabz4exqbt4
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
   behaviours/base.py: bafybeid5dma3o2jykbd6v6btr56pyh2uayy4lngcrpo5rv4e3trk5qjfca
-  behaviours/mech_info.py: bafybeiap2qxbvgpat3gkohotijlpxxaeuzy7yqmzuvyptoe2qxp2l27aji
+  behaviours/mech_info.py: bafybeidwpbtzxkrrmknm66yi6fc42s4q5eiublnobwe62oal5uwikermka
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
-  behaviours/offchain_request.py: bafybeiarhfgllre5usokw5nlzkwxuim2caoyyatrihhhpiumprgnnxjl2i
-  behaviours/offchain_response.py: bafybeicvxt7mc6kv6qokq2dsayddofubfhsqmgfhkiqqrwh5sonhagv7aq
+  behaviours/offchain_request.py: bafybeifb3t3z6tt5bwync4rnrt5mvq5dqoe5ltpoxuite7is6rohk56lsq
+  behaviours/offchain_response.py: bafybeibl3tb6u6tdol56kcwxxje2l6222i5pygpzsjwrhdx23tnxvzimuq
   behaviours/purchase_subcription.py: bafybeieet7du56scd2cltnuy7xlvvrapvk7ugmnv426k2xfnmim4wj5bfy
   behaviours/request.py: bafybeicu3vmskpgz33qxdmxxpecr7lxbrkxehyzeqiri3ljg7rpfjfqh5u
-  behaviours/response.py: bafybeieebiari6yxqjsgecbf6t2a5qtwap3oprdgb5ylhswp2dfdkccadu
+  behaviours/response.py: bafybeibtnb6mhc6zp2fen2poepbdyz6yduhyr6wgmlhbwnwcubrln7gi4u
   behaviours/round_behaviour.py: bafybeige7ajovc2u3vjb2elodqi47urfb5nms4felsx4b7jb3zaorimjv4
   dialogues.py: bafybeiachjgarkgv4hxprddn7dtb5h3q4qge72rc2kysmureooq5xggxxi
   fsm_specification.yaml: bafybeia3eupr3dgohd5s5fukovgfhq2wyrdrbfh6owszalfovqjaxksg4q
@@ -28,7 +28,7 @@ fingerprint:
   graph_tooling/requests.py: bafybeigxpeeoqm6t736ue5js6bmpftweunvw57ymkdk2h5a7pceocwvzbq
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
   mech_reader.py: bafybeif652a6yjn6uopntsfgphsraa7l4xbjps67gmc4hl4tmg2ssfljfi
-  models.py: bafybeic2gcznceoddipotcphznejaxlu56it3jrxxzgqwhcauqkawescqy
+  models.py: bafybeiakgoolc22pjcrp62xpw4r3l3y4a6qenubeikx77w2yja4r7avl7a
   nonce_allocator.py: bafybeigqjy3cjchtpbaskqgqwujw4ofcgv6xklsxfm25td3uumro7waezy
   payloads.py: bafybeict2xbdyk7caajfprlzralqeiyrk7avvbh5gn2hni42edbtqbl7nm
   payment_types.py: bafybeicdmeke6c4nmttukmk6cftvhb6ifenev5pfne5mp6yx7ma7dkyur4
@@ -46,8 +46,8 @@ fingerprint:
   tests/behaviours/conftest.py: bafybeiemvv76bfkkzg5v7co6ayz4kfmhnbzgptxhjwrvb74hgum2oixtxm
   tests/behaviours/test_base.py: bafybeih5gzn23htrkovh4mrlycygbpjdc4smq27hgfptrlg7ekndybavjy
   tests/behaviours/test_mech_version.py: bafybeidmjgq2cwqafq36j7irm4nf53ca6imkyvtbtetscltqwiu6ebb444
-  tests/behaviours/test_offchain_request_helpers.py: bafybeihlqbp6mizgcz7w4lcv3zhruwgqhkednxgiutywjfaiog5thmwpnu
-  tests/behaviours/test_offchain_response_poller.py: bafybeibm7tjpqiudturz3cdnyw5wetn4cruf5liswpaucuukvc3r2b27d4
+  tests/behaviours/test_offchain_request_helpers.py: bafybeib7ls45kodvrt5rqssaj54eqh7ix3ejmjt3ura7ixipibq4e36lsa
+  tests/behaviours/test_offchain_response_poller.py: bafybeigorzxbxnrkoau22h5ig3ogro2pkf2xeomti62vmayoz4dzb6rutu
   tests/behaviours/test_purchase_subscription.py: bafybeih2nd26wx6dpvycl2xlewmgqirjtwwtu6ge3gu4dhpby2aoogml5u
   tests/behaviours/test_request.py: bafybeiathroua7kwobbl5u2jqii4ln7kimziywaok6udmigbmxow2erfba
   tests/behaviours/test_response.py: bafybeibhepom6sqgp2cq3k2h6e4ybodiupl6ighjns44iksht6fyyalhei
@@ -59,14 +59,14 @@ fingerprint:
   tests/test_dialogues.py: bafybeicztq6kz273kpq6qtp4arh5btyovj7tiwcyy227bomblv52rx2rjq
   tests/test_graph_tooling.py: bafybeiaxihwxdhsjodefdbu42qibeqyhexdob3sqfs5hyo5ylgg7xzpzg4
   tests/test_handlers.py: bafybeihvo4mw3f3oizodlnysaw5nyup7rd3pm4zt2xkaa7nj6rr62vbjhq
-  tests/test_mech_info_behaviour.py: bafybeigcweaginfe2ei5mkbkcvbpy4gscxmfvcs3lrehhrn2eqr35sgyly
+  tests/test_mech_info_behaviour.py: bafybeigvpoknjeaottpxr6xlx3eexn3j6rv3eaazl4yepkpbnhvl4axxma
   tests/test_mech_reader.py: bafybeiax4pgbijf6m7zn7tydindj2kezflweh4yeae2mdlv3vn3fslswdy
   tests/test_mech_reader_skill.py: bafybeigqvntpl3th62gsgc5qbt4l7ah2d6psn5u7hlauezjv6ss432julu
-  tests/test_models.py: bafybeibohkc4esuvnz7qvr2e73l2hf53jzffblehw4vkvbpym627gkz5da
+  tests/test_models.py: bafybeib2rxr7ktsc5sjjhsgxnwrmym7hyqa2n24mpqdgzc33wpfljdhabe
   tests/test_nonce_allocator.py: bafybeifp6ueutxxt47ekslwlkw2rujn3ihggyllgzwnbv62pmdeszr36xm
   tests/test_payloads.py: bafybeibjkrdwkxqw73d7eaxwtqepigi4gutkvqaxqhj3os5nsmjffqkc4y
   tests/test_request_behaviour.py: bafybeicqrun35jgkxsilj5cypqcyv26oitzgh7m7e4g6djumeegar2r6ru
-  tests/test_response_behaviour.py: bafybeihnywnwvu44i33humlopmsdusoodm3wqfhhur3xbrobazfw4dogc4
+  tests/test_response_behaviour.py: bafybeidzvswo6blksnvtmggq33b34aafi4k7rd5dq7hmng6xnjh3wud4ta
   tests/test_rounds.py: bafybeie5qgtkqtbrxvnur475fysm3nkmq6hfd46hjlhid4kppjg5uqzise
   tests/test_utils.py: bafybeigdo33b4okp3ecpjt4woansyrvog2xwn2ywre4p2rysglgzx733pe
   utils.py: bafybeie7ud4n5bfmn3cqx7keearppdqyxtfn35vvve5zwfe4u5vxktssua
@@ -238,7 +238,6 @@ models:
       deliveries_lookback_days: 30
       valid_mechs: []
       penalize_mech_time_window: 1800
-      unanswered_mech_penalty_window: 10800
       delivery_rate_caps:
         native: 10000000000000000
         token_usdc: 10000
