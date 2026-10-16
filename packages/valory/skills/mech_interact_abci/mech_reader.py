@@ -45,6 +45,7 @@ from packages.valory.skills.abstract_round_abci.dialogues import (
 )
 from packages.valory.skills.abstract_round_abci.models import Requests
 from packages.valory.skills.mech_interact_abci.states.base import ADDRESS_RE
+from packages.valory.skills.mech_interact_abci.utils import loads_bounded
 
 HTTP_OK = 200
 JSON_HEADERS = "Content-Type: application/json\r\n"
@@ -170,7 +171,7 @@ def _json_body(message: Message) -> Optional[Any]:
     if http_message.status_code != HTTP_OK:
         return None
     try:
-        return json.loads(http_message.body)
+        return loads_bounded(http_message.body)
     except (ValueError, TypeError, RecursionError):
         return None
 

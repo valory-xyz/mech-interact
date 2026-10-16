@@ -21,6 +21,7 @@
 """This module contains the behaviour responsible for gathering information about the mech marketplace."""
 
 import json
+import re
 from typing import Any, Dict, Generator, List, Optional, Set
 
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
@@ -41,8 +42,37 @@ from packages.valory.skills.mech_interact_abci.states.base import MechInfoEncode
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
     MechInformationRound,
 )
+from packages.valory.skills.mech_interact_abci.utils import loads_bounded
 
 CID_PREFIX = "f01701220"
+
+
+# Tool names become keys in consumers' records, payloads and messages, so a
+# manifest entry is used only as a short lowercase identifier, at most
+# MAX_TOOLS_PER_MECH of them per manifest.
+TOOL_NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+MAX_TOOLS_PER_MECH = 50
+
+
+def manifest_tools(raw: Any) -> Set[str]:
+    """The usable tool names in a manifest's ``tools`` list.
+
+    :param raw: the ``tools`` value read from the manifest.
+    :return: the lowercase names matching ``TOOL_NAME_PATTERN``, first
+        ``MAX_TOOLS_PER_MECH`` distinct ones; empty when ``raw`` is not a list.
+    """
+    if not isinstance(raw, list):
+        return set()
+    tools: List[str] = []
+    for entry in raw:
+        if not isinstance(entry, str):
+            continue
+        name = entry.strip().lower()
+        if TOOL_NAME_PATTERN.fullmatch(name) and name not in tools:
+            tools.append(name)
+            if len(tools) == MAX_TOOLS_PER_MECH:
+                break
+    return set(tools)
 
 
 class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
@@ -124,18 +154,18 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
                     self.mech_tools_api.reset_retries()
                 return False
 
-            if len(res) == 0:
+            metadata_tools = manifest_tools(res)
+            if not metadata_tools:
                 self.context.logger.warning(
-                    f"Tools manifest at {self.mech_tools_api.url} is empty "
-                    f"(shared by {len(mechs)} mech(s)). Empty lists are "
-                    f"deterministic per-CID; will retry on next round entry."
+                    f"Tools manifest at {self.mech_tools_api.url} lists no usable "
+                    f"tools (shared by {len(mechs)} mech(s)); will retry on next "
+                    "round entry."
                 )
                 for mech in mechs:
                     self._failed_mechs.add(mech.address)
                 self.mech_tools_api.reset_retries()
                 continue
 
-            metadata_tools = {str(t).lower() for t in res}
             # Pull the off-chain ``url`` field out of the same IPFS manifest.
             # The field is the operator-published HTTP endpoint that
             # ``MechRequestBehaviour`` POSTs to under ``use_offchain=true``.
@@ -167,8 +197,8 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         if not body:
             return None
         try:
-            payload = json.loads(body)
-        except (json.JSONDecodeError, TypeError, ValueError):
+            payload = loads_bounded(body)
+        except (TypeError, ValueError, RecursionError):
             return None
         if not isinstance(payload, dict):
             return None

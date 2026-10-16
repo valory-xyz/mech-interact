@@ -33,6 +33,7 @@ from packages.valory.skills.mech_interact_abci.models import (
     DEFAULT_MARKETPLACE_API_URL,
     MechMarketplaceConfig,
     MechParams,
+    MechResponseSpecs,
     MechToolsSpecs,
     MultisendBatch,
     NVMConfig,
@@ -524,6 +525,25 @@ def _classifier() -> MechToolsSpecs:
     instance.__dict__["_context"] = MagicMock()
     instance.__dict__["url"] = "https://gateway.example/ipfs/bafy..."
     return instance
+
+
+class TestMechBodySpecs:
+    """Mech-published bodies the JSON parser rejects are unusable, not fatal."""
+
+    @pytest.mark.parametrize("spec_class", [MechToolsSpecs, MechResponseSpecs])
+    @pytest.mark.parametrize(
+        "body",
+        [b"[" * 100_000 + b"]" * 100_000, b"1" + b"0" * 5_000],
+        ids=["deep", "long"],
+    )
+    def test_body_the_parser_rejects_yields_none(
+        self, spec_class: Any, body: bytes
+    ) -> None:
+        """JSON too deep or too long to parse is treated as no response."""
+        spec = spec_class.__new__(spec_class)
+        spec.__dict__["_context"] = MagicMock()
+        spec.__dict__["response_info"] = MagicMock()
+        assert spec.process_response(_http_response(200, body)) is None
 
 
 class TestIsPermanentError:

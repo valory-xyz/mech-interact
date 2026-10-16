@@ -44,6 +44,7 @@ from packages.valory.skills.abstract_round_abci.models import (
 from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
 from packages.valory.skills.mech_interact_abci.rounds import MechInteractAbciApp
 from packages.valory.skills.mech_interact_abci.states.base import MechInfo, MechsInfo
+from packages.valory.skills.mech_interact_abci.utils import json_depth_exceeds
 
 Requests = BaseRequests
 BenchmarkTool = BaseBenchmarkTool
@@ -54,7 +55,23 @@ PLAN_DID_PREFIX = "did:nv:"
 Ox = "0x"
 
 
-class MechToolsSpecs(ApiSpecs):
+class MechBodySpecs(ApiSpecs):
+    """ApiSpecs for bodies a mech publishes, which may be of any shape."""
+
+    def process_response(self, response: HttpMessage) -> Any:
+        """Process the response; a body the JSON parser rejects is unusable."""
+        body = getattr(response, "body", None)
+        if isinstance(body, (bytes, str)) and json_depth_exceeds(body):
+            self.context.logger.error("Could not parse the response body!")
+            return None
+        try:
+            return super().process_response(response)
+        except (ValueError, RecursionError):
+            self.context.logger.error("Could not parse the response body!")
+            return None
+
+
+class MechToolsSpecs(MechBodySpecs):
     """A model that wraps ApiSpecs for the Mech agent's tools specifications."""
 
     # Substrings (case-insensitive) in a 5xx response body that indicate the
@@ -294,7 +311,7 @@ CHAIN_TO_PRICE_TOKEN = {
 }
 
 
-class MechResponseSpecs(ApiSpecs):
+class MechResponseSpecs(MechBodySpecs):
     """A model that wraps ApiSpecs for the Mech's response specifications."""
 
 

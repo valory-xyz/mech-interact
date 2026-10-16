@@ -56,6 +56,11 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
 )
+from packages.valory.skills.mech_interact_abci.utils import loads_bounded
+
+# Terminal poll outcomes where the mech gave no answer at all, as opposed to
+# answering that it could not serve the request.
+UNANSWERED_ERRORS = frozenset({"not_found", "poll_timeout", "server_unavailable"})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -142,6 +147,12 @@ class OffchainResponsePoller:
         )
 
         self._apply_snapshot(target, snapshot)
+        if snapshot.status != "ok" and snapshot.error in UNANSWERED_ERRORS:
+            self._logger.warning(
+                f"Penalizing mech {pending.mech_address}: its off-chain "
+                f"response could not be fetched ({snapshot.error})."
+            )
+            self._b.shared_state.penalize_mech(pending.mech_address)
         return responses
 
     # ---------- polling loop -----------------------------------------------
@@ -281,8 +292,8 @@ class OffchainResponsePoller:
             # consecutive-failure counter and the fast-fail threshold).
             return _PollSnapshot(status="processing")
         try:
-            payload = json.loads(body_bytes) if body_bytes else {}
-        except (json.JSONDecodeError, TypeError, ValueError):
+            payload = loads_bounded(body_bytes) if body_bytes else {}
+        except (TypeError, ValueError, RecursionError):
             self._logger.warning(
                 "Offchain poll returned a non-JSON body; ignoring and retrying."
             )

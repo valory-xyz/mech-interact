@@ -116,6 +116,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 from packages.valory.skills.mech_interact_abci.states.request import (
     OFFCHAIN_DEPOSIT_TX_SUBMITTER,
 )
+from packages.valory.skills.mech_interact_abci.utils import loads_bounded
 from packages.valory.skills.transaction_settlement_abci.payload_tools import (
     hash_payload_to_hex,
 )
@@ -481,8 +482,8 @@ def parse_payment_challenge(body: bytes) -> Optional[PaymentChallenge]:
     if not body:
         return None
     try:
-        payload = json.loads(body)
-    except (json.JSONDecodeError, TypeError, ValueError):
+        payload = loads_bounded(body)
+    except (TypeError, ValueError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None
@@ -589,8 +590,8 @@ def _is_nonce_rejection(body: Optional[bytes]) -> bool:
     if not body:
         return False
     try:
-        reason = json.loads(body).get("reason", "")
-    except (ValueError, AttributeError):
+        reason = loads_bounded(body).get("reason", "")
+    except (ValueError, AttributeError, RecursionError):
         return False
     if not isinstance(reason, str):
         return False

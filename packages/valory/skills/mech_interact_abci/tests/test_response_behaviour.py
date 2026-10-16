@@ -114,6 +114,14 @@ class TestProcessResponseWithArtifacts:
         behaviour = _make_response_behaviour()
         assert behaviour._process_response_with_artifacts("plain text") == "plain text"
 
+    @pytest.mark.parametrize(
+        "raw", ["[" * 100_000 + "]" * 100_000, "1" + "0" * 5_000], ids=["deep", "long"]
+    )
+    def test_json_the_parser_rejects_returns_original(self, raw: str) -> None:
+        """JSON too deep or too long to parse is returned unchanged."""
+        behaviour = _make_response_behaviour()
+        assert behaviour._process_response_with_artifacts(raw) == raw
+
     def test_non_dict_json_returns_original(self) -> None:
         """Test that JSON arrays are returned unchanged."""
         raw = json.dumps([1, 2, 3])
@@ -148,6 +156,26 @@ class TestProcessResponseWithArtifacts:
         assert "2 image artifacts" in parsed["summary"]
         assert "300 bytes" in parsed["summary"]
         assert parsed["ipfs_link"] == "http://ipfs/test"
+
+    @pytest.mark.parametrize("artifacts", [5, "abc", {"base64": "a"}, True])
+    def test_artifacts_that_are_not_a_list_leave_the_response_as_is(
+        self, artifacts: Any
+    ) -> None:
+        """Only a list of artifacts is summarised."""
+        raw = json.dumps({"result": "answer", "artifacts": artifacts})
+        behaviour = _make_response_behaviour()
+        assert behaviour._process_response_with_artifacts(raw) == raw
+
+    def test_entries_that_are_not_objects_count_as_empty(self) -> None:
+        """Sizes are summed over object entries with a text payload only."""
+        artifacts = [{"base64": "abcd"}, "x", 7, {"base64": 9}, None]
+        raw = json.dumps({"artifacts": artifacts})
+        behaviour = _make_response_behaviour()
+        behaviour._context.mech_response.url = "http://ipfs/test"
+
+        parsed = json.loads(behaviour._process_response_with_artifacts(raw))
+        assert "5 image artifacts" in parsed["summary"]
+        assert "4 bytes" in parsed["summary"]
 
     def test_artifacts_without_base64_key(self) -> None:
         """Test artifacts that lack base64 key count as 0 size."""

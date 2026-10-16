@@ -50,6 +50,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     _PAYMENT_TYPE_HASH_NVM_TOKEN,
     _PAYMENT_TYPE_HASH_TOKEN_OLAS,
     _PAYMENT_TYPE_HASH_TOKEN_USDC,
+    _is_nonce_rejection,
     build_request_metadata,
     compute_cidv1_bytes,
     compute_safe_message_hash,
@@ -77,6 +78,9 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     merge_extra_attributes,
 )
 from packages.valory.skills.mech_interact_abci.tests.registry_stub import _Registry
+
+DEEPLY_NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
+LONG_INTEGER_JSON = b"1" + b"0" * 5_000
 
 
 def _form_field(body: Any, field: str) -> str:
@@ -870,6 +874,14 @@ class TestParsePaymentChallenge:
     def test_non_json_body_yields_none(self) -> None:
         """A misbehaving mech returning non-JSON does not crash the FSM."""
         assert parse_payment_challenge(b"plain text") is None
+
+    @pytest.mark.parametrize(
+        "body", [DEEPLY_NESTED_JSON, LONG_INTEGER_JSON], ids=["deep", "long"]
+    )
+    def test_body_the_parser_rejects_yields_none(self, body: bytes) -> None:
+        """JSON too deep or too long to parse is not a structured 402."""
+        assert parse_payment_challenge(body) is None
+        assert _is_nonce_rejection(body) is False
 
     def test_non_numeric_required_rejected(self) -> None:
         """Non-numeric ``required`` is treated as a malformed 402 (review C5).

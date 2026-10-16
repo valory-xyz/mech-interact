@@ -27,7 +27,9 @@ import pytest
 
 from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
     CID_PREFIX,
+    MAX_TOOLS_PER_MECH,
     MechInformationBehaviour,
+    manifest_tools,
 )
 from packages.valory.skills.mech_interact_abci.graph_tooling.requests import FetchStatus
 from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
@@ -134,6 +136,39 @@ class TestSetMechAgentSpecs:
 
         expected_url = "https://ipfs.io/" + CID_PREFIX + "abc123"
         assert mock_api.url == expected_url
+
+
+class TestManifestTools:
+    """Only short lowercase identifiers from a manifest's ``tools`` list are used."""
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            (
+                ["Prediction-Online", "superforcaster"],
+                {"prediction-online", "superforcaster"},
+            ),
+            (["a.b_c-1", " padded "], {"a.b_c-1", "padded"}),
+            (["dup", "DUP", "dup"], {"dup"}),
+            (
+                ["has space", "a::b", "a/b", "line\nbreak", "-lead", "x" * 65],
+                set(),
+            ),
+            (["ok", 5, None, {"name": "x"}, "x" * 64], {"ok", "x" * 64}),
+            ({"tools": ["x"]}, set()),
+            ("superforcaster", set()),
+            (None, set()),
+            ([], set()),
+        ],
+    )
+    def test_names_are_bounded_identifiers(self, raw: Any, expected: set) -> None:
+        """Entries outside the identifier pattern, and non-list values, contribute nothing."""
+        assert manifest_tools(raw) == expected
+
+    def test_at_most_max_tools_per_mech_are_kept(self) -> None:
+        """The first distinct names up to the cap are kept, in order."""
+        raw = [f"tool-{i}" for i in range(MAX_TOOLS_PER_MECH + 10)]
+        assert manifest_tools(raw) == {f"tool-{i}" for i in range(MAX_TOOLS_PER_MECH)}
 
 
 class TestPopulateTools:
@@ -281,6 +316,23 @@ class TestPopulateTools:
         assert result is True
         assert mech.http_url is None
 
+    def test_http_url_stays_none_on_manifest_too_deep_to_parse(self) -> None:
+        """A manifest nested deeper than the parser follows leaves ``http_url=None``."""
+        from types import SimpleNamespace
+
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour)
+        api.process_response.return_value = ["tool_a"]
+
+        http_message = SimpleNamespace(body=b"[" * 100_000 + b"]" * 100_000)
+        _wire_get_http_response(behaviour, [http_message])
+
+        mech = _make_mech_info(relevant_tools=set())
+        result = _drive(behaviour.populate_tools([mech]))
+
+        assert result is True
+        assert mech.http_url is None
+
     def test_quarantines_on_empty_tools(self) -> None:
         """Empty tools list is deterministic per-CID; mech is quarantined."""
         behaviour = _make_mech_info_behaviour()
@@ -296,7 +348,7 @@ class TestPopulateTools:
         assert "0xempty" in behaviour._failed_mechs
         assert mech.relevant_tools == set()
         warnings = behaviour.context.logger.warning.call_args_list
-        assert any("empty" in str(call) for call in warnings)
+        assert any("no usable tools" in str(call) for call in warnings)
         api.reset_retries.assert_called_once()
 
 

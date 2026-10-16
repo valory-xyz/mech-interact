@@ -513,3 +513,16 @@ def test_discovery_leaves_out_a_mech_without_a_price_instead_of_failing() -> Non
     )
     assert [mech.address for mech in kept] == [priced]
     assert left_out == [unpriced]
+
+
+def test_a_reply_nested_past_the_limit_reads_as_no_body() -> None:
+    """A reply nested deeper than `MAX_JSON_DEPTH` is treated like an unparseable one."""
+    from types import SimpleNamespace
+
+    from packages.valory.skills.mech_interact_abci.mech_reader import _json_body
+    from packages.valory.skills.mech_interact_abci.utils import MAX_JSON_DEPTH
+
+    over = b"[" * (MAX_JSON_DEPTH + 1) + b"]" * (MAX_JSON_DEPTH + 1)
+    within = b"[" * MAX_JSON_DEPTH + b"]" * MAX_JSON_DEPTH
+    assert _json_body(SimpleNamespace(status_code=200, body=over)) is None  # type: ignore[arg-type]
+    assert _json_body(SimpleNamespace(status_code=200, body=within)) is not None  # type: ignore[arg-type]

@@ -91,6 +91,13 @@ Below, we describe the additional manual steps required to upgrade between diffe
   `pinned_mechs_no_usable_tools`. Consumers that filter by the pin should
   apply the same rule.
 
+- Tool names read from a mech's manifest are lowercase identifiers matching
+  `[a-z0-9][a-z0-9._-]{0,63}`, at most 50 per manifest; other entries are
+  ignored, and a manifest with none is treated like an empty one.
+- A mech whose off-chain response cannot be fetched (`not_found`,
+  `poll_timeout`, `server_unavailable`) is penalized for
+  `penalize_mech_time_window`, like other failing mechs.
+
 #### New features
 - New `mech_interact_abci.mech_reader` module for reading one mech from a
   handler, where the behaviour helpers are not available: `read_mech` (the
