@@ -92,12 +92,14 @@ from packages.valory.skills.mech_interact_abci.models import delivery_rate_bound
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     SLOT_BLOCKED_GIVE_UP_SECS,
     clear_slot_blocked,
+    note_slot_abandoned,
     note_slot_accepted,
     note_slot_blocked,
     release_slot,
     reserve_slot,
     retire_expired_slots,
     sweep_dead_slots,
+    take_abandoned_slot,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     DELIVERY_RATE_ABOVE_CAP,
@@ -923,6 +925,7 @@ class OffchainRequestExecutor:
         """
         self._reserved_slot: Optional[int] = None
         self._slot_may_be_held = False
+        self._abandoned_slot: Optional[int] = None
         try:
             result = yield from self._fresh_cycle_inner()
         finally:
@@ -945,7 +948,24 @@ class OffchainRequestExecutor:
 
         ``DEPOSIT_NEEDED`` keeps its slot on purpose: ``_retry_pending``
         re-sends the same request at the same slot once the deposit settles.
+
+        An abandoned slot signed at again is never handed back while the
+        cycle is still on it: its reservation belongs to the earlier
+        unanswered request, which may still settle. If this cycle left no request that could hold it, the
+        mark is put back so the next cycle can try another mech at it.
         """
+        if (
+            self._abandoned_slot is not None
+            and self._reserved_slot == self._abandoned_slot
+        ):
+            if not self._slot_may_be_held:
+                note_slot_abandoned(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    slot=self._abandoned_slot,
+                )
+            return
         if self._reserved_slot is None or self._slot_may_be_held:
             return
         release_slot(
@@ -1043,6 +1063,13 @@ class OffchainRequestExecutor:
             safe=self._safe_address(),
             on_chain_nonce=chain_nonce,
         )
+        # Every cycle, so marks the counter has moved past are dropped too.
+        abandoned = take_abandoned_slot(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            on_chain_nonce=chain_nonce,
+        )
         if on_chain_nonce != chain_nonce:
             # Stepped over a slot something else holds. The mech expects the
             # chain counter, so this is refused until that slot settles, and
@@ -1053,14 +1080,22 @@ class OffchainRequestExecutor:
                 safe=self._safe_address(),
                 slot=chain_nonce,
             )
-            if blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
-                self._logger.warning(
-                    f"Signing at slot {chain_nonce} even though something in "
-                    "this agent holds it: the counter has not moved in "
-                    f"{blocked.seconds:.0f}s, so it is not being settled. One "
-                    "lost settlement batch is worth less than this request "
-                    "never being sent."
-                )
+            if abandoned or blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
+                if abandoned:
+                    self._abandoned_slot = chain_nonce
+                    self._logger.info(
+                        f"Signing at slot {chain_nonce} again for the next "
+                        "mech: the request this skill signed there got no "
+                        "answer, and only one signature at a slot can settle."
+                    )
+                else:
+                    self._logger.warning(
+                        f"Signing at slot {chain_nonce} even though something "
+                        "in this agent holds it: the counter has not moved in "
+                        f"{blocked.seconds:.0f}s, so it is not being settled. "
+                        "One lost settlement batch is worth less than this "
+                        "request never being sent."
+                    )
                 release_slot(
                     self._b.context.shared_state,
                     chain=str(self._b.params.mech_chain_id or ""),

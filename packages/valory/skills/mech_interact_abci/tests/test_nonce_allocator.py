@@ -25,12 +25,14 @@ from typing import Any, Dict
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_REGISTRY,
     MECH_SLOT_RESERVED_AT,
+    note_slot_abandoned,
     note_slot_accepted,
     release_slot,
     reserve_slot,
     retire_expired_slots,
     slot_is_held,
     sweep_dead_slots,
+    take_abandoned_slot,
 )
 from packages.valory.skills.mech_interact_abci.tests.registry_stub import _Registry
 
@@ -520,3 +522,42 @@ class TestAnUnnamedChainMeansNoRegistry:
             )
             == []
         )
+
+
+class TestAnAbandonedSlot:
+    """A slot whose request got no answer may be signed at once more."""
+
+    CHAIN = "gnosis"
+    SAFE = "0x" + "bb" * 20
+
+    def _take(self, state: Dict[str, Any], counter: int, safe: str = SAFE) -> bool:
+        return take_abandoned_slot(
+            state, chain=self.CHAIN, safe=safe, on_chain_nonce=counter
+        )
+
+    def test_the_mark_is_used_once(self) -> None:
+        """A request that a mech does take at the slot is not signed over again."""
+        state: Dict[str, Any] = {}
+        note_slot_abandoned(state, chain=self.CHAIN, safe=self.SAFE.upper(), slot=7)
+        assert self._take(state, 7) is True
+        assert self._take(state, 7) is False
+
+    def test_only_the_counter_slot_is_taken(self) -> None:
+        """A mark above the counter waits; one for another Safe is not touched."""
+        state: Dict[str, Any] = {}
+        note_slot_abandoned(state, chain=self.CHAIN, safe=self.SAFE, slot=8)
+        note_slot_abandoned(state, chain=self.CHAIN, safe="0x" + "cc" * 20, slot=7)
+        assert self._take(state, 7) is False
+        assert self._take(state, 8) is True
+        assert self._take(state, 7, safe="0x" + "cc" * 20) is True
+
+    def test_marks_below_the_counter_are_dropped(self) -> None:
+        """Those slots have settled, so they are never signed at again."""
+        state: Dict[str, Any] = {}
+        note_slot_abandoned(state, chain=self.CHAIN, safe=self.SAFE, slot=5)
+        assert self._take(state, 6) is False
+        assert self._take(state, 5) is False
+
+    def test_no_mark_means_no_slot(self) -> None:
+        """A fresh state abandons nothing."""
+        assert self._take({}, 7) is False

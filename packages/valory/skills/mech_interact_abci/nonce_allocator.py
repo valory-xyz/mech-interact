@@ -31,7 +31,7 @@ without one the chain counter is the whole picture and is used as is.
 """
 
 import time
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
 # Shared-state key the agent binds its slot registry to. The object needs
 # ``reserve(chain, safe, floor, settled_below)``, ``release(chain, safe, slot)``
@@ -45,6 +45,9 @@ MECH_SLOT_REGISTRY = "mech_slot_registry"
 # problem: the facilitator proves the same thing from its signed expiry.
 MECH_SLOT_RESERVED_AT = "mech_slot_reserved_at"
 MECH_SLOT_BLOCKED = "mech_slot_blocked"
+# Slots whose request this skill signed and then got no answer for, keyed
+# ``(chain, safe, slot)``. Each one may be signed again once, for another mech.
+MECH_SLOT_ABANDONED = "mech_slot_abandoned"
 
 
 def _registry(shared_state: Dict[str, Any], chain: str) -> Optional[Any]:
@@ -207,6 +210,53 @@ def note_slot_blocked(
     periods += 1
     blocked[key] = (slot, periods, since)
     return SlotBlock(periods=periods, seconds=now - since)
+
+
+def note_slot_abandoned(
+    shared_state: Dict[str, Any], *, chain: str, safe: str, slot: int
+) -> None:
+    """Record that the request signed at ``slot`` got no answer from its mech.
+
+    :param shared_state: the agent's shared state.
+    :param chain: the chain the marketplace is on.
+    :param safe: the requester Safe paying for the request.
+    :param slot: the slot the unanswered request was signed at.
+
+    The slot stays reserved, so other routes keep stepping over it. What
+    changes is that this skill may sign at it once more, for another mech:
+    the marketplace settles only one signature per slot, so the requester
+    still pays once.
+    """
+    abandoned: Set[Tuple[str, str, int]] = shared_state.setdefault(
+        MECH_SLOT_ABANDONED, set()
+    )
+    abandoned.add((chain.lower(), safe.lower(), slot))
+
+
+def take_abandoned_slot(
+    shared_state: Dict[str, Any], *, chain: str, safe: str, on_chain_nonce: int
+) -> bool:
+    """Return whether the counter sits on a slot this skill abandoned, using the mark up.
+
+    :param shared_state: the agent's shared state.
+    :param chain: the chain the marketplace is on.
+    :param safe: the requester Safe paying for the request.
+    :param on_chain_nonce: ``mapNonces(safe)``.
+    :return: whether ``on_chain_nonce`` may be signed at again now.
+
+    The mark is used once, so a second request at the slot that a mech does
+    take is not signed over again. Marks below the counter have settled and
+    are dropped.
+    """
+    abandoned: Set[Tuple[str, str, int]] = shared_state.get(MECH_SLOT_ABANDONED, set())
+    key = (chain.lower(), safe.lower())
+    for entry in [e for e in abandoned if e[:2] == key and e[2] < on_chain_nonce]:
+        abandoned.discard(entry)
+    entry = (key[0], key[1], on_chain_nonce)
+    if entry not in abandoned:
+        return False
+    abandoned.discard(entry)
+    return True
 
 
 def clear_slot_blocked(shared_state: Dict[str, Any], *, chain: str, safe: str) -> None:

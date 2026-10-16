@@ -34,6 +34,9 @@ import pytest
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_response import (
     OffchainResponsePoller,
 )
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    MECH_SLOT_ABANDONED,
+)
 
 
 def _http_response(status_code: int, body: bytes = b"") -> SimpleNamespace:
@@ -62,13 +65,15 @@ class _StubBehaviour:
                 ),
                 error=lambda *a, **k: None,
                 debug=lambda *a, **k: None,
-            )
+            ),
+            shared_state={},
         )
         self.params = SimpleNamespace(
             mech_marketplace_config=SimpleNamespace(
                 offchain_poll_interval_seconds=poll_interval,
                 offchain_poll_timeout_seconds=poll_budget,
             ),
+            mech_chain_id="gnosis",
         )
         self.penalties: List[str] = []
         self.shared_state = SimpleNamespace(penalize_mech=self.penalties.append)
@@ -115,7 +120,7 @@ def _pending_dict() -> dict:
 
 
 class TestAMechThatGivesNoAnswerIsSetAside:
-    """A mech whose response cannot be fetched is penalized."""
+    """A mech whose response cannot be fetched is penalized and its slot marked."""
 
     @pytest.mark.parametrize(
         "http_responses, poll_budget, penalized",
@@ -163,6 +168,8 @@ class TestAMechThatGivesNoAnswerIsSetAside:
 
         expected = ["0x" + "aa" * 20] if penalized else []
         assert stub.penalties == expected
+        abandoned = stub.context.shared_state.get(MECH_SLOT_ABANDONED, set())
+        assert abandoned == ({("gnosis", "0x" + "bb" * 20, 7)} if penalized else set())
 
 
 class TestRunFallbackPlaceholder:
