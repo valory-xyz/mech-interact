@@ -5156,6 +5156,91 @@ class TestTheCycleStopsSteppingOverAStuckSlot:
         assert moved.periods == 1
 
 
+class TestAnAbandonedSlotStaysReserved:
+    """The earlier request at an abandoned slot may still settle, so the slot is kept."""
+
+    @staticmethod
+    def _stub(ranked: List[Any], http: List[Any]) -> Any:
+        stub = _StubBehaviour(
+            ranked_mechs=ranked,
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+            ],
+            http_responses=http,
+        )
+        chain = str(stub.params.mech_chain_id)
+        safe = stub.synchronized_data.safe_contract_address
+        reserve_slot(
+            stub.context.shared_state, chain=chain, safe=safe, on_chain_nonce=7
+        )
+        note_slot_abandoned(stub.context.shared_state, chain=chain, safe=safe, slot=7)
+        return stub
+
+    @staticmethod
+    def _live(stub: Any) -> Any:
+        key = (
+            str(stub.params.mech_chain_id).lower(),
+            stub.synchronized_data.safe_contract_address.lower(),
+        )
+        return stub.context.shared_state[MECH_SLOT_REGISTRY].live.get(key, set())
+
+    def test_a_cycle_that_sends_nothing_keeps_the_slot_and_the_mark(self) -> None:
+        """Nothing new holds the slot, so the next cycle may try another mech at it."""
+        stub = self._stub(ranked=[], http=[])
+
+        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert 7 in self._live(stub)
+        assert stub.context.shared_state[MECH_SLOT_ABANDONED] == {
+            (
+                str(stub.params.mech_chain_id).lower(),
+                stub.synchronized_data.safe_contract_address.lower(),
+                7,
+            )
+        }
+
+    def test_a_request_a_mech_took_keeps_the_slot_and_uses_the_mark(self) -> None:
+        """The new request holds the slot, so it is not signed over again."""
+        stub = self._stub(
+            ranked=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            http=[_make_http_response(200)],
+        )
+
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
+        assert 7 in self._live(stub)
+        assert stub.context.shared_state[MECH_SLOT_ABANDONED] == set()
+
+    def test_marks_the_counter_has_moved_past_are_dropped(self) -> None:
+        """A cycle that signs straight at the counter still clears settled marks."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+            ],
+            http_responses=[_make_http_response(200)],
+        )
+        note_slot_abandoned(
+            stub.context.shared_state,
+            chain=str(stub.params.mech_chain_id),
+            safe=stub.synchronized_data.safe_contract_address,
+            slot=5,
+        )
+
+        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
+        assert stub.context.shared_state[MECH_SLOT_ABANDONED] == set()
+
+
 class TestAnAcceptedRequestIsNotSweptLater:
     """``mapNonces`` moves at settlement, not when the mech answers.
 
