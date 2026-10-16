@@ -53,6 +53,9 @@ from urllib.parse import urlencode
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
     PendingRequest,
 )
+from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    note_slot_abandoned,
+)
 from packages.valory.skills.mech_interact_abci.states.base import (
     MechInteractionResponse,
 )
@@ -153,6 +156,12 @@ class OffchainResponsePoller:
                 f"response could not be fetched ({snapshot.error})."
             )
             self._b.shared_state.penalize_mech(pending.mech_address)
+            note_slot_abandoned(
+                self._b.context.shared_state,
+                chain=str(self._b.params.mech_chain_id or ""),
+                safe=pending.sender,
+                slot=pending.nonce,
+            )
         return responses
 
     # ---------- polling loop -----------------------------------------------

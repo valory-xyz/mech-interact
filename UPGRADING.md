@@ -99,6 +99,12 @@ Below, we describe the additional manual steps required to upgrade between diffe
   `penalize_mech_time_window`, like other failing mechs.
 
 #### New features
+- When an off-chain request gets no answer (`not_found`, `poll_timeout`,
+  `server_unavailable`), its slot is marked and the next cycle signs at
+  it once more, for the next ranked mech, instead of stepping over it
+  until `SLOT_BLOCKED_GIVE_UP_SECS`. The slot stays reserved for other
+  routes meanwhile (`nonce_allocator.note_slot_abandoned`,
+  `take_abandoned_slot`).
 - New `mech_interact_abci.mech_reader` module for reading one mech from a
   handler, where the behaviour helpers are not available: `read_mech` (the
   subgraph record, then the marketplace agent card) and `read_live_rate`

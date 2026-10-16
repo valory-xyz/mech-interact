@@ -59,10 +59,12 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import PaymentType
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
+    MECH_SLOT_ABANDONED,
     MECH_SLOT_BLOCKED,
     MECH_SLOT_REGISTRY,
     MECH_SLOT_RESERVED_AT,
     SLOT_BLOCKED_GIVE_UP_SECS,
+    note_slot_abandoned,
     note_slot_blocked,
     reserve_slot,
     sweep_dead_slots,
@@ -5115,6 +5117,19 @@ class TestTheCycleStopsSteppingOverAStuckSlot:
         assert (
             _form_field(stub.posted_bodies[0], "nonce") == "7"
         ), "kept stepping over a slot nothing is settling"
+
+    def test_it_signs_at_an_abandoned_slot_without_waiting(self) -> None:
+        """The counter's slot got no answer, so the next mech gets it at once."""
+        stub = self._stub()
+        chain = str(stub.params.mech_chain_id)
+        safe = stub.synchronized_data.safe_contract_address
+        note_slot_abandoned(stub.context.shared_state, chain=chain, safe=safe, slot=7)
+
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
+        assert stub.context.shared_state[MECH_SLOT_ABANDONED] == set()
 
     def test_it_still_steps_over_before_the_bound(self) -> None:
         """The slot may simply be being served; giving up early is the collision."""

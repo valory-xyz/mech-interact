@@ -98,6 +98,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     reserve_slot,
     retire_expired_slots,
     sweep_dead_slots,
+    take_abandoned_slot,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     DELIVERY_RATE_ABOVE_CAP,
@@ -1053,14 +1054,27 @@ class OffchainRequestExecutor:
                 safe=self._safe_address(),
                 slot=chain_nonce,
             )
-            if blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
-                self._logger.warning(
-                    f"Signing at slot {chain_nonce} even though something in "
-                    "this agent holds it: the counter has not moved in "
-                    f"{blocked.seconds:.0f}s, so it is not being settled. One "
-                    "lost settlement batch is worth less than this request "
-                    "never being sent."
-                )
+            abandoned = take_abandoned_slot(
+                self._b.context.shared_state,
+                chain=str(self._b.params.mech_chain_id or ""),
+                safe=self._safe_address(),
+                on_chain_nonce=chain_nonce,
+            )
+            if abandoned or blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
+                if abandoned:
+                    self._logger.info(
+                        f"Signing at slot {chain_nonce} again for the next "
+                        "mech: the request this skill signed there got no "
+                        "answer, and only one signature at a slot can settle."
+                    )
+                else:
+                    self._logger.warning(
+                        f"Signing at slot {chain_nonce} even though something "
+                        "in this agent holds it: the counter has not moved in "
+                        f"{blocked.seconds:.0f}s, so it is not being settled. "
+                        "One lost settlement batch is worth less than this "
+                        "request never being sent."
+                    )
                 release_slot(
                     self._b.context.shared_state,
                     chain=str(self._b.params.mech_chain_id or ""),
