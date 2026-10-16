@@ -949,12 +949,15 @@ class OffchainRequestExecutor:
         ``DEPOSIT_NEEDED`` keeps its slot on purpose: ``_retry_pending``
         re-sends the same request at the same slot once the deposit settles.
 
-        An abandoned slot signed at again is never handed back: its
-        reservation belongs to the earlier unanswered request, which may
-        still settle. If this cycle left no request that could hold it, the
+        An abandoned slot signed at again is never handed back while the
+        cycle is still on it: its reservation belongs to the earlier
+        unanswered request, which may still settle. If this cycle left no request that could hold it, the
         mark is put back so the next cycle can try another mech at it.
         """
-        if self._abandoned_slot is not None:
+        if (
+            self._abandoned_slot is not None
+            and self._reserved_slot == self._abandoned_slot
+        ):
             if not self._slot_may_be_held:
                 note_slot_abandoned(
                     self._b.context.shared_state,
