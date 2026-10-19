@@ -1356,6 +1356,15 @@ class OffchainRequestExecutor:
                 if refreshed is None:
                     last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                     break
+                if on_chain_nonce == self._abandoned_slot == refreshed:
+                    # The abandoned slot's reservation belongs to the earlier
+                    # request, which may still settle, so it is kept as is.
+                    self._logger.info(
+                        f"Mech {mech_address} refused slot {on_chain_nonce} for "
+                        f"{self._safe_address()} and the counter has not moved; "
+                        "leaving it for the next period."
+                    )
+                    break
                 # Handed back before the next one is taken, or the registry
                 # would step over the slot being retried and never offer it.
                 release_slot(

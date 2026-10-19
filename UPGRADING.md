@@ -99,6 +99,11 @@ Below, we describe the additional manual steps required to upgrade between diffe
   `penalize_mech_time_window`, like other failing mechs.
 
 #### New features
+- A slot is marked abandoned only when the poller itself gets no readable
+  answer (repeated 404 or server errors, or its poll budget running out),
+  not from the wording of a mech's `rejected` reply. When a retry at an
+  abandoned slot is refused and the counter has not moved, the slot keeps
+  the earlier request's reservation.
 - When an off-chain request gets no answer (`not_found`, `poll_timeout`,
   `server_unavailable`), its slot is marked and the next cycle signs at
   it once more, for the next ranked mech, instead of stepping over it
