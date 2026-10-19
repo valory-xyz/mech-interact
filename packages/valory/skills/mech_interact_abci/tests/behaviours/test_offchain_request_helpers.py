@@ -65,6 +65,7 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_RESERVED_AT,
     SLOT_BLOCKED_GIVE_UP_SECS,
     note_slot_abandoned,
+    note_slot_accepted,
     note_slot_blocked,
     reserve_slot,
     sweep_dead_slots,
@@ -5248,6 +5249,38 @@ class TestAnAbandonedSlotStaysReserved:
 
         assert [_form_field(body, "nonce") for body in stub.posted_bodies] == ["7", "8"]
         assert 8 not in self._live(stub)
+
+    def test_a_refused_retry_at_an_unmoved_counter_keeps_the_earlier_reservation(
+        self,
+    ) -> None:
+        """The slot stays reserved for the earlier accepted request and stays out of the sweep."""
+        refused = b'{"reason": "wire nonce above sender\'s next expected slot"}'
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),  # chainId
+                _state_resp({"data": 7}),  # nonce
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"max_delivery_rate": 10**16}),
+                _state_resp({"data": 7}),  # re-read: the counter has not moved
+            ],
+            http_responses=[_make_http_response(503, refused)],
+        )
+        chain = str(stub.params.mech_chain_id)
+        safe = stub.synchronized_data.safe_contract_address
+        state = stub.context.shared_state
+        reserve_slot(state, chain=chain, safe=safe, on_chain_nonce=7)
+        note_slot_accepted(state, chain=chain, safe=safe, slot=7)
+        note_slot_abandoned(state, chain=chain, safe=safe, slot=7)
+
+        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert 7 in self._live(stub)
+        swept = sweep_dead_slots(
+            state, chain=chain, safe=safe, on_chain_nonce=7, older_than_secs=0.0
+        )
+        assert swept == []
+        assert (chain.lower(), safe.lower(), 7) in state[MECH_SLOT_ABANDONED]
 
     def test_marks_the_counter_has_moved_past_are_dropped(self) -> None:
         """A cycle that signs straight at the counter still clears settled marks."""

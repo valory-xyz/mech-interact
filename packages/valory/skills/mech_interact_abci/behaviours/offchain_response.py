@@ -61,10 +61,6 @@ from packages.valory.skills.mech_interact_abci.states.base import (
 )
 from packages.valory.skills.mech_interact_abci.utils import loads_bounded
 
-# Terminal poll outcomes where the mech gave no answer at all, as opposed to
-# answering that it could not serve the request.
-UNANSWERED_ERRORS = frozenset({"not_found", "poll_timeout", "server_unavailable"})
-
 
 @dataclasses.dataclass(frozen=True)
 class _PollSnapshot:
@@ -73,6 +69,9 @@ class _PollSnapshot:
     status: str  # "ok" / "rejected" / "processing"
     result: Optional[str] = None
     error: Optional[str] = None
+    # Set only by this poller when the mech gave no answer it could read;
+    # never from anything the mech's own reply says.
+    unanswered: bool = False
 
 
 _PROCESSING_STATUSES = frozenset({"processing", ""})
@@ -150,7 +149,7 @@ class OffchainResponsePoller:
         )
 
         self._apply_snapshot(target, snapshot)
-        if snapshot.status != "ok" and snapshot.error in UNANSWERED_ERRORS:
+        if snapshot.unanswered:
             self._logger.warning(
                 f"Penalizing mech {pending.mech_address}: its off-chain "
                 f"response could not be fetched ({snapshot.error})."
@@ -237,7 +236,9 @@ class OffchainResponsePoller:
                         f"Offchain poll {url} returned {_MAX_CONSECUTIVE_5XX} "
                         "consecutive 404s; fast-failing as 'not_found'."
                     )
-                    return _PollSnapshot(status="rejected", error="not_found")
+                    return _PollSnapshot(
+                        status="rejected", error="not_found", unanswered=True
+                    )
                 consecutive_failures = 0
             elif status_code is not None and (
                 500 <= status_code < 600 or status_code == 600
@@ -257,7 +258,11 @@ class OffchainResponsePoller:
                         f"Offchain poll {url} returned {_MAX_CONSECUTIVE_5XX} "
                         "consecutive server-failure responses; fast-failing."
                     )
-                    return _PollSnapshot(status="rejected", error="server_unavailable")
+                    return _PollSnapshot(
+                        status="rejected",
+                        error="server_unavailable",
+                        unanswered=True,
+                    )
                 consecutive_404 = 0
             else:
                 consecutive_failures = 0
@@ -275,6 +280,7 @@ class OffchainResponsePoller:
                 return _PollSnapshot(
                     status="rejected",
                     error="poll_timeout",
+                    unanswered=True,
                 )
 
             yield from self._b.sleep(interval)

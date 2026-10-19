@@ -123,6 +123,23 @@ class TestAMechThatGivesNoAnswerIsSetAside:
     """A mech whose response cannot be fetched is penalized and its slot marked."""
 
     @pytest.mark.parametrize(
+        "reason", ["not_found", "poll_timeout", "server_unavailable", "rejected"]
+    )
+    def test_a_refusal_whatever_its_reason_is_an_answer(self, reason: str) -> None:
+        """Only the poller's own observations count as no answer, not the reply's wording."""
+        body = json.dumps({"status": "rejected", "reason": reason}).encode()
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, body)],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert stub.penalties == []
+        assert stub.context.shared_state.get(MECH_SLOT_ABANDONED, set()) == set()
+        assert responses[-1].error == reason
+
+    @pytest.mark.parametrize(
         "http_responses, poll_budget, penalized",
         [
             ([_http_response(404) for _ in range(5)], 100.0, True),
