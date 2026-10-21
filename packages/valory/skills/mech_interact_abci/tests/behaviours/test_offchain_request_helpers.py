@@ -87,6 +87,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
+    OFFCHAIN_DEADLINE_TOO_CLOSE,
     OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_NONCE_TAKEN,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
@@ -1347,6 +1348,7 @@ class _StubBehaviour:
                 offchain_nonce_retry_max=nonce_retry_max,
                 offchain_nonce_mode=nonce_mode,
                 offchain_explicit_deadline_seconds=_EXPLICIT_DEADLINE_SECONDS,
+                offchain_explicit_min_remaining_seconds=600,
                 offchain_url=offchain_url,
                 priority_mech_address=priority_mech_address,
                 auto_deposit_cap_per_cycle=auto_deposit_cap,
@@ -5922,6 +5924,33 @@ class TestExplicitNonceIsTheDefault:
             compute_safe_message_hash(explicit_id, _REQUESTER, _CHAIN_ID)
         ]
 
+    def test_a_deadline_refusal_ends_the_cycle_without_a_failover(self) -> None:
+        """Every mech applies the same floor to the same deadline, so the next period signs anew."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(
+                    401,
+                    b'{"reason": "explicit-nonce deadline is too close for the mech to settle"}',
+                ),
+            ],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_DEADLINE_TOO_CLOSE
+        assert len(stub.posted_urls) == 1
+
     def test_a_silent_mech_followed_by_a_failover_is_called_out(self) -> None:
         """Two mechs may both settle one request, so the cycle says so when it happens."""
         warnings: List[str] = []
@@ -6314,6 +6343,31 @@ class TestARetryAfterDepositKeepsItsNonceMode:
         assert _form_field(body, "nonce") == str(own_nonce)
         assert _form_field(body, "deadline") == "1900000000"
 
+    def test_a_retry_too_close_to_its_deadline_is_not_sent(self) -> None:
+        """Under the mech's floor the resend would be refused; the next period starts over."""
+        stub, result = self._retry(
+            self._pending_raw(
+                nonce_mode=NONCE_MODE_EXPLICIT,
+                deadline=_CONSENSUS_TIMESTAMP + 599,
+            ),
+            _make_http_response(200),
+        )
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_DEADLINE_TOO_CLOSE
+        assert stub.posted_urls == []
+
+    def test_a_retry_with_exactly_the_floor_left_is_sent(self) -> None:
+        """The boundary is inclusive: the floor itself is enough."""
+        stub, result = self._retry(
+            self._pending_raw(
+                nonce_mode=NONCE_MODE_EXPLICIT,
+                deadline=_CONSENSUS_TIMESTAMP + 600,
+            ),
+            _make_http_response(200),
+        )
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert len(stub.posted_urls) == 1
+
     def test_a_blob_written_before_the_field_existed_retries_sequentially(
         self,
     ) -> None:
@@ -6326,7 +6380,7 @@ class TestARetryAfterDepositKeepsItsNonceMode:
     def test_a_path_switched_off_since_the_deposit_is_reported_as_such(self) -> None:
         """The cached id cannot be resent sequentially; the next period starts over."""
         stub, result = self._retry(
-            self._pending_raw(nonce_mode=NONCE_MODE_EXPLICIT),
+            self._pending_raw(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000),
             _make_http_response(503, _DISABLED_503),
         )
 
@@ -6354,7 +6408,9 @@ class TestPendingRequestNonceMode:
 
     def test_the_mode_survives_the_round_trip(self) -> None:
         """What the request round writes is what the poller reads."""
-        pending = PendingRequest.from_dict(self._raw(nonce_mode=NONCE_MODE_EXPLICIT))
+        pending = PendingRequest.from_dict(
+            self._raw(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000)
+        )
         assert pending is not None
         again = PendingRequest.from_dict(json.loads(pending.to_json()))
         assert again is not None
@@ -6392,6 +6448,14 @@ class TestPendingRequestNonceMode:
         assert old is not None
         assert old.deadline is None
 
+    def test_an_explicit_blob_without_a_deadline_is_rejected(self) -> None:
+        """A blob from before the deadline existed cannot be resent; it is discarded."""
+        assert (
+            PendingRequest.from_dict(self._raw(nonce_mode=NONCE_MODE_EXPLICIT)) is None
+        )
+        with pytest.raises(ValueError, match="deadline"):
+            PendingRequest(**self._raw(nonce_mode=NONCE_MODE_EXPLICIT))
+
     def test_a_negative_deadline_is_rejected(self) -> None:
         """A deadline is a Unix timestamp; a negative one is a corrupt blob."""
         assert PendingRequest.from_dict(self._raw(deadline=-1)) is None
@@ -6402,7 +6466,9 @@ class TestPendingRequestNonceMode:
         """The explicit nonce is a full uint256; the blob must carry it intact."""
         nonce = 2**256 - 1
         pending = PendingRequest.from_dict(
-            self._raw(nonce=nonce, nonce_mode=NONCE_MODE_EXPLICIT)
+            self._raw(
+                nonce=nonce, nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000
+            )
         )
         assert pending is not None
         again = PendingRequest.from_dict(json.loads(pending.to_json()))

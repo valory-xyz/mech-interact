@@ -367,6 +367,10 @@ class MechMarketplaceConfig:
     # settlement, not only its answer; a mech refuses a deadline closer than
     # its own floor.
     offchain_explicit_deadline_seconds: int = 15 * 60
+    # The least time a mech needs between accepting an explicit-nonce request
+    # and its deadline (the mech's own floor, 600 s by default). A resend
+    # after a deposit with less than this left is not attempted.
+    offchain_explicit_min_remaining_seconds: int = 600
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -406,6 +410,10 @@ class MechMarketplaceConfig:
             )
         if int(self.offchain_explicit_deadline_seconds) <= 0:
             raise ValueError("offchain_explicit_deadline_seconds must be positive")
+        if int(self.offchain_explicit_min_remaining_seconds) < 0:
+            raise ValueError(
+                "offchain_explicit_min_remaining_seconds must be non-negative"
+            )
 
 
 _LEGACY_MARKETPLACE_KEYS = frozenset({"use_offchain", "offchain_deposit_target_calls"})

@@ -72,6 +72,9 @@ OFFCHAIN_NONCE_TAKEN = "offchain_nonce_taken"
 # The mech does not accept explicit-nonce requests and the cycle could not
 # resend sequentially; see ``OffchainAttemptOutcome``.
 OFFCHAIN_EXPLICIT_NONCE_DISABLED = "offchain_explicit_nonce_disabled"
+# The signed settlement deadline of an explicit-nonce request no longer leaves
+# the mech room to execute and settle; the next period signs a fresh one.
+OFFCHAIN_DEADLINE_TOO_CLOSE = "offchain_deadline_too_close"
 # Emitted when the caller-supplied metadata exceeds the single-block CIDv1
 # ceiling (256 KiB). The on-chain IPFS path chunks these transparently; the
 # off-chain path needs the request to reject cleanly so the FSM doesn't

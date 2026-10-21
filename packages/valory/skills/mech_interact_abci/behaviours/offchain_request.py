@@ -118,6 +118,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
+    OFFCHAIN_DEADLINE_TOO_CLOSE,
     OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_METADATA_OVERSIZE,
     OFFCHAIN_NONCE_TAKEN,
@@ -720,6 +721,27 @@ def _is_nonce_rejection(body: Optional[bytes]) -> bool:
 _EXPLICIT_NONCE_DISABLED_REASON = "explicit-nonce requests are not enabled on this mech"
 
 
+# Leading words of the ``reason`` a mech sends with its 401 when an explicit
+# request's deadline is under the mech's floor (mech ``task_execution``
+# handlers); matched as a prefix so a trailing detail does not break it.
+_DEADLINE_TOO_CLOSE_REASON = "explicit-nonce deadline is too close"
+
+
+def _is_deadline_refusal(body: Optional[bytes]) -> bool:
+    """Return True when the mech turned the request away for its deadline.
+
+    :param body: the rejection response body.
+    :return: whether ``reason`` starts with the mech's deadline wording.
+    """
+    if not body:
+        return False
+    try:
+        reason = loads_bounded(body).get("reason", "")
+    except (ValueError, AttributeError, RecursionError):
+        return False
+    return isinstance(reason, str) and reason.startswith(_DEADLINE_TOO_CLOSE_REASON)
+
+
 def _is_explicit_nonce_refusal(body: Optional[bytes]) -> bool:
     """Return True when the mech turned the request away for its explicit nonce.
 
@@ -778,6 +800,10 @@ class OffchainAttemptOutcome(enum.Enum):
     """
 
     EXPLICIT_NONCE_DISABLED = "explicit_nonce_disabled"
+    # The mech refused an explicit request because its signed deadline is
+    # under the mech's floor. Every mech applies the same floor to the same
+    # deadline, so the cycle ends and the next period signs a fresh one.
+    DEADLINE_TOO_CLOSE = "deadline_too_close"
     """The mech does not accept explicit-nonce requests.
 
     Only an explicit request gets this, on the exact 503 the mech sends for
@@ -840,6 +866,7 @@ _REFUSED_OUTCOMES = frozenset(
         OffchainAttemptOutcome.NONCE_TAKEN,
         OffchainAttemptOutcome.SERVER_BUSY,
         OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED,
+        OffchainAttemptOutcome.DEADLINE_TOO_CLOSE,
     }
 )
 
@@ -919,6 +946,10 @@ class PendingRequest:
         if self.deadline is not None and self.deadline < 0:
             raise ValueError(
                 f"PendingRequest.deadline must be non-negative; got {self.deadline}"
+            )
+        if self.nonce_mode == NONCE_MODE_EXPLICIT and self.deadline is None:
+            raise ValueError(
+                "PendingRequest.deadline is required for an explicit-nonce request"
             )
 
     def to_json(self) -> str:
@@ -1474,6 +1505,18 @@ class OffchainRequestExecutor:
                     last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
                 )
 
+            if attempt.outcome is OffchainAttemptOutcome.DEADLINE_TOO_CLOSE:
+                # The deadline is the cycle's; another mech would refuse it
+                # the same way, so the cycle ends and the next period signs
+                # a fresh one.
+                self._logger.warning(
+                    f"Mech {mech_address} refused explicit-nonce request "
+                    f"0x{request_id_bytes.hex()}: deadline {deadline} is under "
+                    "its floor. Ending the cycle; the next period signs a fresh "
+                    "deadline."
+                )
+                last_failure = OFFCHAIN_DEADLINE_TOO_CLOSE
+                break
             if attempt.outcome is OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED:
                 # The mech turned the request away unread, so nothing of it
                 # is in flight and the same mech gets it again at no cost to
@@ -1674,6 +1717,20 @@ class OffchainRequestExecutor:
         rather than looping into another deposit.
         """
         request_id_bytes = bytes.fromhex(pending.request_id)
+        if pending.nonce_mode == NONCE_MODE_EXPLICIT:
+            remaining = (pending.deadline or 0) - self._consensus_timestamp()
+            if remaining < int(self._config.offchain_explicit_min_remaining_seconds):
+                # The mech would refuse the stored deadline; the next period
+                # starts over with a fresh one rather than burning the retry.
+                self._logger.warning(
+                    f"Not resending explicit-nonce request {pending.request_id} "
+                    f"after the deposit: {remaining} s left to its deadline, under "
+                    "the mech's floor. The next period signs a fresh deadline."
+                )
+                return OffchainCycleResult(
+                    offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
+                    last_failure_reason=OFFCHAIN_DEADLINE_TOO_CLOSE,
+                )
         chain_id_int = yield from self._resolve_chain_id_int()
         if chain_id_int is None:
             return OffchainCycleResult(
@@ -1903,6 +1960,17 @@ class OffchainRequestExecutor:
         ):
             return OffchainAttemptResult(
                 outcome=OffchainAttemptOutcome.NONCE_TAKEN,
+                mech_address=mech_address,
+                mech_url=mech_url,
+                status_code=status,
+            )
+        if (
+            status == 401
+            and nonce_mode == NONCE_MODE_EXPLICIT
+            and _is_deadline_refusal(body_bytes)
+        ):
+            return OffchainAttemptResult(
+                outcome=OffchainAttemptOutcome.DEADLINE_TOO_CLOSE,
                 mech_address=mech_address,
                 mech_url=mech_url,
                 status_code=status,
@@ -3090,6 +3158,8 @@ class OffchainRequestExecutor:
             return OFFCHAIN_NONCE_TAKEN
         if outcome is OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED:
             return OFFCHAIN_EXPLICIT_NONCE_DISABLED
+        if outcome is OffchainAttemptOutcome.DEADLINE_TOO_CLOSE:
+            return OFFCHAIN_DEADLINE_TOO_CLOSE
         return OFFCHAIN_TIMEOUT_ALL_MECHS
 
 
