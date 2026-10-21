@@ -274,10 +274,17 @@ _DOMAIN_TYPEHASH = eth_keccak(
         "address verifyingContract)"
     )
 )
-# ``MechMarketplace.EXPLICIT_NONCE_TAG``: the first word of the explicit-nonce
-# request id. The two ids are domain-separated, so a signature for one path
-# never verifies on the other.
-_EXPLICIT_NONCE_TAG = eth_keccak(text="ExplicitNonceDelivery")
+# The explicit-nonce request id is standard EIP-712 typed data under the
+# marketplace's second signing domain (``getDomainSeparatorWithNonce``: name
+# ``MechMarketplace``, version ``2``, hashed as raw bytes). The two ids are
+# domain-separated, so a signature for one path never verifies on the other.
+_EXPLICIT_NONCE_TYPE_HASH = eth_keccak(
+    text=(
+        "ExplicitNonceDelivery(address mech,address requester,bytes data,"
+        "uint256 maxDeliveryRate,bytes32 paymentType,uint256 nonce,uint256 deadline)"
+    )
+)
+_EXPLICIT_NONCE_DOMAIN_VERSION = "2"
 # Prefix hashed into the explicit nonce so it is a function of this skill's
 # request and of nothing else in the agent.
 _EXPLICIT_NONCE_DOMAIN = b"mech-interact/explicit-nonce"
@@ -307,7 +314,29 @@ def _compute_domain_separator(chain_id: int, marketplace_address: str) -> bytes:
     )
 
 
-def derive_request_id_bytes(  # noqa: D417
+def _compute_explicit_domain_separator(
+    chain_id: int, marketplace_address: str
+) -> bytes:
+    """Reproduce ``MechMarketplace.getDomainSeparatorWithNonce`` in Python.
+
+    Unlike the sequential domain, the version is hashed as raw bytes, as
+    EIP-712 prescribes.
+    """
+    return eth_keccak(
+        abi_encode(
+            ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+            [
+                _DOMAIN_TYPEHASH,
+                eth_keccak(text=_MARKETPLACE_NAME),
+                eth_keccak(text=_EXPLICIT_NONCE_DOMAIN_VERSION),
+                chain_id,
+                marketplace_address,
+            ],
+        )
+    )
+
+
+def derive_request_id_bytes(  # noqa: D417  # pylint: disable=too-many-arguments
     marketplace_address: str,
     mech_address: str,
     requester: str,
@@ -317,6 +346,7 @@ def derive_request_id_bytes(  # noqa: D417
     nonce: int,
     chain_id: int,
     nonce_mode: str = NONCE_MODE_SEQUENTIAL,
+    deadline: Optional[int] = None,
 ) -> bytes:
     """Local mirror of ``MechMarketplace.getRequestId`` / ``getRequestIdWithNonce``.
 
@@ -338,8 +368,10 @@ def derive_request_id_bytes(  # noqa: D417
         (sequential) or the request's own nonce (explicit).
     :param chain_id: The settlement chain id (for the EIP-712 domain).
     :param nonce_mode: Which view to mirror: ``sequential`` for
-        ``getRequestId``, ``explicit`` for ``getRequestIdWithNonce``, which
-        prepends ``EXPLICIT_NONCE_TAG`` to the same fields.
+        ``getRequestId``, ``explicit`` for ``getRequestIdWithNonce``, the
+        EIP-712 ``ExplicitNonceDelivery`` struct under its own domain.
+    :param deadline: Last Unix timestamp at which the marketplace settles the
+        request; part of the explicit digest and required for it.
     :return: The 32-byte ``request_id`` the contract will compute at
         ``_deliverMarketplaceWithSignatures`` time.
     """
@@ -347,51 +379,88 @@ def derive_request_id_bytes(  # noqa: D417
         raise ValueError("payment_type must be 32 bytes")
     if nonce_mode not in NONCE_MODES:
         raise ValueError(f"unknown nonce_mode {nonce_mode!r}")
-    domain_separator = _compute_domain_separator(chain_id, marketplace_address)
-    types = [
-        "address",
-        "address",
-        "address",
-        "bytes32",
-        "uint256",
-        "bytes32",
-        "uint256",
-    ]
-    values: List[Any] = [
-        marketplace_address,
-        mech_address,
-        requester,
-        eth_keccak(data),
-        delivery_rate,
-        payment_type,
-        nonce,
-    ]
     if nonce_mode == NONCE_MODE_EXPLICIT:
-        types = ["bytes32"] + types
-        values = [_EXPLICIT_NONCE_TAG] + values
-    inner_hash = eth_keccak(abi_encode(types, values))
+        if deadline is None:
+            raise ValueError("an explicit-nonce request id needs a deadline")
+        struct_hash = eth_keccak(
+            abi_encode(
+                [
+                    "bytes32",
+                    "address",
+                    "address",
+                    "bytes32",
+                    "uint256",
+                    "bytes32",
+                    "uint256",
+                    "uint256",
+                ],
+                [
+                    _EXPLICIT_NONCE_TYPE_HASH,
+                    mech_address,
+                    requester,
+                    eth_keccak(data),
+                    delivery_rate,
+                    payment_type,
+                    nonce,
+                    deadline,
+                ],
+            )
+        )
+        explicit_domain = _compute_explicit_domain_separator(
+            chain_id, marketplace_address
+        )
+        return eth_keccak(b"\x19\x01" + explicit_domain + struct_hash)
+    domain_separator = _compute_domain_separator(chain_id, marketplace_address)
+    inner_hash = eth_keccak(
+        abi_encode(
+            [
+                "address",
+                "address",
+                "address",
+                "bytes32",
+                "uint256",
+                "bytes32",
+                "uint256",
+            ],
+            [
+                marketplace_address,
+                mech_address,
+                requester,
+                eth_keccak(data),
+                delivery_rate,
+                payment_type,
+                nonce,
+            ],
+        )
+    )
     return eth_keccak(b"\x19\x01" + domain_separator + inner_hash)
 
 
-def derive_explicit_nonce(requester: str, data: bytes) -> int:
+def derive_explicit_nonce(requester: str, data: bytes, salt: int) -> int:
     """The nonce an explicit-nonce request carries as its own.
 
     Every agent of a service must sign the same request id, because the
     request round reaches consensus over the pending request, so the nonce
     cannot be drawn at random per agent. It is instead a digest of the
-    request itself: ``data`` already carries the caller's per-request UUID,
-    so two requests never share a nonce, and the same request re-sent
-    reaches the mech with the id it already knows.
+    request and of ``salt``, a value the agents already agree on (the
+    round transition that starts the cycle). The content alone is not
+    enough: ``data`` carries the caller's metadata nonce, which a caller
+    may leave empty or reuse, and two requests with one nonce would share
+    an id. Within a cycle the nonce is fixed, so a failover or a retry
+    after a deposit keeps the id the mech already knows.
 
     :param requester: The Safe (or EOA) that owns the prepaid balance.
     :param data: The 32-byte ipfs multihash committed as ``requestData``.
+    :param salt: A value identical on every agent for this cycle.
     :return: A uint256 nonce.
     """
     requester_bytes = bytes.fromhex(
         requester[2:] if requester.startswith("0x") else requester
     )
+    salt_bytes = int(salt).to_bytes(32, "big")
     return int.from_bytes(
-        eth_keccak(_EXPLICIT_NONCE_DOMAIN + requester_bytes + data), "big"
+        eth_keccak(_EXPLICIT_NONCE_DOMAIN + requester_bytes + data + salt_bytes),
+        "big",
     )
 
 
@@ -808,6 +877,9 @@ class PendingRequest:
     # counter (sequential) or the request's own value (explicit). Defaults to
     # sequential so a blob written before the field existed keeps its meaning.
     nonce_mode: str = NONCE_MODE_SEQUENTIAL
+    # The signed settlement deadline of an explicit request; None for a
+    # sequential one or a blob written before the field existed.
+    deadline: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Reject malformed values up front; raise rather than silently drift."""
@@ -844,6 +916,10 @@ class PendingRequest:
                 f"PendingRequest.nonce_mode must be one of {sorted(NONCE_MODES)}; "
                 f"got {self.nonce_mode!r}"
             )
+        if self.deadline is not None and self.deadline < 0:
+            raise ValueError(
+                f"PendingRequest.deadline must be non-negative; got {self.deadline}"
+            )
 
     def to_json(self) -> str:
         """Serialize to the form persisted on synchronized_data."""
@@ -879,6 +955,9 @@ class PendingRequest:
                 # / missing to the same empty-string fallback.
                 metadata_nonce=str(raw.get("metadata_nonce") or ""),
                 nonce_mode=str(raw.get("nonce_mode") or NONCE_MODE_SEQUENTIAL),
+                deadline=(
+                    None if raw.get("deadline") is None else int(raw["deadline"])
+                ),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -1124,6 +1203,7 @@ class OffchainRequestExecutor:
         # the slot registry are left untouched unless a mech turns the
         # request away for it, at which point the cycle takes a slot below.
         nonce_mode = self._config.offchain_nonce_mode
+        deadline: Optional[int] = None
         if nonce_mode == NONCE_MODE_SEQUENTIAL:
             slot = yield from self._take_sequential_slot()
             if slot is None:
@@ -1133,7 +1213,11 @@ class OffchainRequestExecutor:
                 )
             nonce = slot
         else:
-            nonce = derive_explicit_nonce(self._safe_address(), ipfs_hash_bytes)
+            cycle_time = self._consensus_timestamp()
+            nonce = derive_explicit_nonce(
+                self._safe_address(), ipfs_hash_bytes, cycle_time
+            )
+            deadline = cycle_time + int(self._config.offchain_explicit_deadline_seconds)
 
         attempted: List[str] = []
         last_failure: Optional[str] = None
@@ -1191,6 +1275,7 @@ class OffchainRequestExecutor:
                 nonce=nonce,
                 chain_id=chain_id_int,
                 nonce_mode=nonce_mode,
+                deadline=deadline,
             )
             signature_hex = yield from self._sign_request_id(
                 request_id_bytes, chain_id_int
@@ -1210,8 +1295,27 @@ class OffchainRequestExecutor:
                 delivery_rate=delivery_rate,
                 sender=self._safe_address(),
                 nonce_mode=nonce_mode,
+                deadline=deadline,
             )
             last_outcome = attempt.outcome
+            if (
+                nonce_mode == NONCE_MODE_EXPLICIT
+                and attempt.outcome not in _REFUSED_OUTCOMES
+                and attempt.outcome
+                not in (
+                    OffchainAttemptOutcome.DONE,
+                    OffchainAttemptOutcome.DEPOSIT_NEEDED,
+                )
+            ):
+                # The request id includes the mech, so a request a silent mech
+                # is still serving and the one sent to the next mech can both
+                # settle, until the signed deadline expires the first.
+                self._logger.warning(
+                    f"Mech {mech_address} did not confirm explicit-nonce request "
+                    f"0x{request_id_bytes.hex()} ({attempt.outcome.value}); it may "
+                    "still be serving it. Trying the next mech, so both may "
+                    f"settle before the deadline {deadline}."
+                )
             # Latched across the failover list rather than set per attempt.
             # One mech that never answered may be serving the request, and a
             # later mech refusing the same slot says nothing about it, so the
@@ -1253,6 +1357,7 @@ class OffchainRequestExecutor:
                 # None nonce upstream.
                 metadata_nonce=str(request_meta.nonce or ""),
                 nonce_mode=nonce_mode,
+                deadline=deadline,
             )
 
             if attempt.outcome is OffchainAttemptOutcome.DONE:
@@ -1379,6 +1484,7 @@ class OffchainRequestExecutor:
                     "requests; resending with the sequential nonce."
                 )
                 nonce_mode = NONCE_MODE_SEQUENTIAL
+                deadline = None
                 slot = yield from self._take_sequential_slot()
                 if slot is None:
                     last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
@@ -1592,6 +1698,7 @@ class OffchainRequestExecutor:
             delivery_rate=pending.delivery_rate,
             sender=pending.sender,
             nonce_mode=pending.nonce_mode,
+            deadline=pending.deadline,
         )
 
         if attempt.outcome is OffchainAttemptOutcome.DONE:
@@ -1650,6 +1757,7 @@ class OffchainRequestExecutor:
         ipfs_data: str,
         metadata_nonce: str,
         nonce_mode: str,
+        deadline: Optional[int] = None,
     ) -> PendingRequest:
         """Assemble the ``PendingRequest`` recorded on consensus payloads.
 
@@ -1670,7 +1778,17 @@ class OffchainRequestExecutor:
             ipfs_data=ipfs_data,
             metadata_nonce=metadata_nonce,
             nonce_mode=nonce_mode,
+            deadline=deadline,
         )
+
+    def _consensus_timestamp(self) -> int:
+        """The Unix time of the last round transition.
+
+        Tendermint stamps it identically on every agent, so anything derived
+        from it (the explicit nonce, the settlement deadline, and with them
+        the request id) is the same across the service.
+        """
+        return int(self._b.round_sequence.last_round_transition_timestamp.timestamp())
 
     def _post_signed_request(
         self,
@@ -1684,6 +1802,7 @@ class OffchainRequestExecutor:
         delivery_rate: int,
         sender: str,
         nonce_mode: str = NONCE_MODE_SEQUENTIAL,
+        deadline: Optional[int] = None,
     ) -> Generator[None, None, OffchainAttemptResult]:
         """POST to ``/send_signed_requests`` and classify the response.
 
@@ -1702,6 +1821,7 @@ class OffchainRequestExecutor:
             nonce=nonce,
             ipfs_data=ipfs_data,
             nonce_mode=nonce_mode,
+            deadline=deadline,
         )
         url = mech_url.rstrip("/") + "/send_signed_requests"
         try:
@@ -1833,6 +1953,7 @@ class OffchainRequestExecutor:
         nonce: int,
         ipfs_data: str,
         nonce_mode: str = NONCE_MODE_SEQUENTIAL,
+        deadline: Optional[int] = None,
     ) -> bytes:
         """Form-urlencode the body the mech ``handlers.py`` parses.
 
@@ -1856,6 +1977,7 @@ class OffchainRequestExecutor:
         }
         if nonce_mode == NONCE_MODE_EXPLICIT:
             fields["nonce_mode"] = NONCE_MODE_EXPLICIT
+            fields["deadline"] = deadline
         return urlencode(fields).encode("utf-8")
 
     # ---------- signing -----------------------------------------------------

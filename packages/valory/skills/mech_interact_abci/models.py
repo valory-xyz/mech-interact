@@ -361,6 +361,12 @@ class MechMarketplaceConfig:
     offchain_nonce_retry_max: int = 3
     # ``explicit`` or ``sequential``; see :data:`NONCE_MODES`.
     offchain_nonce_mode: str = NONCE_MODE_EXPLICIT
+    # How long, from the round transition that starts the request, an
+    # explicit-nonce authorisation stays settleable. Settlement past the
+    # signed deadline reverts, so the window covers the mech's execution and
+    # settlement, not only its answer; a mech refuses a deadline closer than
+    # its own floor.
+    offchain_explicit_deadline_seconds: int = 15 * 60
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -398,6 +404,8 @@ class MechMarketplaceConfig:
                 f"offchain_nonce_mode must be one of {sorted(NONCE_MODES)}; "
                 f"got {self.offchain_nonce_mode!r}"
             )
+        if int(self.offchain_explicit_deadline_seconds) <= 0:
+            raise ValueError("offchain_explicit_deadline_seconds must be positive")
 
 
 _LEGACY_MARKETPLACE_KEYS = frozenset({"use_offchain", "offchain_deposit_target_calls"})

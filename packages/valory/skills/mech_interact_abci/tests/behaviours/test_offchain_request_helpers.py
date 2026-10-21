@@ -30,6 +30,7 @@ import json
 import logging
 import time
 from dataclasses import asdict
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, parse_qsl
@@ -51,6 +52,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     _PAYMENT_TYPE_HASH_NVM_TOKEN,
     _PAYMENT_TYPE_HASH_TOKEN_OLAS,
     _PAYMENT_TYPE_HASH_TOKEN_USDC,
+    _compute_explicit_domain_separator,
     _is_explicit_nonce_refusal,
     _is_nonce_rejection,
     build_request_metadata,
@@ -1284,6 +1286,11 @@ class _StubSharedState:
         return {address: 0 for address in self._penalized}
 
 
+# Tendermint's timestamp of the last round transition, identical on every agent.
+_CONSENSUS_TIMESTAMP = 1_700_000_000
+_EXPLICIT_DEADLINE_SECONDS = 900
+
+
 class _StubBehaviour:
     """Minimal stub of the parent behaviour the executor talks back to.
 
@@ -1316,6 +1323,7 @@ class _StubBehaviour:
         # predate the explicit mode and read the counter on purpose. The
         # default itself is asserted against ``MechMarketplaceConfig``.
         nonce_mode: str = NONCE_MODE_SEQUENTIAL,
+        consensus_timestamp: int = _CONSENSUS_TIMESTAMP,
     ) -> None:
         # Mechs the executor penalized this cycle, for the next period's ranking.
         self.penalized_mechs: List[str] = []
@@ -1338,6 +1346,7 @@ class _StubBehaviour:
                 offchain_failover_max_retries=failover_retries,
                 offchain_nonce_retry_max=nonce_retry_max,
                 offchain_nonce_mode=nonce_mode,
+                offchain_explicit_deadline_seconds=_EXPLICIT_DEADLINE_SECONDS,
                 offchain_url=offchain_url,
                 priority_mech_address=priority_mech_address,
                 auto_deposit_cap_per_cycle=auto_deposit_cap,
@@ -1358,6 +1367,11 @@ class _StubBehaviour:
         )
         from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
 
+        self.round_sequence = SimpleNamespace(
+            last_round_transition_timestamp=datetime.fromtimestamp(
+                consensus_timestamp, tz=timezone.utc
+            )
+        )
         self.synchronized_data = SimpleNamespace(
             ranked_mechs=ranked_mechs,
             mech_requests=(
@@ -5479,6 +5493,9 @@ _REQUESTER = "0x" + "cc" * 20
 _DATA_HASH = b"\x11" * 32
 _CHAIN_ID = 100
 _SIGNED_RATE = 10**16
+# The deadline an explicit request signs: the stub's consensus time plus the
+# configured window (``_StubBehaviour`` above).
+_EXPECTED_DEADLINE = _CONSENSUS_TIMESTAMP + _EXPLICIT_DEADLINE_SECONDS
 _SEQUENTIAL_WIRE_FIELDS = [
     "sender",
     "signature",
@@ -5555,8 +5572,8 @@ def _per_attempt_reads() -> List[Any]:
 class TestTheTwoRequestIdViews:
     """``getRequestIdWithNonce`` is ``getRequestId`` with the tag prepended."""
 
-    def test_the_explicit_id_prepends_the_tag_to_the_same_fields(self) -> None:
-        """Golden vector rebuilt from the EIP-712 primitives, tag first."""
+    def test_the_explicit_id_is_the_typed_struct_under_its_own_domain(self) -> None:
+        """Golden vector rebuilt from the EIP-712 primitives: struct hash, domain version 2."""
         from eth_abi import encode as _abi_encode  # type: ignore[import-not-found]
         from eth_utils import keccak as _keccak  # type: ignore[import-not-found]
 
@@ -5571,48 +5588,99 @@ class TestTheTwoRequestIdViews:
                         )
                     ),
                     _keccak(text="MechMarketplace"),
-                    _keccak(_abi_encode(["string"], ["1.1.0"])),
+                    _keccak(text="2"),
                     _CHAIN_ID,
                     _MARKETPLACE,
                 ],
             )
         )
-        inner = _keccak(
+        struct_hash = _keccak(
             _abi_encode(
                 [
                     "bytes32",
                     "address",
                     "address",
-                    "address",
                     "bytes32",
                     "uint256",
                     "bytes32",
+                    "uint256",
                     "uint256",
                 ],
                 [
-                    _keccak(text="ExplicitNonceDelivery"),
-                    _MARKETPLACE,
+                    _keccak(
+                        text=(
+                            "ExplicitNonceDelivery(address mech,address requester,"
+                            "bytes data,uint256 maxDeliveryRate,bytes32 paymentType,"
+                            "uint256 nonce,uint256 deadline)"
+                        )
+                    ),
                     _MECH_A,
                     _REQUESTER,
                     _keccak(_DATA_HASH),
                     _SIGNED_RATE,
                     _NATIVE_PAYMENT_TYPE,
                     7,
+                    _EXPECTED_DEADLINE,
                 ],
             )
         )
-        expected = _keccak(b"\x19\x01" + domain_separator + inner)
+        expected = _keccak(b"\x19\x01" + domain_separator + struct_hash)
 
         actual = derive_request_id_bytes(
-            **_request_id_args(nonce_mode=NONCE_MODE_EXPLICIT)
+            **_request_id_args(
+                nonce_mode=NONCE_MODE_EXPLICIT, deadline=_EXPECTED_DEADLINE
+            )
         )
 
         assert actual == expected
 
+    def test_the_explicit_id_needs_a_deadline_and_changes_with_it(self) -> None:
+        """The deadline is signed; without one there is nothing to sign."""
+        with pytest.raises(ValueError, match="deadline"):
+            derive_request_id_bytes(**_request_id_args(nonce_mode=NONCE_MODE_EXPLICIT))
+        one = derive_request_id_bytes(
+            **_request_id_args(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_000)
+        )
+        two = derive_request_id_bytes(
+            **_request_id_args(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_001)
+        )
+        assert one != two
+
+    def test_the_explicit_id_matches_the_marketplace_on_a_fork(self) -> None:
+        """A vector the contract itself produced on an anvil Polygon fork.
+
+        ``getRequestIdWithNonce`` of autonolas-marketplace ``main`` at
+        ``14f191a`` (chain 137), called with these inputs; a layout change
+        in the contract breaks this test, not only the local reasoning.
+        """
+        fork_marketplace = "0x3e237772E6D9E1260d062cE05a4ABa913b4ef577"
+        actual = derive_request_id_bytes(
+            marketplace_address=fork_marketplace,
+            mech_address=_MECH_A,
+            requester=_REQUESTER,
+            data=_DATA_HASH,
+            delivery_rate=_SIGNED_RATE,
+            payment_type=bytes.fromhex(
+                "ba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
+            ),
+            nonce=7,
+            chain_id=137,
+            nonce_mode=NONCE_MODE_EXPLICIT,
+            deadline=1_700_000_900,
+        )
+        assert actual.hex() == (
+            "2c3f4aafc40d30ddded4ccf3b009e8a80e6d7a6fe1ee44008c38980baa94ed6d"
+        )
+        assert _compute_explicit_domain_separator(137, fork_marketplace).hex() == (
+            "bdd6ac6998335f7f99e44adc5ee3d78ba8a833fdcdf2891508bc51206e717d61"
+        )
+
     def test_the_two_views_never_agree_on_one_request(self) -> None:
         """A signature for one path must not verify on the other."""
         explicit = derive_request_id_bytes(
-            **_request_id_args(nonce_mode=NONCE_MODE_EXPLICIT)
+            **_request_id_args(
+                nonce_mode=NONCE_MODE_EXPLICIT, deadline=_EXPECTED_DEADLINE
+            )
         )
         sequential = derive_request_id_bytes(
             **_request_id_args(nonce_mode=NONCE_MODE_SEQUENTIAL)
@@ -5635,29 +5703,35 @@ class TestTheTwoRequestIdViews:
 
 
 class TestDeriveExplicitNonce:
-    """The explicit nonce is a function of the request, so every agent agrees."""
+    """The explicit nonce is a function of the request and the cycle, so every agent agrees."""
 
     def test_two_requests_get_different_nonces(self) -> None:
         """The request data carries the caller's UUID, which is what varies."""
-        assert derive_explicit_nonce(_REQUESTER, b"\x11" * 32) != (
-            derive_explicit_nonce(_REQUESTER, b"\x22" * 32)
-        )
+        assert derive_explicit_nonce(
+            _REQUESTER, b"\x11" * 32, _CONSENSUS_TIMESTAMP
+        ) != (derive_explicit_nonce(_REQUESTER, b"\x22" * 32, _CONSENSUS_TIMESTAMP))
 
     def test_the_same_request_gets_the_same_nonce_every_time(self) -> None:
         """Consensus over the pending request needs every agent to sign one id."""
-        assert derive_explicit_nonce(_REQUESTER, _DATA_HASH) == (
-            derive_explicit_nonce(_REQUESTER, _DATA_HASH)
+        assert derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP) == (
+            derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP)
+        )
+
+    def test_the_same_content_in_another_cycle_gets_another_nonce(self) -> None:
+        """A caller that reuses its metadata nonce does not reuse the request id."""
+        assert derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP) != (
+            derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP + 1)
         )
 
     def test_it_binds_the_requester(self) -> None:
         """Two Safes sending the same data do not share a nonce."""
-        assert derive_explicit_nonce(_REQUESTER, _DATA_HASH) != (
-            derive_explicit_nonce(_MECH_B, _DATA_HASH)
+        assert derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP) != (
+            derive_explicit_nonce(_MECH_B, _DATA_HASH, _CONSENSUS_TIMESTAMP)
         )
 
     def test_it_is_a_uint256_the_wire_can_carry(self) -> None:
         """The mech bounds the wire nonce to a uint256 decimal."""
-        nonce = derive_explicit_nonce(_REQUESTER, _DATA_HASH)
+        nonce = derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP)
         assert 0 <= nonce < 2**256
         assert str(nonce) == str(int(str(nonce)))
 
@@ -5810,11 +5884,14 @@ class TestExplicitNonceIsTheDefault:
 
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         pending = _pending_of(result)
-        expected_nonce = derive_explicit_nonce(_REQUESTER, _ipfs_hash_bytes(pending))
+        expected_nonce = derive_explicit_nonce(
+            _REQUESTER, _ipfs_hash_bytes(pending), _CONSENSUS_TIMESTAMP
+        )
         body = stub.posted_bodies[0]
         assert _form_field(body, "nonce_mode") == NONCE_MODE_EXPLICIT
         assert _form_field(body, "nonce") == str(expected_nonce)
-        assert _form_keys(body) == _SEQUENTIAL_WIRE_FIELDS + ["nonce_mode"]
+        assert _form_keys(body) == _SEQUENTIAL_WIRE_FIELDS + ["nonce_mode", "deadline"]
+        assert _form_field(body, "deadline") == str(_EXPECTED_DEADLINE)
         assert pending.nonce == expected_nonce
         assert pending.nonce_mode == NONCE_MODE_EXPLICIT
 
@@ -5828,9 +5905,14 @@ class TestExplicitNonceIsTheDefault:
         pending = _pending_of(result)
         args = _request_id_args(
             data=_ipfs_hash_bytes(pending),
-            nonce=derive_explicit_nonce(_REQUESTER, _ipfs_hash_bytes(pending)),
+            nonce=derive_explicit_nonce(
+                _REQUESTER, _ipfs_hash_bytes(pending), _CONSENSUS_TIMESTAMP
+            ),
         )
-        explicit_id = derive_request_id_bytes(**args, nonce_mode=NONCE_MODE_EXPLICIT)
+        explicit_id = derive_request_id_bytes(
+            **args, nonce_mode=NONCE_MODE_EXPLICIT, deadline=_EXPECTED_DEADLINE
+        )
+        assert pending.deadline == _EXPECTED_DEADLINE
         assert bytes.fromhex(pending.request_id) == explicit_id
         assert bytes.fromhex(pending.request_id) != derive_request_id_bytes(**args)
         assert _form_field(stub.posted_bodies[0], "request_id") == str(
@@ -5839,6 +5921,33 @@ class TestExplicitNonceIsTheDefault:
         assert stub.signed_request_ids == [
             compute_safe_message_hash(explicit_id, _REQUESTER, _CHAIN_ID)
         ]
+
+    def test_a_silent_mech_followed_by_a_failover_is_called_out(self) -> None:
+        """Two mechs may both settle one request, so the cycle says so when it happens."""
+        warnings: List[str] = []
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[None, _make_http_response(200)],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        stub.context.logger.warning = lambda *a, **k: warnings.append(a[0] if a else "")
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert len(stub.posted_urls) == 2
+        (notice,) = [w for w in warnings if "may still be serving" in w]
+        assert _MECH_A in notice
+        assert str(_EXPECTED_DEADLINE) in notice
 
     def test_the_counter_is_never_read_and_no_slot_is_taken(self) -> None:
         """The registry exists for the counter; an explicit request has no slot."""
@@ -6193,7 +6302,9 @@ class TestARetryAfterDepositKeepsItsNonceMode:
         """The mech must read the id against the explicit view again."""
         own_nonce = 2**255 + 3
         stub, result = self._retry(
-            self._pending_raw(nonce=own_nonce, nonce_mode=NONCE_MODE_EXPLICIT),
+            self._pending_raw(
+                nonce=own_nonce, nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000
+            ),
             _make_http_response(200),
         )
 
@@ -6201,6 +6312,7 @@ class TestARetryAfterDepositKeepsItsNonceMode:
         body = stub.posted_bodies[0]
         assert _form_field(body, "nonce_mode") == NONCE_MODE_EXPLICIT
         assert _form_field(body, "nonce") == str(own_nonce)
+        assert _form_field(body, "deadline") == "1900000000"
 
     def test_a_blob_written_before_the_field_existed_retries_sequentially(
         self,
@@ -6264,6 +6376,27 @@ class TestPendingRequestNonceMode:
         assert PendingRequest.from_dict(self._raw(nonce_mode=mode)) is None
         with pytest.raises(ValueError, match="nonce_mode"):
             PendingRequest(**self._raw(nonce_mode=str(mode)))
+
+    def test_the_deadline_survives_the_round_trip_and_is_absent_on_old_blobs(
+        self,
+    ) -> None:
+        """The signed deadline is carried as written; a blob without one reads None."""
+        pending = PendingRequest.from_dict(
+            self._raw(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000)
+        )
+        assert pending is not None
+        again = PendingRequest.from_dict(json.loads(pending.to_json()))
+        assert again is not None
+        assert again.deadline == 1_900_000_000
+        old = PendingRequest.from_dict(self._raw())
+        assert old is not None
+        assert old.deadline is None
+
+    def test_a_negative_deadline_is_rejected(self) -> None:
+        """A deadline is a Unix timestamp; a negative one is a corrupt blob."""
+        assert PendingRequest.from_dict(self._raw(deadline=-1)) is None
+        with pytest.raises(ValueError, match="deadline"):
+            PendingRequest(**self._raw(deadline=-1))
 
     def test_a_256_bit_nonce_round_trips_through_json(self) -> None:
         """The explicit nonce is a full uint256; the blob must carry it intact."""
