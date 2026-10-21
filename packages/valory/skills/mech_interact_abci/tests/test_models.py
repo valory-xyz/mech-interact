@@ -36,6 +36,8 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechResponseSpecs,
     MechToolsSpecs,
     MultisendBatch,
+    NONCE_MODE_EXPLICIT,
+    NONCE_MODE_SEQUENTIAL,
     NVMConfig,
     Ox,
     SharedState,
@@ -169,6 +171,32 @@ class TestMechMarketplaceConfig:
         assert config.offchain_poll_interval_seconds == 5.0
         assert type(config.offchain_poll_timeout_seconds) is float
         assert config.offchain_poll_timeout_seconds == 300.0
+
+    def test_explicit_nonces_are_the_default(self) -> None:
+        """A consumer that names no mode sends each request with its own nonce."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket", response_timeout=30
+        )
+        assert config.offchain_nonce_mode == NONCE_MODE_EXPLICIT
+
+    def test_sequential_nonces_can_be_chosen(self) -> None:
+        """The counter-based path stays available as an opt-in."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            offchain_nonce_mode=NONCE_MODE_SEQUENTIAL,
+        )
+        assert config.offchain_nonce_mode == NONCE_MODE_SEQUENTIAL
+
+    @pytest.mark.parametrize("mode", ["", "random", "EXPLICIT", "Sequential", None])
+    def test_an_unknown_nonce_mode_is_refused_at_boot(self, mode: Any) -> None:
+        """A typo would otherwise surface as a request no view can settle."""
+        with pytest.raises(ValueError, match="offchain_nonce_mode"):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                offchain_nonce_mode=mode,  # type: ignore[arg-type]
+            )
 
 
 class TestValidateOffchainParams:

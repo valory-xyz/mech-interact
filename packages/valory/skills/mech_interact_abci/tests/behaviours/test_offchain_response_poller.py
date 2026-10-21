@@ -34,6 +34,7 @@ import pytest
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_response import (
     OffchainResponsePoller,
 )
+from packages.valory.skills.mech_interact_abci.models import NONCE_MODE_EXPLICIT
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_ABANDONED,
 )
@@ -104,9 +105,9 @@ def _drive(gen: Any) -> Any:
         return exc.value
 
 
-def _pending_dict() -> dict:
+def _pending_dict(**overrides: Any) -> dict:
     """A well-formed pending request as the request round writes it."""
-    return {
+    pending = {
         "request_id": "ab" * 32,
         "nonce": 7,
         "mech_address": "0x" + "aa" * 20,
@@ -117,6 +118,8 @@ def _pending_dict() -> dict:
         "ipfs_data": "{}",
         "metadata_nonce": "meta-nonce",
     }
+    pending.update(overrides)
+    return pending
 
 
 class TestAMechThatGivesNoAnswerIsSetAside:
@@ -187,6 +190,18 @@ class TestAMechThatGivesNoAnswerIsSetAside:
         assert stub.penalties == expected
         abandoned = stub.context.shared_state.get(MECH_SLOT_ABANDONED, set())
         assert abandoned == ({("gnosis", "0x" + "bb" * 20, 7)} if penalized else set())
+
+    def test_an_unanswered_explicit_request_marks_no_slot(self) -> None:
+        """Its nonce is its own, not a slot of the counter another request can reuse."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(404) for _ in range(5)],
+            pending=_pending_dict(nonce=2**255 + 3, nonce_mode=NONCE_MODE_EXPLICIT),
+            mech_responses=[],
+        )
+        _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert stub.penalties == ["0x" + "aa" * 20]
+        assert stub.context.shared_state.get(MECH_SLOT_ABANDONED, set()) == set()
 
 
 class TestRunFallbackPlaceholder:

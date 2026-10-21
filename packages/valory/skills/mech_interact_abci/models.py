@@ -54,6 +54,21 @@ MechsSubgraphResponseType = Optional[MechsInfo]
 PLAN_DID_PREFIX = "did:nv:"
 Ox = "0x"
 
+# How an off-chain request's nonce is chosen, which decides the marketplace
+# view its request id mirrors and the path that settles it.
+#
+# ``explicit`` (the default): the request carries its own nonce and the id is
+# domain-separated from the sequential one, so the marketplace's per-request
+# record is the only replay guard and requests settle in any order. A mech
+# that does not accept the path turns the request away with a 503 and the
+# cycle resends it sequentially.
+# ``sequential``: the nonce is the requester's ``mapNonces`` counter, which
+# settlement consumes in order. It sends the payload every mech has always
+# accepted.
+NONCE_MODE_EXPLICIT = "explicit"
+NONCE_MODE_SEQUENTIAL = "sequential"
+NONCE_MODES = frozenset({NONCE_MODE_EXPLICIT, NONCE_MODE_SEQUENTIAL})
+
 
 class MechBodySpecs(ApiSpecs):
     """ApiSpecs for bodies a mech publishes, which may be of any shape."""
@@ -344,6 +359,8 @@ class MechMarketplaceConfig:
     # Re-signs at a fresh slot after a refusal, separate from the failover
     # budget because the mech is not at fault.
     offchain_nonce_retry_max: int = 3
+    # ``explicit`` or ``sequential``; see :data:`NONCE_MODES`.
+    offchain_nonce_mode: str = NONCE_MODE_EXPLICIT
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -376,6 +393,11 @@ class MechMarketplaceConfig:
             raise ValueError("offchain_failover_max_retries must be non-negative")
         if self.offchain_nonce_retry_max < 0:
             raise ValueError("offchain_nonce_retry_max must be non-negative")
+        if self.offchain_nonce_mode not in NONCE_MODES:
+            raise ValueError(
+                f"offchain_nonce_mode must be one of {sorted(NONCE_MODES)}; "
+                f"got {self.offchain_nonce_mode!r}"
+            )
 
 
 _LEGACY_MARKETPLACE_KEYS = frozenset({"use_offchain", "offchain_deposit_target_calls"})

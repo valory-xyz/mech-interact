@@ -27,9 +27,11 @@ for the on-chain marketplace request. The executor:
   per-mech ``http_url`` populated in :mod:`mech_info` or from the static
   ``offchain_url`` fallback);
 * assembles the request metadata, computes the bare-file CIDv1 locally
-  (byte-identical to ``mech-client``'s ``fetch_ipfs_hash``), reads the
-  requester's on-chain nonce, derives the ``request_id`` per
-  ``MechMarketplace.getRequestId``;
+  (byte-identical to ``mech-client``'s ``fetch_ipfs_hash``), picks the
+  request's nonce per ``MechMarketplaceConfig.offchain_nonce_mode`` (its
+  own, derived from the request, or the requester's on-chain counter) and
+  derives the ``request_id`` per ``MechMarketplace.getRequestIdWithNonce``
+  or ``MechMarketplace.getRequestId`` respectively;
 * wraps the ``request_id`` in the Safe ``SafeMessage`` EIP-712 digest
   the ``CompatibilityFallbackHandler`` computes internally (v1.3.0 and
   v1.4.1 use the same wrapping, bound to ``(chainId, safeAddress)``),
@@ -46,7 +48,9 @@ for the on-chain marketplace request. The executor:
   to the operator-configured cap, returns the tx for settlement, and resumes
   with the same request_id after the deposit lands;
 * on timeout / 503 walks the ranked list, capped by
-  ``offchain_failover_max_retries``.
+  ``offchain_failover_max_retries``; a 503 saying the mech does not accept
+  explicit nonces resends the request, and the rest of the cycle, with the
+  sequential nonce instead.
 
 The wire shapes and signing path are tightly coupled to
 ``mech-client``'s offchain implementation and to
@@ -88,7 +92,12 @@ from packages.valory.contracts.multisend.contract import (
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.protocols.ledger_api.message import LedgerApiMessage
 from packages.valory.skills.mech_interact_abci.behaviours.base import SAFE_GAS
-from packages.valory.skills.mech_interact_abci.models import delivery_rate_bound
+from packages.valory.skills.mech_interact_abci.models import (
+    NONCE_MODES,
+    NONCE_MODE_EXPLICIT,
+    NONCE_MODE_SEQUENTIAL,
+    delivery_rate_bound,
+)
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     SLOT_BLOCKED_GIVE_UP_SECS,
     clear_slot_blocked,
@@ -109,6 +118,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
+    OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_METADATA_OVERSIZE,
     OFFCHAIN_NONCE_TAKEN,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
@@ -250,8 +260,8 @@ def build_request_metadata(
 
 
 # ----------------------------------------------------------------------------
-# request_id derivation — local mirror of ``MechMarketplace.getRequestId``
-# (``contracts/MechMarketplace.sol:883-908``). Computing client-side avoids an
+# request_id derivation — local mirror of ``MechMarketplace.getRequestId`` and
+# ``MechMarketplace.getRequestIdWithNonce``. Computing client-side avoids an
 # RPC hop per attempt; the same hash is what the contract validates at
 # settlement so byte-for-byte parity matters.
 # ----------------------------------------------------------------------------
@@ -264,6 +274,13 @@ _DOMAIN_TYPEHASH = eth_keccak(
         "address verifyingContract)"
     )
 )
+# ``MechMarketplace.EXPLICIT_NONCE_TAG``: the first word of the explicit-nonce
+# request id. The two ids are domain-separated, so a signature for one path
+# never verifies on the other.
+_EXPLICIT_NONCE_TAG = eth_keccak(text="ExplicitNonceDelivery")
+# Prefix hashed into the explicit nonce so it is a function of this skill's
+# request and of nothing else in the agent.
+_EXPLICIT_NONCE_DOMAIN = b"mech-interact/explicit-nonce"
 
 
 def _compute_domain_separator(chain_id: int, marketplace_address: str) -> bytes:
@@ -299,8 +316,9 @@ def derive_request_id_bytes(  # noqa: D417
     payment_type: bytes,
     nonce: int,
     chain_id: int,
+    nonce_mode: str = NONCE_MODE_SEQUENTIAL,
 ) -> bytes:
-    """Local mirror of ``MechMarketplace.getRequestId``.
+    """Local mirror of ``MechMarketplace.getRequestId`` / ``getRequestIdWithNonce``.
 
     :param marketplace_address: ``address(this)`` on the settlement chain.
     :param mech_address: The mech the request targets.
@@ -316,37 +334,65 @@ def derive_request_id_bytes(  # noqa: D417
         ``deliveryRate`` argument).
     :param payment_type: 32-byte ``paymentType`` constant for the mech's
         payment model.
-    :param nonce: The requester's current on-chain ``mapNonces`` value.
+    :param nonce: The requester's current on-chain ``mapNonces`` value
+        (sequential) or the request's own nonce (explicit).
     :param chain_id: The settlement chain id (for the EIP-712 domain).
+    :param nonce_mode: Which view to mirror: ``sequential`` for
+        ``getRequestId``, ``explicit`` for ``getRequestIdWithNonce``, which
+        prepends ``EXPLICIT_NONCE_TAG`` to the same fields.
     :return: The 32-byte ``request_id`` the contract will compute at
         ``_deliverMarketplaceWithSignatures`` time.
     """
     if len(payment_type) != 32:
         raise ValueError("payment_type must be 32 bytes")
+    if nonce_mode not in NONCE_MODES:
+        raise ValueError(f"unknown nonce_mode {nonce_mode!r}")
     domain_separator = _compute_domain_separator(chain_id, marketplace_address)
-    inner_hash = eth_keccak(
-        abi_encode(
-            [
-                "address",
-                "address",
-                "address",
-                "bytes32",
-                "uint256",
-                "bytes32",
-                "uint256",
-            ],
-            [
-                marketplace_address,
-                mech_address,
-                requester,
-                eth_keccak(data),
-                delivery_rate,
-                payment_type,
-                nonce,
-            ],
-        )
-    )
+    types = [
+        "address",
+        "address",
+        "address",
+        "bytes32",
+        "uint256",
+        "bytes32",
+        "uint256",
+    ]
+    values: List[Any] = [
+        marketplace_address,
+        mech_address,
+        requester,
+        eth_keccak(data),
+        delivery_rate,
+        payment_type,
+        nonce,
+    ]
+    if nonce_mode == NONCE_MODE_EXPLICIT:
+        types = ["bytes32"] + types
+        values = [_EXPLICIT_NONCE_TAG] + values
+    inner_hash = eth_keccak(abi_encode(types, values))
     return eth_keccak(b"\x19\x01" + domain_separator + inner_hash)
+
+
+def derive_explicit_nonce(requester: str, data: bytes) -> int:
+    """The nonce an explicit-nonce request carries as its own.
+
+    Every agent of a service must sign the same request id, because the
+    request round reaches consensus over the pending request, so the nonce
+    cannot be drawn at random per agent. It is instead a digest of the
+    request itself: ``data`` already carries the caller's per-request UUID,
+    so two requests never share a nonce, and the same request re-sent
+    reaches the mech with the id it already knows.
+
+    :param requester: The Safe (or EOA) that owns the prepaid balance.
+    :param data: The 32-byte ipfs multihash committed as ``requestData``.
+    :return: A uint256 nonce.
+    """
+    requester_bytes = bytes.fromhex(
+        requester[2:] if requester.startswith("0x") else requester
+    )
+    return int.from_bytes(
+        eth_keccak(_EXPLICIT_NONCE_DOMAIN + requester_bytes + data), "big"
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -600,6 +646,26 @@ def _is_nonce_rejection(body: Optional[bytes]) -> bool:
     return any(known in reason for known in _NONCE_REJECTION_REASONS)
 
 
+# Verbatim ``reason`` a mech sends with its 503 when explicit-nonce requests
+# are not enabled on it (mech ``task_execution`` handlers).
+_EXPLICIT_NONCE_DISABLED_REASON = "explicit-nonce requests are not enabled on this mech"
+
+
+def _is_explicit_nonce_refusal(body: Optional[bytes]) -> bool:
+    """Return True when the mech turned the request away for its explicit nonce.
+
+    :param body: the rejection response body.
+    :return: whether ``reason`` is the mech's disabled-path wording, exactly.
+    """
+    if not body:
+        return False
+    try:
+        reason = loads_bounded(body).get("reason", "")
+    except (ValueError, AttributeError, RecursionError):
+        return False
+    return reason == _EXPLICIT_NONCE_DISABLED_REASON
+
+
 class OffchainAttemptOutcome(enum.Enum):
     """Terminal state of a single ``/send_signed_requests`` POST."""
 
@@ -640,6 +706,15 @@ class OffchainAttemptOutcome(enum.Enum):
     Re-read the counter and sign again at the same mech; moving to another
     one would carry the same dead slot, and a counter that has not moved
     means the retry would be refused identically.
+    """
+
+    EXPLICIT_NONCE_DISABLED = "explicit_nonce_disabled"
+    """The mech does not accept explicit-nonce requests.
+
+    Only an explicit request gets this, on the exact 503 the mech sends for
+    a disabled path. The request was not accepted, so the cycle resends it
+    at the same mech with the sequential nonce and stays sequential for the
+    rest of the cycle, since the mech answers every explicit request alike.
     """
 
     BAD_RESPONSE = "bad_response"
@@ -695,6 +770,7 @@ _REFUSED_OUTCOMES = frozenset(
     {
         OffchainAttemptOutcome.NONCE_TAKEN,
         OffchainAttemptOutcome.SERVER_BUSY,
+        OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED,
     }
 )
 
@@ -728,6 +804,10 @@ class PendingRequest:
     # request_id derivation and replay protection; it is not what
     # downstream consumers match on.
     metadata_nonce: str = ""
+    # Which view ``request_id`` mirrors and what ``nonce`` is: the requester's
+    # counter (sequential) or the request's own value (explicit). Defaults to
+    # sequential so a blob written before the field existed keeps its meaning.
+    nonce_mode: str = NONCE_MODE_SEQUENTIAL
 
     def __post_init__(self) -> None:
         """Reject malformed values up front; raise rather than silently drift."""
@@ -758,6 +838,11 @@ class PendingRequest:
             raise ValueError(
                 "PendingRequest.metadata_nonce must be a string (empty for "
                 f"pre-metadata-nonce payloads); got {self.metadata_nonce!r}"
+            )
+        if self.nonce_mode not in NONCE_MODES:
+            raise ValueError(
+                f"PendingRequest.nonce_mode must be one of {sorted(NONCE_MODES)}; "
+                f"got {self.nonce_mode!r}"
             )
 
     def to_json(self) -> str:
@@ -793,6 +878,7 @@ class PendingRequest:
                 # `_serialise_pending_response`. The `or ""` normalises None
                 # / missing to the same empty-string fallback.
                 metadata_nonce=str(raw.get("metadata_nonce") or ""),
+                nonce_mode=str(raw.get("nonce_mode") or NONCE_MODE_SEQUENTIAL),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -1022,94 +1108,32 @@ class OffchainRequestExecutor:
                 last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
             )
 
-        chain_nonce = yield from self._read_on_chain_nonce()
-        if chain_nonce is None:
-            return OffchainCycleResult(
-                offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
-                last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
-            )
-        # Before taking one, reclaim any slot this skill is still holding
-        # that the mech cannot have accepted: the counter has not moved off
-        # it and a mech that had it would have answered by now.
-        retired = retire_expired_slots(
-            self._b.context.shared_state,
-            chain=str(self._b.params.mech_chain_id or ""),
-            safe=self._safe_address(),
+        # ``data`` must be the 32-byte ipfs multihash the mech will submit
+        # as ``requestData`` at settlement, not the JSON body. The
+        # marketplace computes ``keccak256(requestData)`` inside the
+        # request-id views; if the trader hashes the JSON here instead, the
+        # settlement digest differs from the one the Safe validated and
+        # ``checkSignatures`` reverts with ``GS026``. Mirrors mech-client's
+        # ``fetch_ipfs_hash`` -> ``data_hash`` handoff (see
+        # ``mech_client/services/marketplace_service.py``).
+        ipfs_hash_bytes = bytes.fromhex(
+            ipfs_hash[2:] if ipfs_hash.startswith("0x") else ipfs_hash
         )
-        if retired:
-            self._logger.info(
-                f"Reclaimed slot(s) {retired} for {self._safe_address()}: the "
-                "request signed at them can no longer be admitted."
-            )
-        swept = sweep_dead_slots(
-            self._b.context.shared_state,
-            chain=str(self._b.params.mech_chain_id or ""),
-            safe=self._safe_address(),
-            on_chain_nonce=chain_nonce,
-            older_than_secs=self._config.offchain_poll_timeout_seconds,
-        )
-        if swept:
-            self._logger.info(
-                f"Reclaimed slot(s) {swept} for {self._safe_address()}: the "
-                "counter has not moved off them and no mech answered in time."
-            )
 
-        # The chain counter only moves at settlement, so on its own it
-        # hands back slots something else in this agent is already
-        # holding. The agent's registry is the one view that sees both.
-        on_chain_nonce = reserve_slot(
-            self._b.context.shared_state,
-            chain=str(self._b.params.mech_chain_id or ""),
-            safe=self._safe_address(),
-            on_chain_nonce=chain_nonce,
-        )
-        # Every cycle, so marks the counter has moved past are dropped too.
-        abandoned = take_abandoned_slot(
-            self._b.context.shared_state,
-            chain=str(self._b.params.mech_chain_id or ""),
-            safe=self._safe_address(),
-            on_chain_nonce=chain_nonce,
-        )
-        if on_chain_nonce != chain_nonce:
-            # Stepped over a slot something else holds. The mech expects the
-            # chain counter, so this is refused until that slot settles, and
-            # ``SLOT_BLOCKED_GIVE_UP_SECS`` bounds how long that can go on.
-            blocked = note_slot_blocked(
-                self._b.context.shared_state,
-                chain=str(self._b.params.mech_chain_id or ""),
-                safe=self._safe_address(),
-                slot=chain_nonce,
-            )
-            if abandoned or blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
-                if abandoned:
-                    self._abandoned_slot = chain_nonce
-                    self._logger.info(
-                        f"Signing at slot {chain_nonce} again for the next "
-                        "mech: the request this skill signed there got no "
-                        "answer, and only one signature at a slot can settle."
-                    )
-                else:
-                    self._logger.warning(
-                        f"Signing at slot {chain_nonce} even though something "
-                        "in this agent holds it: the counter has not moved in "
-                        f"{blocked.seconds:.0f}s, so it is not being settled. "
-                        "One lost settlement batch is worth less than this "
-                        "request never being sent."
-                    )
-                release_slot(
-                    self._b.context.shared_state,
-                    chain=str(self._b.params.mech_chain_id or ""),
-                    safe=self._safe_address(),
-                    slot=on_chain_nonce,
+        # An explicit nonce belongs to the request alone, so the counter and
+        # the slot registry are left untouched unless a mech turns the
+        # request away for it, at which point the cycle takes a slot below.
+        nonce_mode = self._config.offchain_nonce_mode
+        if nonce_mode == NONCE_MODE_SEQUENTIAL:
+            slot = yield from self._take_sequential_slot()
+            if slot is None:
+                return OffchainCycleResult(
+                    offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
+                    last_failure_reason=OFFCHAIN_TIMEOUT_ALL_MECHS,
                 )
-                on_chain_nonce = chain_nonce
+            nonce = slot
         else:
-            clear_slot_blocked(
-                self._b.context.shared_state,
-                chain=str(self._b.params.mech_chain_id or ""),
-                safe=self._safe_address(),
-            )
-        self._reserved_slot = on_chain_nonce
+            nonce = derive_explicit_nonce(self._safe_address(), ipfs_hash_bytes)
 
         attempted: List[str] = []
         last_failure: Optional[str] = None
@@ -1157,17 +1181,6 @@ class OffchainRequestExecutor:
                 last_failure = DELIVERY_RATE_ABOVE_CAP
                 continue
 
-            # ``data`` must be the 32-byte ipfs multihash the mech will
-            # submit as ``requestData`` at settlement, not the JSON body.
-            # The marketplace computes ``keccak256(requestData)`` inside
-            # ``getRequestId``; if the trader hashes the JSON here instead,
-            # the settlement digest differs from the one the Safe validated
-            # and ``checkSignatures`` reverts with ``GS026``. Mirrors
-            # mech-client's ``fetch_ipfs_hash`` -> ``data_hash`` handoff
-            # (see ``mech_client/services/marketplace_service.py``).
-            ipfs_hash_bytes = bytes.fromhex(
-                ipfs_hash[2:] if ipfs_hash.startswith("0x") else ipfs_hash
-            )
             request_id_bytes = derive_request_id_bytes(
                 marketplace_address=self._config.mech_marketplace_address,
                 mech_address=mech_address,
@@ -1175,8 +1188,9 @@ class OffchainRequestExecutor:
                 data=ipfs_hash_bytes,
                 delivery_rate=delivery_rate,
                 payment_type=payment_type_bytes,
-                nonce=on_chain_nonce,
+                nonce=nonce,
                 chain_id=chain_id_int,
+                nonce_mode=nonce_mode,
             )
             signature_hex = yield from self._sign_request_id(
                 request_id_bytes, chain_id_int
@@ -1192,28 +1206,36 @@ class OffchainRequestExecutor:
                 ipfs_data=ipfs_data,
                 request_id_bytes=request_id_bytes,
                 signature_hex=signature_hex,
-                nonce=on_chain_nonce,
+                nonce=nonce,
                 delivery_rate=delivery_rate,
                 sender=self._safe_address(),
+                nonce_mode=nonce_mode,
             )
             last_outcome = attempt.outcome
             # Latched across the failover list rather than set per attempt.
             # One mech that never answered may be serving the request, and a
             # later mech refusing the same slot says nothing about it, so the
-            # slot is kept once any attempt has left the question open.
-            if attempt.outcome not in _REFUSED_OUTCOMES:
+            # slot is kept once any attempt has left the question open. An
+            # explicit request carries its own nonce and holds no slot.
+            if (
+                nonce_mode == NONCE_MODE_SEQUENTIAL
+                and attempt.outcome not in _REFUSED_OUTCOMES
+            ):
                 self._slot_may_be_held = True
-            if attempt.outcome is OffchainAttemptOutcome.DONE:
+            if (
+                attempt.outcome is OffchainAttemptOutcome.DONE
+                and nonce_mode == NONCE_MODE_SEQUENTIAL
+            ):
                 note_slot_accepted(
                     self._b.context.shared_state,
                     chain=str(self._b.params.mech_chain_id or ""),
                     safe=self._safe_address(),
-                    slot=on_chain_nonce,
+                    slot=nonce,
                 )
 
             pending = self._build_pending(
                 request_id_bytes=request_id_bytes,
-                nonce=on_chain_nonce,
+                nonce=nonce,
                 mech_address=mech_address,
                 mech_url=mech_url,
                 delivery_rate=delivery_rate,
@@ -1230,6 +1252,7 @@ class OffchainRequestExecutor:
                 # effect. Matches `build_request_metadata`'s treatment of
                 # None nonce upstream.
                 metadata_nonce=str(request_meta.nonce or ""),
+                nonce_mode=nonce_mode,
             )
 
             if attempt.outcome is OffchainAttemptOutcome.DONE:
@@ -1346,6 +1369,25 @@ class OffchainRequestExecutor:
                     last_failure_reason=OFFCHAIN_402_INSUFFICIENT,
                 )
 
+            if attempt.outcome is OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED:
+                # The mech turned the request away unread, so nothing of it
+                # is in flight and the same mech gets it again at no cost to
+                # the failover budget. It answers every explicit request
+                # this way, so the rest of the cycle stays sequential too.
+                self._logger.warning(
+                    f"Mech {mech_address} does not accept explicit-nonce "
+                    "requests; resending with the sequential nonce."
+                )
+                nonce_mode = NONCE_MODE_SEQUENTIAL
+                slot = yield from self._take_sequential_slot()
+                if slot is None:
+                    last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
+                    break
+                nonce = slot
+                failovers_left += 1
+                attempted.remove(mech_address.lower())
+                continue
+
             if attempt.outcome is OffchainAttemptOutcome.NONCE_TAKEN:
                 # Stay on this mech: another one would refuse the same
                 # slot and this one is not at fault, so it costs no failover.
@@ -1356,11 +1398,11 @@ class OffchainRequestExecutor:
                 if refreshed is None:
                     last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                     break
-                if on_chain_nonce == self._abandoned_slot == refreshed:
+                if nonce == self._abandoned_slot == refreshed:
                     # The abandoned slot's reservation belongs to the earlier
                     # request, which may still settle, so it is kept as is.
                     self._logger.info(
-                        f"Mech {mech_address} refused slot {on_chain_nonce} for "
+                        f"Mech {mech_address} refused slot {nonce} for "
                         f"{self._safe_address()} and the counter has not moved; "
                         "leaving it for the next period."
                     )
@@ -1371,7 +1413,7 @@ class OffchainRequestExecutor:
                     self._b.context.shared_state,
                     chain=str(self._b.params.mech_chain_id or ""),
                     safe=self._safe_address(),
-                    slot=on_chain_nonce,
+                    slot=nonce,
                 )
                 candidate = reserve_slot(
                     self._b.context.shared_state,
@@ -1380,12 +1422,12 @@ class OffchainRequestExecutor:
                     on_chain_nonce=refreshed,
                 )
                 self._reserved_slot = candidate
-                if candidate == on_chain_nonce:
+                if candidate == nonce:
                     # ``mapNonces`` only moves when a delivery settles, so an
                     # unmoved counter means re-signing would be refused the
                     # same way. Give up now and let the next period retry.
                     self._logger.info(
-                        f"Mech {mech_address} refused slot {on_chain_nonce} for "
+                        f"Mech {mech_address} refused slot {nonce} for "
                         f"{self._safe_address()} and the counter has not moved; "
                         "leaving it for the next period."
                     )
@@ -1394,10 +1436,10 @@ class OffchainRequestExecutor:
                 failovers_left += 1
                 attempted.remove(mech_address.lower())
                 self._logger.info(
-                    f"Mech {mech_address} refused slot {on_chain_nonce} for "
+                    f"Mech {mech_address} refused slot {nonce} for "
                     f"{self._safe_address()}; retrying at {candidate}."
                 )
-                on_chain_nonce = candidate
+                nonce = candidate
                 continue
 
             # TIMEOUT / SERVER_BUSY / BAD_RESPONSE — try the next mech.
@@ -1408,6 +1450,105 @@ class OffchainRequestExecutor:
             offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
             last_failure_reason=last_failure or OFFCHAIN_TIMEOUT_ALL_MECHS,
         )
+
+    def _take_sequential_slot(self) -> Generator[None, None, Optional[int]]:
+        """Read the requester's counter and reserve the slot to sign at.
+
+        :yield: the framework steps of the counter read.
+        :return: the slot, or ``None`` when the counter could not be read.
+
+        The chain counter only moves at settlement, so on its own it hands
+        back slots something else in this agent is already holding. The
+        agent's registry is the one view that sees both, and it decides
+        whether this cycle signs at the counter, steps over a held slot, or
+        signs again at one this skill abandoned.
+        """
+        chain_nonce = yield from self._read_on_chain_nonce()
+        if chain_nonce is None:
+            return None
+        # Before taking one, reclaim any slot this skill is still holding
+        # that the mech cannot have accepted: the counter has not moved off
+        # it and a mech that had it would have answered by now.
+        retired = retire_expired_slots(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+        )
+        if retired:
+            self._logger.info(
+                f"Reclaimed slot(s) {retired} for {self._safe_address()}: the "
+                "request signed at them can no longer be admitted."
+            )
+        swept = sweep_dead_slots(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            on_chain_nonce=chain_nonce,
+            older_than_secs=self._config.offchain_poll_timeout_seconds,
+        )
+        if swept:
+            self._logger.info(
+                f"Reclaimed slot(s) {swept} for {self._safe_address()}: the "
+                "counter has not moved off them and no mech answered in time."
+            )
+
+        # The chain counter only moves at settlement, so on its own it
+        # hands back slots something else in this agent is already
+        # holding. The agent's registry is the one view that sees both.
+        on_chain_nonce = reserve_slot(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            on_chain_nonce=chain_nonce,
+        )
+        # Every cycle, so marks the counter has moved past are dropped too.
+        abandoned = take_abandoned_slot(
+            self._b.context.shared_state,
+            chain=str(self._b.params.mech_chain_id or ""),
+            safe=self._safe_address(),
+            on_chain_nonce=chain_nonce,
+        )
+        if on_chain_nonce != chain_nonce:
+            # Stepped over a slot something else holds. The mech expects the
+            # chain counter, so this is refused until that slot settles, and
+            # ``SLOT_BLOCKED_GIVE_UP_SECS`` bounds how long that can go on.
+            blocked = note_slot_blocked(
+                self._b.context.shared_state,
+                chain=str(self._b.params.mech_chain_id or ""),
+                safe=self._safe_address(),
+                slot=chain_nonce,
+            )
+            if abandoned or blocked.seconds >= SLOT_BLOCKED_GIVE_UP_SECS:
+                if abandoned:
+                    self._abandoned_slot = chain_nonce
+                    self._logger.info(
+                        f"Signing at slot {chain_nonce} again for the next "
+                        "mech: the request this skill signed there got no "
+                        "answer, and only one signature at a slot can settle."
+                    )
+                else:
+                    self._logger.warning(
+                        f"Signing at slot {chain_nonce} even though something "
+                        "in this agent holds it: the counter has not moved in "
+                        f"{blocked.seconds:.0f}s, so it is not being settled. "
+                        "One lost settlement batch is worth less than this "
+                        "request never being sent."
+                    )
+                release_slot(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=self._safe_address(),
+                    slot=on_chain_nonce,
+                )
+                on_chain_nonce = chain_nonce
+        else:
+            clear_slot_blocked(
+                self._b.context.shared_state,
+                chain=str(self._b.params.mech_chain_id or ""),
+                safe=self._safe_address(),
+            )
+        self._reserved_slot = on_chain_nonce
+        return on_chain_nonce
 
     # ---------- resume after deposit ---------------------------------------
 
@@ -1450,6 +1591,7 @@ class OffchainRequestExecutor:
             nonce=pending.nonce,
             delivery_rate=pending.delivery_rate,
             sender=pending.sender,
+            nonce_mode=pending.nonce_mode,
         )
 
         if attempt.outcome is OffchainAttemptOutcome.DONE:
@@ -1507,14 +1649,15 @@ class OffchainRequestExecutor:
         ipfs_hash: str,
         ipfs_data: str,
         metadata_nonce: str,
+        nonce_mode: str,
     ) -> PendingRequest:
         """Assemble the ``PendingRequest`` recorded on consensus payloads.
 
         Centralized so the ``DONE`` and ``DEPOSIT_NEEDED`` branches can't
         drift in field shape (the original revision had two near-identical
         constructor calls). All fields are deterministic given the
-        on-chain reads; see :class:`PendingRequest` for why the per-agent
-        signature is excluded.
+        on-chain reads and the request; see :class:`PendingRequest` for why
+        the per-agent signature is excluded.
         """
         return PendingRequest(
             request_id=request_id_bytes.hex(),
@@ -1526,6 +1669,7 @@ class OffchainRequestExecutor:
             ipfs_hash=ipfs_hash,
             ipfs_data=ipfs_data,
             metadata_nonce=metadata_nonce,
+            nonce_mode=nonce_mode,
         )
 
     def _post_signed_request(
@@ -1539,8 +1683,16 @@ class OffchainRequestExecutor:
         nonce: int,
         delivery_rate: int,
         sender: str,
+        nonce_mode: str = NONCE_MODE_SEQUENTIAL,
     ) -> Generator[None, None, OffchainAttemptResult]:
-        """POST to ``/send_signed_requests`` and classify the response."""
+        """POST to ``/send_signed_requests`` and classify the response.
+
+        A refusal is read against the nonce mode the request was sent with:
+        a slot refusal only means something for a sequential request, and
+        the disabled-path 503 only for an explicit one. Either wording on
+        the other kind of request is an answer that cannot apply to it, so
+        it keeps the plain classification of its status.
+        """
         body = self._build_form_body(
             sender=sender,
             signature=signature_hex,
@@ -1549,6 +1701,7 @@ class OffchainRequestExecutor:
             delivery_rate=delivery_rate,
             nonce=nonce,
             ipfs_data=ipfs_data,
+            nonce_mode=nonce_mode,
         )
         url = mech_url.rstrip("/") + "/send_signed_requests"
         try:
@@ -1623,9 +1776,24 @@ class OffchainRequestExecutor:
                 challenge=challenge,
                 status_code=status,
             )
-        if status in (401, 503) and _is_nonce_rejection(body_bytes):
+        if (
+            status in (401, 503)
+            and nonce_mode == NONCE_MODE_SEQUENTIAL
+            and _is_nonce_rejection(body_bytes)
+        ):
             return OffchainAttemptResult(
                 outcome=OffchainAttemptOutcome.NONCE_TAKEN,
+                mech_address=mech_address,
+                mech_url=mech_url,
+                status_code=status,
+            )
+        if status == 503 and _is_explicit_nonce_refusal(body_bytes):
+            return OffchainAttemptResult(
+                outcome=(
+                    OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED
+                    if nonce_mode == NONCE_MODE_EXPLICIT
+                    else OffchainAttemptOutcome.BAD_RESPONSE
+                ),
                 mech_address=mech_address,
                 mech_url=mech_url,
                 status_code=status,
@@ -1664,6 +1832,7 @@ class OffchainRequestExecutor:
         delivery_rate: int,
         nonce: int,
         ipfs_data: str,
+        nonce_mode: str = NONCE_MODE_SEQUENTIAL,
     ) -> bytes:
         """Form-urlencode the body the mech ``handlers.py`` parses.
 
@@ -1672,19 +1841,22 @@ class OffchainRequestExecutor:
         but never JSON-decodes the body), so we encode each scalar field
         as ``key=value`` joined with ``&`` and URL-encode special characters
         in the JSON payload. Matches mech-client's
-        ``requests.post(data=dict(...))`` behaviour byte-for-byte.
+        ``requests.post(data=dict(...))`` behaviour byte-for-byte: a
+        sequential request carries no ``nonce_mode`` field, so its body is
+        the one every mech has always parsed.
         """
-        return urlencode(
-            {
-                "sender": sender,
-                "signature": signature,
-                "ipfs_hash": ipfs_hash,
-                "request_id": request_id,
-                "delivery_rate": delivery_rate,
-                "nonce": nonce,
-                "ipfs_data": ipfs_data,
-            }
-        ).encode("utf-8")
+        fields: Dict[str, Any] = {
+            "sender": sender,
+            "signature": signature,
+            "ipfs_hash": ipfs_hash,
+            "request_id": request_id,
+            "delivery_rate": delivery_rate,
+            "nonce": nonce,
+            "ipfs_data": ipfs_data,
+        }
+        if nonce_mode == NONCE_MODE_EXPLICIT:
+            fields["nonce_mode"] = NONCE_MODE_EXPLICIT
+        return urlencode(fields).encode("utf-8")
 
     # ---------- signing -----------------------------------------------------
 
@@ -1863,7 +2035,14 @@ class OffchainRequestExecutor:
     def _resolve_delivery_rate(
         self, mech_address: str
     ) -> Generator[None, None, Optional[int]]:
-        """Read the mech's ``maxDeliveryRate``; mech-client charges at this rate."""
+        """The rate signed into the request, read as the mech's ``maxDeliveryRate``.
+
+        This is the one place the signed rate comes from: it is what the
+        request id binds, what the 402 shortfall is checked against and what
+        the deposit is sized from. Where it is read from can change (a
+        per-tool value from the mech's metadata, say) without touching any
+        of those.
+        """
         raw = yield from self._read_contract_state(
             contract_address=mech_address,
             contract_id=str(MechMMContract.contract_id),
@@ -2787,6 +2966,8 @@ class OffchainRequestExecutor:
             return OFFCHAIN_BAD_RESPONSE
         if outcome is OffchainAttemptOutcome.NONCE_TAKEN:
             return OFFCHAIN_NONCE_TAKEN
+        if outcome is OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED:
+            return OFFCHAIN_EXPLICIT_NONCE_DISABLED
         return OFFCHAIN_TIMEOUT_ALL_MECHS
 
 
@@ -2800,6 +2981,7 @@ __all__ = [
     "build_request_metadata",
     "compute_cidv1_bytes",
     "compute_safe_message_hash",
+    "derive_explicit_nonce",
     "derive_request_id_bytes",
     "parse_payment_challenge",
 ]

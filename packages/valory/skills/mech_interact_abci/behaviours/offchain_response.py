@@ -53,6 +53,7 @@ from urllib.parse import urlencode
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
     PendingRequest,
 )
+from packages.valory.skills.mech_interact_abci.models import NONCE_MODE_SEQUENTIAL
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     note_slot_abandoned,
 )
@@ -155,12 +156,16 @@ class OffchainResponsePoller:
                 f"response could not be fetched ({snapshot.error})."
             )
             self._b.shared_state.penalize_mech(pending.mech_address)
-            note_slot_abandoned(
-                self._b.context.shared_state,
-                chain=str(self._b.params.mech_chain_id or ""),
-                safe=pending.sender,
-                slot=pending.nonce,
-            )
+            # An explicit nonce is the request's own, not a slot of the
+            # requester's counter, so there is nothing for the registry to
+            # mark.
+            if pending.nonce_mode == NONCE_MODE_SEQUENTIAL:
+                note_slot_abandoned(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=pending.sender,
+                    slot=pending.nonce,
+                )
         return responses
 
     # ---------- polling loop -----------------------------------------------

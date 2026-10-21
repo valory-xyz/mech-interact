@@ -14,8 +14,8 @@ fingerprint:
   behaviours/base.py: bafybeid5dma3o2jykbd6v6btr56pyh2uayy4lngcrpo5rv4e3trk5qjfca
   behaviours/mech_info.py: bafybeihy5wf6w2vxghe3mrf46s6upzv7trjh54a4ihs5vv6ro3ewqjbgnm
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
-  behaviours/offchain_request.py: bafybeidq2l3rz2x4tolq3cbmidxdlghrqpzelj7q2yc4ztl7x6nfxoz36y
-  behaviours/offchain_response.py: bafybeibfhfvhvg5fgezdv2vvekmreutigqcwka6q6ogxxed4lvqxobcyt4
+  behaviours/offchain_request.py: bafybeienwpjadyrcrck2ksy42ln3aythklidudl4tcpjlvynlcfw2opboa
+  behaviours/offchain_response.py: bafybeievubbpp2pfpc5se6ogr2u6srlc2po2wf3emol636ozmrocagjzsi
   behaviours/purchase_subcription.py: bafybeieet7du56scd2cltnuy7xlvvrapvk7ugmnv426k2xfnmim4wj5bfy
   behaviours/request.py: bafybeicu3vmskpgz33qxdmxxpecr7lxbrkxehyzeqiri3ljg7rpfjfqh5u
   behaviours/response.py: bafybeigsucoa3kwo6wrrbbgz2lnihireppqnezzvijkdx2n66lo2tt75lm
@@ -28,13 +28,13 @@ fingerprint:
   graph_tooling/requests.py: bafybeigxpeeoqm6t736ue5js6bmpftweunvw57ymkdk2h5a7pceocwvzbq
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
   mech_reader.py: bafybeie2kndd3w3bvkwm2mt6iwtzgtljczawqsgvatgzbcaeyu2rampafy
-  models.py: bafybeier5l6eflcwzppebpul4plzkjm3pulnw43nt75yc3zdgmep5ekgr4
+  models.py: bafybeihkvfwek5zc3ydjpnsrieyk5oshe3mjfmdf57huunimn43t3y4tem
   nonce_allocator.py: bafybeiaohedsyzwpvvz74v3xuabwsshnyyqr7xogxhijvubc6bd2ttusue
   payloads.py: bafybeict2xbdyk7caajfprlzralqeiyrk7avvbh5gn2hni42edbtqbl7nm
   payment_types.py: bafybeicdmeke6c4nmttukmk6cftvhb6ifenev5pfne5mp6yx7ma7dkyur4
   rounds.py: bafybeihi64plsdpu2u6zf7lzplcjm3xguueoqsio2gqfpo2oi6yxbaeuma
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
-  states/base.py: bafybeiecbbe7thwemabo6mjtkdhtqh5vwzq7xyemmjblbhgrcqubhgqawy
+  states/base.py: bafybeiekoe4vouvudjeku7y5qk7ypitaknavoqd4nlavvj6bqvhaytrub4
   states/final_states.py: bafybeiflwvwybwaa3q3bcqhbmr7ifh6ubc3dipyod7mag5o73bekmpsev4
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
   states/mech_version.py: bafybeig62u4mklkod7gz7h2sh5ytm42nnryltyqaze2w52ovjaa6q7ogma
@@ -46,8 +46,8 @@ fingerprint:
   tests/behaviours/conftest.py: bafybeiemvv76bfkkzg5v7co6ayz4kfmhnbzgptxhjwrvb74hgum2oixtxm
   tests/behaviours/test_base.py: bafybeih5gzn23htrkovh4mrlycygbpjdc4smq27hgfptrlg7ekndybavjy
   tests/behaviours/test_mech_version.py: bafybeidmjgq2cwqafq36j7irm4nf53ca6imkyvtbtetscltqwiu6ebb444
-  tests/behaviours/test_offchain_request_helpers.py: bafybeicvethg3vecxzv2urwd46qn7e33i7rsqp2vktyuktkuevmyikxdha
-  tests/behaviours/test_offchain_response_poller.py: bafybeih34lm7tvfcnz2agutj6mzr7y7ybmism2d4j2wdujugzaofahzwru
+  tests/behaviours/test_offchain_request_helpers.py: bafybeie46rzn64k4z3cyv7xaqtydbh4sdtpprqwi2hwymhxjewizocq5ya
+  tests/behaviours/test_offchain_response_poller.py: bafybeiewdnxgattvrl3n6e4kdyfzvsz4yfgiu4aizw2p7f42du5gvqopbe
   tests/behaviours/test_purchase_subscription.py: bafybeih2nd26wx6dpvycl2xlewmgqirjtwwtu6ge3gu4dhpby2aoogml5u
   tests/behaviours/test_request.py: bafybeiathroua7kwobbl5u2jqii4ln7kimziywaok6udmigbmxow2erfba
   tests/behaviours/test_response.py: bafybeibhepom6sqgp2cq3k2h6e4ybodiupl6ighjns44iksht6fyyalhei
@@ -62,7 +62,7 @@ fingerprint:
   tests/test_mech_info_behaviour.py: bafybeigvpoknjeaottpxr6xlx3eexn3j6rv3eaazl4yepkpbnhvl4axxma
   tests/test_mech_reader.py: bafybeia5brfoaqqam3ngtsaqtudxtdqe4svjgl6dpmqoidb5b5lva24bbm
   tests/test_mech_reader_skill.py: bafybeigqvntpl3th62gsgc5qbt4l7ah2d6psn5u7hlauezjv6ss432julu
-  tests/test_models.py: bafybeib2rxr7ktsc5sjjhsgxnwrmym7hyqa2n24mpqdgzc33wpfljdhabe
+  tests/test_models.py: bafybeigob6whz54nva2e5ycwpdqgfjvzfmhquoa6gtqqhqvq3zgigua3bq
   tests/test_nonce_allocator.py: bafybeietbjum6lgbqu5cauwjefe5fqiqw6fesqsestbpjfc3zxbxucv5hq
   tests/test_payloads.py: bafybeibjkrdwkxqw73d7eaxwtqepigi4gutkvqaxqhj3os5nsmjffqkc4y
   tests/test_request_behaviour.py: bafybeicqrun35jgkxsilj5cypqcyv26oitzgh7m7e4g6djumeegar2r6ru
@@ -233,6 +233,7 @@ models:
         offchain_poll_timeout_seconds: 300.0
         offchain_failover_max_retries: 2
         offchain_nonce_retry_max: 3
+        offchain_nonce_mode: explicit
       use_offchain: false
       offchain_deposit_target_calls: 10
       deliveries_lookback_days: 30
