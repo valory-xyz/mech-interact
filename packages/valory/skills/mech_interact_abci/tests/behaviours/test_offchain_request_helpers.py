@@ -28,7 +28,6 @@ executor's failover decision tree.
 
 import json
 import logging
-import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -68,18 +67,6 @@ from packages.valory.skills.mech_interact_abci.models import (
     NONCE_MODE_EXPLICIT,
     NONCE_MODE_SEQUENTIAL,
 )
-from packages.valory.skills.mech_interact_abci.nonce_allocator import (
-    MECH_SLOT_ABANDONED,
-    MECH_SLOT_BLOCKED,
-    MECH_SLOT_REGISTRY,
-    MECH_SLOT_RESERVED_AT,
-    SLOT_BLOCKED_GIVE_UP_SECS,
-    note_slot_abandoned,
-    note_slot_accepted,
-    note_slot_blocked,
-    reserve_slot,
-    sweep_dead_slots,
-)
 from packages.valory.skills.mech_interact_abci.states.base import (
     DELIVERY_RATE_ABOVE_CAP,
     Event,
@@ -93,7 +80,6 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     merge_extra_attributes,
 )
-from packages.valory.skills.mech_interact_abci.tests.registry_stub import _Registry
 
 DEEPLY_NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
 LONG_INTEGER_JSON = b"1" + b"0" * 5_000
@@ -1315,7 +1301,6 @@ class _StubBehaviour:
         auto_deposit_cap: int = 10**18,
         deposit_target_calls: int = 10,
         failover_retries: int = 2,
-        nonce_retry_max: int = 3,
         mech_requests: Optional[List[Any]] = None,
         use_dynamic_mech_selection: bool = True,
         ledger_api_responses: Optional[List[Any]] = None,
@@ -1338,16 +1323,13 @@ class _StubBehaviour:
                 error=lambda *a, **k: None,
                 debug=lambda *a, **k: None,
             ),
-            # Every skill in the agent shares this. An agent that pays from
-            # its Safe through more than one route binds a slot registry
-            # into it; one that does not leaves it out.
-            shared_state={MECH_SLOT_REGISTRY: _Registry()},
+            # Every skill in the agent shares this.
+            shared_state={},
         )
         self.params = SimpleNamespace(
             mech_marketplace_config=SimpleNamespace(
                 mech_marketplace_address="0x" + "ff" * 20,
                 offchain_failover_max_retries=failover_retries,
-                offchain_nonce_retry_max=nonce_retry_max,
                 offchain_nonce_mode=nonce_mode,
                 offchain_explicit_deadline_seconds=_EXPLICIT_DEADLINE_SECONDS,
                 offchain_explicit_min_remaining_seconds=600,
@@ -4533,11 +4515,12 @@ class TestStubValidatesCanonicalKwargs:
             )
 
 
-class TestNonceRefusalNeverFailsOverToAnotherMech:
-    """Another mech would refuse the same slot, and is not at fault for it.
+class TestARefusedSlotEndsTheCycle:
+    """Another mech reads the same counter, so it would refuse the slot too.
 
-    A failover here is worse than useless: it spends the budget meant for
-    a genuinely bad mech, and leaves two mechs holding the same slot.
+    A failover here is worse than useless: it spends the budget meant for a
+    genuinely bad mech. Re-signing is not attempted either: the counter
+    moves at settlement, so the next period reads it afresh.
     """
 
     _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
@@ -4558,18 +4541,16 @@ class TestNonceRefusalNeverFailsOverToAnotherMech:
             **kwargs,
         )
 
-    def test_an_unmoved_counter_stops_without_trying_the_other_mech(self) -> None:
+    def test_a_refused_slot_ends_the_cycle_without_trying_the_other_mech(self) -> None:
         """``mapNonces`` is per requester, so the second mech sees the same slot."""
         stub = self._two_mech_stub(
             [
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 *self._per_attempt_reads(),
-                _state_resp({"data": 7}),  # re-read: still 7
             ],
             http_responses=[_make_http_response(503, self._REFUSED)],
             failover_retries=1,
-            nonce_retry_max=3,
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
 
@@ -4578,9 +4559,10 @@ class TestNonceRefusalNeverFailsOverToAnotherMech:
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_NONCE_TAKEN
         assert len(stub.posted_urls) == 1
+        assert stub.penalized_mechs == []
 
-    def test_a_spent_retry_budget_stops_without_trying_the_other_mech(self) -> None:
-        """The budget bounds re-signing at this mech, not the search for another."""
+    def test_the_counter_is_read_once_and_not_again_after_the_refusal(self) -> None:
+        """The slot the request signed is the counter as read; nothing re-signs within the cycle."""
         stub = self._two_mech_stub(
             [
                 _state_resp({"data": 100}),
@@ -4589,34 +4571,24 @@ class TestNonceRefusalNeverFailsOverToAnotherMech:
             ],
             http_responses=[_make_http_response(503, self._REFUSED)],
             failover_retries=1,
-            nonce_retry_max=0,
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
 
-        result = _drive(executor._fresh_cycle())
+        _drive(executor._fresh_cycle())
 
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == OFFCHAIN_NONCE_TAKEN
-        # No re-read either: the budget is spent before the counter is asked.
-        assert len(stub.posted_urls) == 1
+        assert _contract_callables(stub).count("get_nonce") == 1
+        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
 
     def test_a_counter_that_cannot_be_read_is_reported_as_a_read_failure(self) -> None:
-        """Without the counter there is no way to tell a stale slot from a fresh one.
-
-        Reporting it as a refused slot would send the operator looking at
-        the marketplace rather than at the chain connection.
-        """
+        """Without the counter there is nothing to sign at; the chain connection is the cause."""
         stub = self._two_mech_stub(
             [
                 _state_resp({"data": 100}),
-                _state_resp({"data": 7}),
-                *self._per_attempt_reads(),
                 # A contract-api answer that is not STATE: the read failed.
-                SimpleNamespace(performative=None, state=None),  # the re-read fails
+                SimpleNamespace(performative=None, state=None),
             ],
-            http_responses=[_make_http_response(503, self._REFUSED)],
+            http_responses=[],
             failover_retries=1,
-            nonce_retry_max=3,
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
 
@@ -4624,7 +4596,7 @@ class TestNonceRefusalNeverFailsOverToAnotherMech:
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
-        assert len(stub.posted_urls) == 1
+        assert stub.posted_urls == []
 
 
 class TestNonceRejectionClassification:
@@ -4707,760 +4679,6 @@ class TestNonceRejectionClassification:
         assert self._outcome(status, body) is expected
 
 
-class TestNonceRejectionRetriesTheSameMech:
-    """A refused slot re-reads the counter and signs again, at the same mech."""
-
-    _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
-
-    @staticmethod
-    def _per_attempt_reads() -> List[Any]:
-        return [
-            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-        ]
-
-    def test_it_re_reads_the_slot_and_posts_again_to_the_same_mech(self) -> None:
-        """Failing over would carry the same dead slot to a mech that is not at fault."""
-        mech_a = "0x" + "aa" * 20
-        mech_b = "0x" + "bb" * 20
-        stub = _StubBehaviour(
-            ranked_mechs=[
-                _FakeMechInfo(mech_a, "https://mech-aa.example"),
-                _FakeMechInfo(mech_b, "https://mech-bb.example"),
-            ],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce, taken by something else
-                *self._per_attempt_reads(),
-                _state_resp({"data": 8}),  # re-read after the refusal
-                *self._per_attempt_reads(),
-            ],
-            http_responses=[
-                _make_http_response(503, self._REFUSED),
-                _make_http_response(200),
-            ],
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        # Both posts went to the first mech, not one each.
-        assert stub.posted_urls == [
-            "https://mech-aa.example/send_signed_requests",
-            "https://mech-aa.example/send_signed_requests",
-        ]
-        slots = [_form_field(body, "nonce") for body in stub.posted_bodies]
-        assert slots == ["7", "8"]
-
-    def test_a_refused_slot_does_not_spend_the_failover_budget(self) -> None:
-        """The mech is not at fault, so a bad mech must keep its full allowance.
-
-        With a single failover and one refusal, a refusal that cost a
-        failover would leave nothing for the real retry.
-        """
-        mech_a = "0x" + "aa" * 20
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),
-                _state_resp({"data": 7}),
-                *self._per_attempt_reads(),
-                _state_resp({"data": 8}),
-                *self._per_attempt_reads(),
-            ],
-            http_responses=[
-                _make_http_response(503, self._REFUSED),
-                _make_http_response(200),
-            ],
-            failover_retries=0,
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert len(stub.posted_urls) == 2
-
-    def test_a_counter_that_has_not_moved_gives_up_at_once(self) -> None:
-        """Re-signing at the same slot would be refused identically.
-
-        ``mapNonces`` only moves when a delivery settles, so an unmoved
-        counter means nothing has changed and the extra signed posts are
-        wasted. The next period retries with a fresh read.
-        """
-        mech_a = "0x" + "aa" * 20
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                *self._per_attempt_reads(),
-                _state_resp({"data": 7}),  # re-read: still 7
-            ],
-            http_responses=[_make_http_response(503, self._REFUSED)],
-            failover_retries=0,
-            nonce_retry_max=3,
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == OFFCHAIN_NONCE_TAKEN
-        # One post, not one per retry the budget would have allowed.
-        assert len(stub.posted_urls) == 1
-
-
-class TestTheCycleTakesItsSlotFromTheAllocator:
-    """Reading the chain alone hands back slots something else already holds."""
-
-    _ABOVE_EXPECTED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
-
-    @staticmethod
-    def _per_attempt_reads() -> List[Any]:
-        return [
-            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-        ]
-
-    @staticmethod
-    def _take_slot(stub: Any, slot: int) -> None:
-        """Stand in for something else in the agent holding ``slot``."""
-        reserve_slot(
-            stub.context.shared_state,
-            chain=str(stub.params.mech_chain_id),
-            safe=stub.synchronized_data.safe_contract_address,
-            on_chain_nonce=slot,
-        )
-
-    def test_it_signs_above_a_slot_something_else_already_holds(self) -> None:
-        """A facilitator call served but unsettled leaves the chain reading 7.
-
-        Reading the chain would sign 7 again, which is the collision.
-        The allocator has already issued 7 to that call, so this gets 8.
-        """
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # the chain still reads 7
-                *self._per_attempt_reads(),
-            ],
-            http_responses=[_make_http_response(200)],
-        )
-        self._take_slot(stub, 7)
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert _form_field(stub.posted_bodies[0], "nonce") == "8"
-
-    def test_a_retry_hands_the_refused_slot_back_before_taking_the_next(self) -> None:
-        """A refused slot was never served, so keeping it strands it.
-
-        Nothing settles a slot the mech refused, and the marketplace
-        consumes a requester's slots in order, so every later request for
-        the Safe would queue behind it.
-        """
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                *self._per_attempt_reads(),
-                _state_resp({"data": 8}),  # re-read after the refusal
-                *self._per_attempt_reads(),
-            ],
-            http_responses=[
-                _make_http_response(503, self._ABOVE_EXPECTED),
-                _make_http_response(200),
-            ],
-            failover_retries=0,
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
-        assert _form_field(stub.posted_bodies[1], "nonce") == "8"
-        # Slot 7 is free again; only the slot that was served is held.
-        registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
-        key = (
-            str(stub.params.mech_chain_id).lower(),
-            stub.synchronized_data.safe_contract_address.lower(),
-        )
-        assert registry.live[key] == {8}
-
-    def test_a_retry_steps_over_a_slot_something_else_took_meanwhile(self) -> None:
-        """The chain moving does not mean the next slot up is free.
-
-        Another payer in this agent can take it between the refusal and
-        the re-read, and it is unsettled so the chain cannot show it.
-        """
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),
-                _state_resp({"data": 7}),
-                *self._per_attempt_reads(),
-                _state_resp({"data": 8}),
-                *self._per_attempt_reads(),
-            ],
-            http_responses=[
-                _make_http_response(503, self._ABOVE_EXPECTED),
-                _make_http_response(200),
-            ],
-            failover_retries=0,
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-        self._take_slot(stub, 8)
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert _form_field(stub.posted_bodies[1], "nonce") == "9"
-
-    def test_an_unreadable_answer_keeps_the_slot(self) -> None:
-        """An unhandled status does not say the mech declined the request.
-
-        It covers a 502 or 504 from a proxy in front of a mech that did
-        accept it, so handing the slot back here would let something else
-        pay from the Safe at the same slot. The sweep frees it once the
-        counter and the clock together show it can never have been accepted.
-        """
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),
-                _state_resp({"data": 7}),
-                *self._per_attempt_reads(),
-            ],
-            http_responses=[_make_http_response(418)],
-            failover_retries=0,
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert (
-            reserve_slot(
-                stub.context.shared_state,
-                chain=str(stub.params.mech_chain_id),
-                safe=stub.synchronized_data.safe_contract_address,
-                on_chain_nonce=7,
-            )
-            == 8
-        ), "gave back a slot a mech behind a failing proxy may hold"
-
-
-class TestTheCycleOnlyGivesBackASlotTheMechRefused:
-    """An unanswered POST may have been accepted; a refusal never was.
-
-    Handing back a slot the mech is serving puts two requests on one slot
-    and loses a settlement. Keeping one the mech never got stalls the
-    Safe. So the outcome decides, and the sweep handles what is left.
-    """
-
-    _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
-
-    @staticmethod
-    def _per_attempt_reads() -> List[Any]:
-        return [
-            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-        ]
-
-    def _stub(self, http_responses: List[Any], extra_reads: int = 0) -> Any:
-        reads: List[Any] = [
-            _state_resp({"data": 100}),  # chainId
-            _state_resp({"data": 7}),  # nonce
-            *self._per_attempt_reads(),
-        ]
-        for _ in range(extra_reads):
-            reads.append(_state_resp({"data": 7}))
-        return _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=reads,
-            http_responses=http_responses,
-            failover_retries=0,
-            nonce_retry_max=0,
-        )
-
-    @staticmethod
-    def _held(stub: Any) -> set:
-        registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
-        key = (
-            str(stub.params.mech_chain_id).lower(),
-            stub.synchronized_data.safe_contract_address.lower(),
-        )
-        return registry.live.get(key, set())
-
-    def test_a_refused_slot_goes_straight_back(self) -> None:
-        """The mech answered and declined it, so nothing can be holding it."""
-        stub = self._stub([_make_http_response(503, self._REFUSED)])
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert self._held(stub) == set(), "a refused slot was left reserved"
-
-    def test_an_unanswered_post_keeps_its_slot(self) -> None:
-        """The mech may have accepted it; re-issuing would collide."""
-        stub = self._stub([None])
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert self._held(stub) == {7}, "gave back a slot the mech may be serving"
-
-
-class TestOneUnansweredAttemptDecidesTheWholeCycle:
-    """A later mech refusing the slot says nothing about an earlier one.
-
-    The failover list walks several mechs for one request at one slot. If
-    the first never answers it may be serving it, and a second answering
-    "that slot is taken" does not change that. Deciding on the last attempt
-    would hand back a slot the first is working on.
-    """
-
-    _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
-
-    @staticmethod
-    def _held(stub: Any) -> set:
-        registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
-        key = (
-            str(stub.params.mech_chain_id).lower(),
-            stub.synchronized_data.safe_contract_address.lower(),
-        )
-        return registry.live.get(key, set())
-
-    def _stub(self, http_responses: List[Any]) -> Any:
-        per_attempt = [
-            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-        ]
-        return _StubBehaviour(
-            ranked_mechs=[
-                _FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example"),
-                _FakeMechInfo("0x" + "bb" * 20, "https://mech-bb.example"),
-            ],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                *per_attempt,
-                *per_attempt,
-            ],
-            http_responses=http_responses,
-            failover_retries=1,
-            nonce_retry_max=0,
-        )
-
-    def test_an_unanswered_first_attempt_keeps_the_slot(self) -> None:
-        """Even though the second mech answered and declined the same slot."""
-        stub = self._stub([None, _make_http_response(503, self._REFUSED)])
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert self._held(stub) == {7}, "the first mech may still be serving it"
-
-    def test_two_refusals_still_give_the_slot_back(self) -> None:
-        """Both answered and declined, so nothing can be holding it."""
-        stub = self._stub(
-            [
-                _make_http_response(503, self._REFUSED),
-                _make_http_response(503, self._REFUSED),
-            ]
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert self._held(stub) == set()
-
-
-class TestTheCycleStopsSteppingOverAStuckSlot:
-    """Stepping over a held slot is refused until that slot settles.
-
-    Every specific way one can get stuck now has a rule of its own, but the
-    rules cover only the causes found so far, and the cost of the next one
-    is that this path is refused forever. So after a bounded number of
-    cycles with the counter unmoved, the cycle signs at it regardless.
-    """
-
-    @staticmethod
-    def _stub() -> Any:
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce, never moves
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            ],
-            http_responses=[_make_http_response(200)],
-        )
-        # Something else in this agent is holding the counter's slot and never
-        # settling it, so every cycle would otherwise sign 8 and be refused.
-        stub.context.shared_state[MECH_SLOT_REGISTRY].publish(
-            str(stub.params.mech_chain_id),
-            stub.synchronized_data.safe_contract_address,
-            [7],
-        )
-        return stub
-
-    @staticmethod
-    def _age_the_block(stub: Any, seconds: float) -> None:
-        """Pretend the current block started ``seconds`` ago."""
-        blocked = stub.context.shared_state[MECH_SLOT_BLOCKED]
-        for key, (slot, periods, since) in list(blocked.items()):
-            blocked[key] = (slot, periods, since - seconds)
-
-    def test_it_signs_at_the_counter_once_the_slot_has_blocked_long_enough(
-        self,
-    ) -> None:
-        """One lost settlement beats never sending again."""
-        stub = self._stub()
-        chain = str(stub.params.mech_chain_id)
-        safe = stub.synchronized_data.safe_contract_address
-        note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=7)
-        self._age_the_block(stub, SLOT_BLOCKED_GIVE_UP_SECS)
-
-        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert (
-            _form_field(stub.posted_bodies[0], "nonce") == "7"
-        ), "kept stepping over a slot nothing is settling"
-
-    def test_it_signs_at_an_abandoned_slot_without_waiting(self) -> None:
-        """The counter's slot got no answer, so the next mech gets it at once."""
-        stub = self._stub()
-        chain = str(stub.params.mech_chain_id)
-        safe = stub.synchronized_data.safe_contract_address
-        note_slot_abandoned(stub.context.shared_state, chain=chain, safe=safe, slot=7)
-
-        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
-        assert stub.context.shared_state[MECH_SLOT_ABANDONED] == set()
-
-    def test_it_still_steps_over_before_the_bound(self) -> None:
-        """The slot may simply be being served; giving up early is the collision."""
-        stub = self._stub()
-
-        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert _form_field(stub.posted_bodies[0], "nonce") == "8"
-
-    def test_a_counter_that_moves_starts_the_clock_again(self) -> None:
-        """A fresh wait must not inherit the age of the previous one."""
-        stub = self._stub()
-        chain = str(stub.params.mech_chain_id)
-        safe = stub.synchronized_data.safe_contract_address
-        note_slot_blocked(stub.context.shared_state, chain=chain, safe=safe, slot=7)
-        self._age_the_block(stub, SLOT_BLOCKED_GIVE_UP_SECS)
-
-        moved = note_slot_blocked(
-            stub.context.shared_state, chain=chain, safe=safe, slot=8
-        )
-
-        assert moved.seconds < SLOT_BLOCKED_GIVE_UP_SECS
-        assert moved.periods == 1
-
-
-class TestAnAbandonedSlotStaysReserved:
-    """The earlier request at an abandoned slot may still settle, so the slot is kept."""
-
-    @staticmethod
-    def _stub(ranked: List[Any], http: List[Any]) -> Any:
-        stub = _StubBehaviour(
-            ranked_mechs=ranked,
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            ],
-            http_responses=http,
-        )
-        chain = str(stub.params.mech_chain_id)
-        safe = stub.synchronized_data.safe_contract_address
-        reserve_slot(
-            stub.context.shared_state, chain=chain, safe=safe, on_chain_nonce=7
-        )
-        note_slot_abandoned(stub.context.shared_state, chain=chain, safe=safe, slot=7)
-        return stub
-
-    @staticmethod
-    def _live(stub: Any) -> Any:
-        key = (
-            str(stub.params.mech_chain_id).lower(),
-            stub.synchronized_data.safe_contract_address.lower(),
-        )
-        return stub.context.shared_state[MECH_SLOT_REGISTRY].live.get(key, set())
-
-    def test_a_cycle_that_sends_nothing_keeps_the_slot_and_the_mark(self) -> None:
-        """Nothing new holds the slot, so the next cycle may try another mech at it."""
-        stub = self._stub(ranked=[], http=[])
-
-        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
-
-        assert 7 in self._live(stub)
-        assert stub.context.shared_state[MECH_SLOT_ABANDONED] == {
-            (
-                str(stub.params.mech_chain_id).lower(),
-                stub.synchronized_data.safe_contract_address.lower(),
-                7,
-            )
-        }
-
-    def test_a_request_a_mech_took_keeps_the_slot_and_uses_the_mark(self) -> None:
-        """The new request holds the slot, so it is not signed over again."""
-        stub = self._stub(
-            ranked=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            http=[_make_http_response(200)],
-        )
-
-        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
-        assert 7 in self._live(stub)
-        assert stub.context.shared_state[MECH_SLOT_ABANDONED] == set()
-
-    def test_a_slot_retried_after_the_counter_moved_is_handed_back(self) -> None:
-        """Once the cycle has moved off the abandoned slot, a refused next slot goes back."""
-        refused = b'{"reason": "wire nonce above sender\'s next expected slot"}'
-        per_attempt = [
-            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-        ]
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                *per_attempt,
-                _state_resp({"data": 8}),  # re-read: the earlier request settled 7
-                *per_attempt,
-            ],
-            http_responses=[
-                _make_http_response(503, refused),
-                _make_http_response(503),
-            ],
-        )
-        chain = str(stub.params.mech_chain_id)
-        safe = stub.synchronized_data.safe_contract_address
-        reserve_slot(
-            stub.context.shared_state, chain=chain, safe=safe, on_chain_nonce=7
-        )
-        note_slot_abandoned(stub.context.shared_state, chain=chain, safe=safe, slot=7)
-
-        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
-
-        assert [_form_field(body, "nonce") for body in stub.posted_bodies] == ["7", "8"]
-        assert 8 not in self._live(stub)
-
-    def test_a_refused_retry_at_an_unmoved_counter_keeps_the_earlier_reservation(
-        self,
-    ) -> None:
-        """The slot stays reserved for the earlier accepted request and stays out of the sweep."""
-        refused = b'{"reason": "wire nonce above sender\'s next expected slot"}'
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"data": 7}),  # re-read: the counter has not moved
-            ],
-            http_responses=[_make_http_response(503, refused)],
-        )
-        chain = str(stub.params.mech_chain_id)
-        safe = stub.synchronized_data.safe_contract_address
-        state = stub.context.shared_state
-        reserve_slot(state, chain=chain, safe=safe, on_chain_nonce=7)
-        note_slot_accepted(state, chain=chain, safe=safe, slot=7)
-        note_slot_abandoned(state, chain=chain, safe=safe, slot=7)
-
-        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
-
-        assert 7 in self._live(stub)
-        swept = sweep_dead_slots(
-            state, chain=chain, safe=safe, on_chain_nonce=7, older_than_secs=0.0
-        )
-        assert swept == []
-        assert (chain.lower(), safe.lower(), 7) in state[MECH_SLOT_ABANDONED]
-
-    def test_marks_the_counter_has_moved_past_are_dropped(self) -> None:
-        """A cycle that signs straight at the counter still clears settled marks."""
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            ],
-            http_responses=[_make_http_response(200)],
-        )
-        note_slot_abandoned(
-            stub.context.shared_state,
-            chain=str(stub.params.mech_chain_id),
-            safe=stub.synchronized_data.safe_contract_address,
-            slot=5,
-        )
-
-        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
-
-        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
-        assert stub.context.shared_state[MECH_SLOT_ABANDONED] == set()
-
-
-class TestAnAcceptedRequestIsNotSweptLater:
-    """``mapNonces`` moves at settlement, not when the mech answers.
-
-    So the counter can still sit on a slot a mech accepted for longer than
-    the sweep's age bound. Sweeping it would hand the slot to the
-    facilitator route and the two would clash at settlement.
-    """
-
-    def test_a_served_cycle_leaves_a_slot_the_sweep_will_not_touch(self) -> None:
-        """The sweep is for a POST that may never have arrived; this one did."""
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            ],
-            http_responses=[_make_http_response(200)],
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        swept = sweep_dead_slots(
-            stub.context.shared_state,
-            chain=str(stub.params.mech_chain_id),
-            safe=stub.synchronized_data.safe_contract_address,
-            on_chain_nonce=7,
-            older_than_secs=0.0,
-        )
-
-        assert swept == [], "swept a slot a mech had accepted"
-
-
-class TestTheDepositPathKeepsItsSlot:
-    """``_retry_pending`` re-sends the same request at the same slot.
-
-    So the slot has to survive the deposit round trip. Releasing it would
-    let something else take it while the original request is still live,
-    and the retry would then land somewhere the caller never signed for.
-    """
-
-    def test_a_deposit_needed_cycle_does_not_release_its_slot(self) -> None:
-        """The retry after settlement depends on still holding it."""
-        mech_addr = "0x" + "aa" * 20
-        canonical_tracker = "0x" + "11" * 20
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # nonce
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"data": canonical_tracker}),
-                _state_resp({"requester_balance": 0}),
-                _state_resp({"data": b"\x01\x02\x03"}),
-                _state_resp({"tx_hash": "0x" + "fe" * 32}),
-            ],
-            http_responses=[
-                _make_http_response(
-                    402,
-                    _make_402_body(pay_to=canonical_tracker, required=500, current=0),
-                ),
-            ],
-            ledger_api_responses=[_ledger_balance_resp(10 * 10**18)],
-            auto_deposit_cap=10**18,
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
-        registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
-        key = (
-            str(stub.params.mech_chain_id).lower(),
-            stub.synchronized_data.safe_contract_address.lower(),
-        )
-        assert registry.live.get(key) == {7}, "the deposit retry lost its slot"
-
-
-class TestTheCycleReclaimsASlotNoMechCanHave:
-    """A kept slot has to be reclaimed eventually or the Safe stalls.
-
-    An unanswered POST keeps its slot because the mech may be serving it.
-    If the mech never had it, nothing else will ever hand it back: the
-    chain counter does not move off it, so every later request from the
-    Safe signs above it and is refused. The cycle reclaims one once the
-    counter has not moved and no mech could still be answering.
-    """
-
-    @staticmethod
-    def _per_attempt_reads() -> List[Any]:
-        return [
-            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-        ]
-
-    def _stub(self, reserved_age_secs: float) -> Any:
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),  # chainId
-                _state_resp({"data": 7}),  # the counter has not moved off 7
-                *self._per_attempt_reads(),
-            ],
-            http_responses=[_make_http_response(200)],
-        )
-        chain = str(stub.params.mech_chain_id)
-        safe = stub.synchronized_data.safe_contract_address
-        reserve_slot(
-            stub.context.shared_state, chain=chain, safe=safe, on_chain_nonce=7
-        )
-        taken_at = stub.context.shared_state[MECH_SLOT_RESERVED_AT]
-        taken_at[(chain.lower(), safe.lower(), 7)] = time.time() - reserved_age_secs
-        return stub
-
-    def test_a_slot_older_than_any_mech_could_still_answer_is_retaken(self) -> None:
-        """Without this the Safe never sends again on either route."""
-        stub = self._stub(reserved_age_secs=400.0)
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert _form_field(stub.posted_bodies[0], "nonce") == "7"
-
-    def test_a_slot_a_mech_could_still_be_serving_is_left_alone(self) -> None:
-        """Reclaiming early puts two requests on one slot and loses one."""
-        stub = self._stub(reserved_age_secs=1.0)
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-
-        result = _drive(executor._fresh_cycle())
-
-        assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert _form_field(stub.posted_bodies[0], "nonce") == "8"
-
-
-# ----------------------------------------------------------------------------
-# Nonce modes: a request's own nonce (explicit) or the requester's counter
-# (sequential), and the fallback from one to the other.
-# ----------------------------------------------------------------------------
-
 _MARKETPLACE = "0x" + "ff" * 20
 _MECH_A = "0x" + "aa" * 20
 _MECH_B = "0x" + "bb" * 20
@@ -5526,16 +4744,6 @@ def _pending_of(result: OffchainCycleResult) -> PendingRequest:
 def _contract_callables(stub: _StubBehaviour) -> List[str]:
     """Every contract read the executor made, in order."""
     return [str(call["contract_callable"]) for call in stub.contract_api_calls]
-
-
-def _held_slots(stub: _StubBehaviour) -> set:
-    """The slots the agent's registry holds for the stub's Safe."""
-    registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
-    key = (
-        str(stub.params.mech_chain_id).lower(),
-        stub.synchronized_data.safe_contract_address.lower(),
-    )
-    return registry.live.get(key, set())
 
 
 def _per_attempt_reads() -> List[Any]:
@@ -5993,8 +5201,6 @@ class TestExplicitNonceIsTheDefault:
         _drive(executor._fresh_cycle())
 
         assert "get_nonce" not in _contract_callables(stub)
-        assert _held_slots(stub) == set()
-        assert MECH_SLOT_RESERVED_AT not in stub.context.shared_state
 
     def test_each_request_gets_its_own_nonce_and_every_agent_the_same_one(
         self,
@@ -6080,7 +5286,6 @@ class TestSequentialNonceIsOptIn:
         _drive(executor._fresh_cycle())
 
         assert _contract_callables(stub).count("get_nonce") == 1
-        assert _held_slots(stub) == {7}
 
 
 class TestAMechWithoutExplicitNoncesIsServedSequentially:
@@ -6129,7 +5334,6 @@ class TestAMechWithoutExplicitNoncesIsServedSequentially:
         assert bytes.fromhex(pending.request_id) == derive_request_id_bytes(
             **_request_id_args(data=_ipfs_hash_bytes(pending), nonce=7)
         )
-        assert _held_slots(stub) == {7}
 
     def test_the_counter_is_read_only_after_the_refusal(self) -> None:
         """Reading it up front would be the sequential path with extra steps."""
@@ -6228,7 +5432,6 @@ class TestAMechWithoutExplicitNoncesIsServedSequentially:
         result = _drive(executor._fresh_cycle())
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert _held_slots(stub) == set(), "kept a slot no request was signed at"
 
     def test_a_counter_that_cannot_be_read_ends_the_cycle(self) -> None:
         """Without the counter there is nothing to resend with."""

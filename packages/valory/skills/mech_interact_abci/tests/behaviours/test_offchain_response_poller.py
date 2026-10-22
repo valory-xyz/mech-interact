@@ -35,9 +35,6 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_response impo
     OffchainResponsePoller,
 )
 from packages.valory.skills.mech_interact_abci.models import NONCE_MODE_EXPLICIT
-from packages.valory.skills.mech_interact_abci.nonce_allocator import (
-    MECH_SLOT_ABANDONED,
-)
 
 
 def _http_response(status_code: int, body: bytes = b"") -> SimpleNamespace:
@@ -123,7 +120,7 @@ def _pending_dict(**overrides: Any) -> dict:
 
 
 class TestAMechThatGivesNoAnswerIsSetAside:
-    """A mech whose response cannot be fetched is penalized and its slot marked."""
+    """A mech whose response cannot be fetched is penalized."""
 
     @pytest.mark.parametrize(
         "reason", ["not_found", "poll_timeout", "server_unavailable", "rejected"]
@@ -139,7 +136,6 @@ class TestAMechThatGivesNoAnswerIsSetAside:
         responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
 
         assert stub.penalties == []
-        assert stub.context.shared_state.get(MECH_SLOT_ABANDONED, set()) == set()
         assert responses[-1].error == reason
 
     @pytest.mark.parametrize(
@@ -188,11 +184,9 @@ class TestAMechThatGivesNoAnswerIsSetAside:
 
         expected = ["0x" + "aa" * 20] if penalized else []
         assert stub.penalties == expected
-        abandoned = stub.context.shared_state.get(MECH_SLOT_ABANDONED, set())
-        assert abandoned == ({("gnosis", "0x" + "bb" * 20, 7)} if penalized else set())
 
-    def test_an_unanswered_explicit_request_marks_no_slot(self) -> None:
-        """Its nonce is its own, not a slot of the counter another request can reuse."""
+    def test_an_unanswered_explicit_request_penalizes_the_mech_too(self) -> None:
+        """The mode changes how the request was signed, not what no answer means."""
         stub = _StubBehaviour(
             http_responses=[_http_response(404) for _ in range(5)],
             pending=_pending_dict(
@@ -205,7 +199,6 @@ class TestAMechThatGivesNoAnswerIsSetAside:
         _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
 
         assert stub.penalties == ["0x" + "aa" * 20]
-        assert stub.context.shared_state.get(MECH_SLOT_ABANDONED, set()) == set()
 
 
 class TestRunFallbackPlaceholder:
