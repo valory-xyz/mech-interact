@@ -369,7 +369,8 @@ class MechMarketplaceConfig:
     offchain_explicit_deadline_seconds: int = 15 * 60
     # The least time a mech needs between accepting an explicit-nonce request
     # and its deadline (the mech's own floor, 600 s by default). A resend
-    # after a deposit with less than this left is not attempted.
+    # after a deposit with less than this left is not attempted, and the
+    # window above must exceed it, or every fresh request would be refused.
     offchain_explicit_min_remaining_seconds: int = 600
 
     def __post_init__(self) -> None:
@@ -413,6 +414,14 @@ class MechMarketplaceConfig:
         if int(self.offchain_explicit_min_remaining_seconds) < 0:
             raise ValueError(
                 "offchain_explicit_min_remaining_seconds must be non-negative"
+            )
+        if int(self.offchain_explicit_deadline_seconds) <= int(
+            self.offchain_explicit_min_remaining_seconds
+        ):
+            raise ValueError(
+                "offchain_explicit_deadline_seconds must be above "
+                "offchain_explicit_min_remaining_seconds, or every explicit "
+                "request would be refused as too close to its deadline"
             )
 
 

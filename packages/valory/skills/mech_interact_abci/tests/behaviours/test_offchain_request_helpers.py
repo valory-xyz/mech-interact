@@ -596,7 +596,6 @@ class TestExecutorDerivesRequestIdAgainstIpfsHashBytes:
             _state_resp({"data": 100}),  # _resolve_chain_id_int
             _state_resp({"data": 7}),  # _read_on_chain_nonce
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_request_id_matches_derivation_over_ipfs_hash_bytes(self) -> None:
@@ -1290,6 +1289,9 @@ class _StubSharedState:
 # Tendermint's timestamp of the last round transition, identical on every agent.
 _CONSENSUS_TIMESTAMP = 1_700_000_000
 _EXPLICIT_DEADLINE_SECONDS = 900
+# The cap every stub signs unless a test sets its own caps or approved rates:
+# the bound for the mech's asset, which is what goes on the wire.
+_SIGNED_RATE = 10**16
 
 
 class _StubBehaviour:
@@ -1362,7 +1364,7 @@ class _StubBehaviour:
             mech_chain_id="gnosis",
             mech_wrapped_native_token_address=mech_wrapped_native_token_address,
             delivery_rate_caps=(
-                {PaymentType.NATIVE: 10**18, PaymentType.TOKEN_USDC: 10**18}
+                {PaymentType.NATIVE: _SIGNED_RATE, PaymentType.TOKEN_USDC: _SIGNED_RATE}
                 if delivery_rate_caps is None
                 else delivery_rate_caps
             ),
@@ -1414,7 +1416,6 @@ class _StubBehaviour:
         "get_nonce": {"sender_address"},
         "get_chain_id": set(),
         "get_payment_type": set(),
-        "get_max_delivery_rate": set(),
         "get_balance_tracker_for_mech_type": {"mech_type"},
         "get_token_address": set(),
         "get_requester_balance": {"requester"},
@@ -1594,7 +1595,6 @@ class TestFreshCycle:
             _state_resp({"data": 100}),  # _resolve_chain_id_int
             _state_resp({"data": 7}),  # _read_on_chain_nonce
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_oversized_metadata_returns_all_failed(self) -> None:
@@ -1845,7 +1845,6 @@ class TestFreshCycle:
         # Each attempt consumes one payment_type + one delivery_rate read.
         per_attempt_reads = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         stub = _StubBehaviour(
             ranked_mechs=[
@@ -1868,48 +1867,37 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert len(stub.posted_urls) == 2
 
-    def test_a_mech_above_its_cap_is_skipped_and_the_next_one_is_tried(self) -> None:
-        """The live rate is checked per attempt; an over-cap mech is penalized, not posted to."""
+    def test_the_asset_cap_is_signed_and_the_mech_s_own_rate_is_never_read(
+        self,
+    ) -> None:
+        """The cap on the wire is the agent's bound; ``maxDeliveryRate`` is not consulted."""
         mech_a = "0x" + "aa" * 20
-        mech_b = "0x" + "bb" * 20
         stub = _StubBehaviour(
-            ranked_mechs=[
-                _FakeMechInfo(mech_a, "https://mech-aa.example"),
-                _FakeMechInfo(mech_b, "https://mech-bb.example"),
-            ],
+            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
             contract_api_responses=[
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16 + 1}),
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
-            delivery_rate_caps={PaymentType.NATIVE: 10**16},
+            delivery_rate_caps={PaymentType.NATIVE: 3 * 10**15},
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert stub.posted_urls == ["https://mech-bb.example/send_signed_requests"]
-        assert stub.penalized_mechs == [mech_a]
+        assert _form_field(stub.posted_bodies[0], "delivery_rate") == str(3 * 10**15)
+        assert "get_max_delivery_rate" not in _contract_callables(stub)
+        assert stub.penalized_mechs == []
 
-    def test_an_approved_mech_above_its_accepted_rate_is_skipped(self) -> None:
-        """Consent bounds an approved mech below the asset cap; the next mech is tried."""
+    def test_an_approved_mech_signs_its_accepted_rate_below_the_cap(self) -> None:
+        """Consent lowers the bound for an approved mech, and that lower bound is what is signed."""
         mech_a = "0x" + "aa" * 20
-        mech_b = "0x" + "bb" * 20
         stub = _StubBehaviour(
-            ranked_mechs=[
-                _FakeMechInfo(mech_a, "https://mech-aa.example"),
-                _FakeMechInfo(mech_b, "https://mech-bb.example"),
-            ],
+            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
             contract_api_responses=[
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**15 + 1}),
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
             delivery_rate_caps={PaymentType.NATIVE: 10**16},
@@ -1918,8 +1906,36 @@ class TestFreshCycle:
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert stub.posted_urls == ["https://mech-bb.example/send_signed_requests"]
-        assert stub.penalized_mechs == [mech_a]
+        assert _form_field(stub.posted_bodies[0], "delivery_rate") == str(10**15)
+
+    def test_the_signed_cap_binds_the_request_id(self) -> None:
+        """The id the mech verifies is derived over the bound, not over any other rate."""
+        mech_a = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            ],
+            http_responses=[_make_http_response(200)],
+            delivery_rate_caps={PaymentType.NATIVE: 10**16},
+            approved_mech_rates={mech_a: 10**15},
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        _drive(executor._fresh_cycle())
+        body = stub.posted_bodies[0]
+        expected = derive_request_id_bytes(
+            marketplace_address=stub.params.mech_marketplace_config.mech_marketplace_address,
+            mech_address=mech_a,
+            requester=stub.synchronized_data.safe_contract_address,
+            data=bytes.fromhex(_form_field(body, "ipfs_hash")[2:]),
+            delivery_rate=10**15,
+            payment_type=_NATIVE_PAYMENT_TYPE,
+            nonce=7,
+            chain_id=100,
+        )
+        assert _form_field(body, "request_id") == str(int.from_bytes(expected, "big"))
 
     def test_a_402_asking_more_than_the_signed_rate_is_a_bad_response(self) -> None:
         """The deposit is sized from our rate, so a 402 above it is refused, not funded."""
@@ -1929,7 +1945,6 @@ class TestFreshCycle:
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[
                 _make_http_response(402, _make_402_body(required=10**16 + 1, current=0))
@@ -1950,7 +1965,6 @@ class TestFreshCycle:
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 1}),
             ],
             http_responses=[],
             failover_retries=0,
@@ -1961,12 +1975,12 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
         assert stub.posted_urls == []
+        assert stub.penalized_mechs == ["0x" + "aa" * 20]
 
     def test_all_timeouts_all_failed(self) -> None:
         """All ranked mechs fail → ``OFFCHAIN_ALL_FAILED`` with the right label."""
         per_attempt_reads = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         stub = _StubBehaviour(
             ranked_mechs=[
@@ -2006,13 +2020,11 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
 
-    def test_zero_delivery_rate_treated_as_invalid_read(self) -> None:
-        """``maxDeliveryRate == 0`` is rejected like a non-STATE read (review C20).
+    def test_a_bound_of_nothing_skips_the_mech(self) -> None:
+        """An approved rate of ``0`` leaves nothing to sign, so the mech is skipped.
 
-        Without the guard a zero rate slips past ``is None`` and silently
-        collapses ``_compute_deposit_amount`` to one-call sizing on every
-        cycle. The executor must reject the read and fail over, surfacing
-        ``OFFCHAIN_TIMEOUT_ALL_MECHS`` once the failover budget is spent.
+        A cap of ``0`` would also collapse the deposit sizing to the bare
+        shortfall, which is the other reason a bound of nothing is refused.
         """
         mech_addr = "0x" + "aa" * 20
         stub = _StubBehaviour(
@@ -2021,35 +2033,17 @@ class TestFreshCycle:
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                # ``0`` would silently neutralize the dynamic sizing.
-                _state_resp({"max_delivery_rate": 0}),
             ],
             http_responses=[],
             failover_retries=0,
+            approved_mech_rates={mech_addr: 0},
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
-
-    def test_negative_delivery_rate_treated_as_invalid_read(self) -> None:
-        """Negative ``maxDeliveryRate`` is also rejected as an invalid read."""
-        mech_addr = "0x" + "aa" * 20
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo(mech_addr, "https://m")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),
-                _state_resp({"data": 7}),
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": -1}),
-            ],
-            http_responses=[],
-            failover_retries=0,
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-        result = _drive(executor._fresh_cycle())
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+        assert result.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
+        assert stub.posted_urls == []
+        assert stub.penalized_mechs == [mech_addr]
 
     def test_null_metadata_nonce_does_not_crash_after_signed_post(self) -> None:
         """``MechMetadata(nonce=None)`` from an untyped producer doesn't crash mid-cycle.
@@ -2426,7 +2420,6 @@ class TestDepositIsSizedFromTheTrackerBalance:
             _state_resp({"data": 100}),
             _state_resp({"data": 7}),
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": self._RATE}),
             _state_resp({"data": self._TRACKER}),
             tracker_balance,
             *tail_reads,
@@ -2476,7 +2469,6 @@ class TestDepositIsSizedFromTheTrackerBalance:
             [self._challenge(), _make_http_response(200)],
             [
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": self._RATE}),
             ],
         )
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
@@ -2499,32 +2491,30 @@ class TestDepositIsSizedFromTheTrackerBalance:
 
 
 class TestDepositScalesWithDeliveryRate:
-    """Integration: a delivery_rate change → the next deposit scales linearly.
+    """Integration: the signed cap changes → the next deposit scales linearly.
 
-    Regression for the dynamic-pricing concern: the deposit is computed off
-    the live on-chain ``delivery_rate`` (read per attempt via
-    ``_resolve_delivery_rate``), not a static config or the 402's
-    ``required`` field. Doubling the mech price doubles the next deposit
-    without operator action.
+    The deposit is computed off the cap the request signs (the bound from
+    ``_resolve_delivery_rate``), not the 402's ``required`` field. Doubling
+    the cap doubles the next deposit without any other change.
     """
 
     _CANONICAL_TRACKER = "0x" + "11" * 20
     _CANONICAL_TOKEN = "0x" + "22" * 20
 
-    def _token_reads_with_rate(self, delivery_rate: int) -> List[Any]:
+    def _token_reads(self) -> List[Any]:
         return [
             _state_resp({"data": 100}),
             _state_resp({"data": 7}),
             _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": delivery_rate}),
         ]
 
     def _drive_cycle(self, delivery_rate: int) -> _StubBehaviour:
         mech_addr = "0x" + "aa" * 20
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            delivery_rate_caps={PaymentType.TOKEN_USDC: delivery_rate},
             contract_api_responses=[
-                *self._token_reads_with_rate(delivery_rate),
+                *self._token_reads(),
                 # _validate_402_destination → tracker + token
                 _state_resp({"data": self._CANONICAL_TRACKER}),
                 _state_resp({"token_address": self._CANONICAL_TOKEN}),
@@ -2567,7 +2557,7 @@ class TestDepositScalesWithDeliveryRate:
         raise AssertionError("no build_approval_tx call recorded")
 
     def test_doubling_delivery_rate_doubles_deposit(self) -> None:
-        """delivery_rate × 2 → deposit × 2, no operator action."""
+        """Doubling the cap doubles the deposit."""
         low = self._drive_cycle(delivery_rate=100)
         high = self._drive_cycle(delivery_rate=200)
         # target_calls=10 in both cycles; deposit = 10 × delivery_rate.
@@ -3851,7 +3841,6 @@ class TestFreshCycleSafeBalanceGuard:
             _state_resp({"data": 100}),  # _resolve_chain_id_int
             _state_resp({"data": 7}),  # _read_on_chain_nonce
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_short_safe_balance_surfaces_402_insufficient(self) -> None:
@@ -4043,7 +4032,6 @@ class TestValidate402Destination:
             _state_resp({"data": 100}),
             _state_resp({"data": 7}),
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _token_pre_402_reads(self) -> List[Any]:
@@ -4051,7 +4039,6 @@ class TestValidate402Destination:
             _state_resp({"data": 100}),
             _state_resp({"data": 7}),
             _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_pay_to_mismatch_treated_as_bad_response(self) -> None:
@@ -4065,7 +4052,6 @@ class TestValidate402Destination:
         attacker_address = "0x" + "ee" * 20
         per_attempt_reads = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         stub = _StubBehaviour(
             ranked_mechs=[
@@ -4560,7 +4546,6 @@ class TestNonceRefusalNeverFailsOverToAnotherMech:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _two_mech_stub(self, contract_api_responses: List[Any], **kwargs: Any) -> Any:
@@ -4731,7 +4716,6 @@ class TestNonceRejectionRetriesTheSameMech:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_it_re_reads_the_slot_and_posts_again_to_the_same_mech(self) -> None:
@@ -4836,7 +4820,6 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     @staticmethod
@@ -4986,7 +4969,6 @@ class TestTheCycleOnlyGivesBackASlotTheMechRefused:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _stub(self, http_responses: List[Any], extra_reads: int = 0) -> Any:
@@ -5058,7 +5040,6 @@ class TestOneUnansweredAttemptDecidesTheWholeCycle:
     def _stub(self, http_responses: List[Any]) -> Any:
         per_attempt = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         return _StubBehaviour(
             ranked_mechs=[
@@ -5119,7 +5100,6 @@ class TestTheCycleStopsSteppingOverAStuckSlot:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce, never moves
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
         )
@@ -5205,7 +5185,6 @@ class TestAnAbandonedSlotStaysReserved:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=http,
         )
@@ -5259,7 +5238,6 @@ class TestAnAbandonedSlotStaysReserved:
         refused = b'{"reason": "wire nonce above sender\'s next expected slot"}'
         per_attempt = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
@@ -5298,7 +5276,6 @@ class TestAnAbandonedSlotStaysReserved:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
                 _state_resp({"data": 7}),  # re-read: the counter has not moved
             ],
             http_responses=[_make_http_response(503, refused)],
@@ -5327,7 +5304,6 @@ class TestAnAbandonedSlotStaysReserved:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
         )
@@ -5360,7 +5336,6 @@ class TestAnAcceptedRequestIsNotSweptLater:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
         )
@@ -5398,7 +5373,6 @@ class TestTheDepositPathKeepsItsSlot:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
                 _state_resp({"data": canonical_tracker}),
                 _state_resp({"requester_balance": 0}),
                 _state_resp({"data": b"\x01\x02\x03"}),
@@ -5440,7 +5414,6 @@ class TestTheCycleReclaimsASlotNoMechCanHave:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _stub(self, reserved_age_secs: float) -> Any:
@@ -5494,7 +5467,9 @@ _MECH_B = "0x" + "bb" * 20
 _REQUESTER = "0x" + "cc" * 20
 _DATA_HASH = b"\x11" * 32
 _CHAIN_ID = 100
-_SIGNED_RATE = 10**16
+_DEADLINE_401 = (
+    b'{"reason": "explicit-nonce deadline is too close for the mech to settle"}'
+)
 # The deadline an explicit request signs: the stub's consensus time plus the
 # configured window (``_StubBehaviour`` above).
 _EXPECTED_DEADLINE = _CONSENSUS_TIMESTAMP + _EXPLICIT_DEADLINE_SECONDS
@@ -5564,10 +5539,9 @@ def _held_slots(stub: _StubBehaviour) -> set:
 
 
 def _per_attempt_reads() -> List[Any]:
-    """The two reads every attempt makes on a mech."""
+    """The one read every attempt makes on a mech: its payment type."""
     return [
         _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-        _state_resp({"max_delivery_rate": _SIGNED_RATE}),
     ]
 
 
@@ -5924,8 +5898,8 @@ class TestExplicitNonceIsTheDefault:
             compute_safe_message_hash(explicit_id, _REQUESTER, _CHAIN_ID)
         ]
 
-    def test_a_deadline_refusal_ends_the_cycle_without_a_failover(self) -> None:
-        """Every mech applies the same floor to the same deadline, so the next period signs anew."""
+    def test_a_deadline_refusal_fails_over_with_the_same_deadline(self) -> None:
+        """The refusing mech applies a floor of its own: it is penalized and the next mech is tried."""
         stub = _StubBehaviour(
             ranked_mechs=[
                 _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
@@ -5934,12 +5908,44 @@ class TestExplicitNonceIsTheDefault:
             contract_api_responses=[
                 _state_resp({"data": _CHAIN_ID}),
                 *_per_attempt_reads(),
+                *_per_attempt_reads(),
             ],
             http_responses=[
-                _make_http_response(
-                    401,
-                    b'{"reason": "explicit-nonce deadline is too close for the mech to settle"}',
-                ),
+                _make_http_response(401, _DEADLINE_401),
+                _make_http_response(200),
+            ],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == [
+            "https://mech-aa.example/send_signed_requests",
+            "https://mech-bb.example/send_signed_requests",
+        ]
+        assert [_form_field(body, "deadline") for body in stub.posted_bodies] == [
+            str(_EXPECTED_DEADLINE),
+            str(_EXPECTED_DEADLINE),
+        ]
+        assert stub.penalized_mechs == [_MECH_A]
+
+    def test_a_deadline_every_mech_refuses_ends_the_cycle_with_its_label(self) -> None:
+        """Only when no mech takes the deadline does the cycle end with the deadline label."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(401, _DEADLINE_401),
+                _make_http_response(401, _DEADLINE_401),
             ],
             nonce_mode=NONCE_MODE_EXPLICIT,
         )
@@ -5949,7 +5955,8 @@ class TestExplicitNonceIsTheDefault:
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_DEADLINE_TOO_CLOSE
-        assert len(stub.posted_urls) == 1
+        assert len(stub.posted_urls) == 2
+        assert stub.penalized_mechs == [_MECH_A, _MECH_B]
 
     def test_a_silent_mech_followed_by_a_failover_is_called_out(self) -> None:
         """Two mechs may both settle one request, so the cycle says so when it happens."""
@@ -6143,7 +6150,7 @@ class TestAMechWithoutExplicitNoncesIsServedSequentially:
 
         callables = _contract_callables(stub)
         assert callables.count("get_nonce") == 1
-        assert callables.index("get_nonce") > callables.index("get_max_delivery_rate")
+        assert callables.index("get_nonce") > callables.index("get_payment_type")
 
     def test_the_refusal_does_not_spend_the_failover_budget(self) -> None:
         """The mech is not at fault and the request never left the queue."""

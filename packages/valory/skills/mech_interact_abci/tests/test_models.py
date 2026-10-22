@@ -143,6 +143,37 @@ class TestMechMarketplaceConfig:
             )
 
     @pytest.mark.parametrize(
+        "window, floor",
+        [(900, 900), (599, 600), (1, 1), (0, 600), (900, -1)],
+        ids=["equal", "below", "equal_small", "zero_window", "negative_floor"],
+    )
+    def test_a_deadline_window_not_above_the_floor_is_refused_at_boot(
+        self, window: int, floor: int
+    ) -> None:
+        """A window at or below the floor would have every explicit request refused."""
+        with pytest.raises(ValueError, match="offchain_explicit"):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                offchain_explicit_deadline_seconds=window,
+                offchain_explicit_min_remaining_seconds=floor,
+            )
+
+    @pytest.mark.parametrize("window, floor", [(601, 600), (1, 0), (900, 600)])
+    def test_a_deadline_window_above_the_floor_is_accepted(
+        self, window: int, floor: int
+    ) -> None:
+        """Strictly above the floor is enough; the defaults satisfy it."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            offchain_explicit_deadline_seconds=window,
+            offchain_explicit_min_remaining_seconds=floor,
+        )
+        assert config.offchain_explicit_deadline_seconds == window
+        assert config.offchain_explicit_min_remaining_seconds == floor
+
+    @pytest.mark.parametrize(
         "interval_in, timeout_in",
         [
             (5, 300),

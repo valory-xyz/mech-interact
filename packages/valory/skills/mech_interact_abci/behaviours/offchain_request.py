@@ -26,6 +26,11 @@ for the on-chain marketplace request. The executor:
 * picks the next ranked mech and resolves its HTTP endpoint (from the
   per-mech ``http_url`` populated in :mod:`mech_info` or from the static
   ``offchain_url`` fallback);
+* signs the agent's own per-request cap: the ``delivery_rate_caps`` bound
+  for the mech's payment asset, lowered to the rate the consumer approved
+  for that mech. The mech charges its actual cost at or below the cap, and
+  the marketplace refuses a settlement above it. The mech's on-chain
+  ``maxDeliveryRate`` is its on-chain price and is not read here;
 * assembles the request metadata, computes the bare-file CIDv1 locally
   (byte-identical to ``mech-client``'s ``fetch_ipfs_hash``), picks the
   request's nonce per ``MechMarketplaceConfig.offchain_nonce_mode`` (its
@@ -361,8 +366,8 @@ def derive_request_id_bytes(  # noqa: D417  # pylint: disable=too-many-arguments
         ``requestData`` submitted at ``deliverMarketplaceWithSignatures``
         time is the 32-byte hash, so the trader must hash the same bytes
         to arrive at the same ``request_id``.
-    :param delivery_rate: Per-request charge (matches the on-chain
-        ``deliveryRate`` argument).
+    :param delivery_rate: The requester's per-request cap (the contract's
+        ``maxDeliveryRate`` argument); the mech charges at or below it.
     :param payment_type: 32-byte ``paymentType`` constant for the mech's
         payment model.
     :param nonce: The requester's current on-chain ``mapNonces`` value
@@ -1272,26 +1277,10 @@ class OffchainRequestExecutor:
                 last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                 continue
 
-            delivery_rate = yield from self._resolve_delivery_rate(mech_address)
-            if delivery_rate is None:
-                last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
-                continue
-
-            # mech-client charges at the live rate, so the bound is checked
-            # here and not only at discovery.
-            payment_type_hex = "0x" + payment_type_bytes.hex()
-            bound = delivery_rate_bound(
-                mech_address,
-                payment_type_hex,
-                self._b.params.delivery_rate_caps,
-                self._synced.approved_mech_rates,
+            delivery_rate = self._resolve_delivery_rate(
+                mech_address, payment_type_bytes
             )
-            if bound is None or delivery_rate > bound:
-                self._logger.warning(
-                    f"Skipping mech {mech_address}: its delivery rate "
-                    f"{delivery_rate} for payment type {payment_type_hex} is "
-                    f"above the bound ({bound})."
-                )
+            if delivery_rate is None:
                 self._b.shared_state.penalize_mech(mech_address)
                 last_failure = DELIVERY_RATE_ABOVE_CAP
                 continue
@@ -1506,17 +1495,20 @@ class OffchainRequestExecutor:
                 )
 
             if attempt.outcome is OffchainAttemptOutcome.DEADLINE_TOO_CLOSE:
-                # The deadline is the cycle's; another mech would refuse it
-                # the same way, so the cycle ends and the next period signs
-                # a fresh one.
+                # The window is above the configured floor (checked at boot),
+                # so this mech applies a stricter floor of its own. The
+                # cycle's clock is the round transition, so the time left
+                # is the same for every mech in it: the next mech gets the
+                # same deadline, and the cycle ends with this label only
+                # when none accepts it.
                 self._logger.warning(
                     f"Mech {mech_address} refused explicit-nonce request "
                     f"0x{request_id_bytes.hex()}: deadline {deadline} is under "
-                    "its floor. Ending the cycle; the next period signs a fresh "
-                    "deadline."
+                    "its floor. Trying the next mech with the same deadline."
                 )
+                self._b.shared_state.penalize_mech(mech_address)
                 last_failure = OFFCHAIN_DEADLINE_TOO_CLOSE
-                break
+                continue
             if attempt.outcome is OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED:
                 # The mech turned the request away unread, so nothing of it
                 # is in flight and the same mech gets it again at no cost to
@@ -2223,43 +2215,41 @@ class OffchainRequestExecutor:
         return payment_type
 
     def _resolve_delivery_rate(
-        self, mech_address: str
-    ) -> Generator[None, None, Optional[int]]:
-        """The rate signed into the request, read as the mech's ``maxDeliveryRate``.
+        self, mech_address: str, payment_type: bytes
+    ) -> Optional[int]:
+        """The cap signed into the request: the agent's own bound for this mech.
 
         This is the one place the signed rate comes from: it is what the
         request id binds, what the 402 shortfall is checked against and what
-        the deposit is sized from. Where it is read from can change (a
-        per-tool value from the mech's metadata, say) without touching any
-        of those.
+        the deposit is sized from. The bound is the ``delivery_rate_caps``
+        entry for the mech's payment asset, lowered to the rate the consumer
+        approved for the mech. The mech charges its actual cost at or below
+        it and the marketplace refuses a settlement above it, so the mech's
+        on-chain ``maxDeliveryRate`` has no part in what this agent pays
+        off-chain; discovery still filters mechs by it, since on-chain
+        requests pay it.
+
+        :param mech_address: the mech about to be requested.
+        :param payment_type: the mech's ``paymentType`` selector.
+        :return: the cap, or None when the mech may not be requested: an
+            unknown payment type, an asset without a cap, or a bound of
+            nothing. A cap of ``0`` would also collapse the deposit sizing in
+            ``_compute_deposit_amount`` to the bare shortfall.
         """
-        raw = yield from self._read_contract_state(
-            contract_address=mech_address,
-            contract_id=str(MechMMContract.contract_id),
-            contract_callable="get_max_delivery_rate",
-            error_label=f"Mech {mech_address} maxDeliveryRate",
-            result_key="max_delivery_rate",
+        payment_type_hex = "0x" + payment_type.hex()
+        bound = delivery_rate_bound(
+            mech_address,
+            payment_type_hex,
+            self._b.params.delivery_rate_caps,
+            self._synced.approved_mech_rates,
         )
-        if raw is None:
-            return None
-        try:
-            rate = int(raw)
-        except (TypeError, ValueError) as exc:
+        if bound is None or bound <= 0:
             self._logger.warning(
-                f"Mech {mech_address} maxDeliveryRate returned a non-numeric "
-                f"value: {exc}"
+                f"Skipping mech {mech_address}: no positive bound to sign for "
+                f"payment type {payment_type_hex} (bound {bound})."
             )
             return None
-        if rate <= 0:
-            # ``0`` would slip past the ``is None`` guard in ``_fresh_cycle``
-            # and silently collapse ``_compute_deposit_amount`` to the
-            # shortfall (one-call sizing). Treat any non-positive value as an
-            # invalid read so failover skips this mech.
-            self._logger.warning(
-                f"Mech {mech_address} maxDeliveryRate is {rate}; skipping."
-            )
-            return None
-        return rate
+        return bound
 
     # ---------- 402 destination validation ---------------------------------
 
