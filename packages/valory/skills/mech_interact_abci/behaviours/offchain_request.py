@@ -1156,8 +1156,6 @@ class OffchainRequestExecutor:
             ipfs_hash[2:] if ipfs_hash.startswith("0x") else ipfs_hash
         )
 
-        # An explicit nonce belongs to the request alone, so the counter is
-        # read only when a mech turns an explicit request away, below.
         nonce_mode = self._config.offchain_nonce_mode
         deadline: Optional[int] = None
         if nonce_mode == NONCE_MODE_SEQUENTIAL:
@@ -1441,12 +1439,15 @@ class OffchainRequestExecutor:
                 continue
 
             if attempt.outcome is OffchainAttemptOutcome.NONCE_TAKEN:
-                # Every mech reads the same counter, so another would refuse
-                # the slot the same way, and this mech is not at fault.
+                # The mech still holds unsettled requests from this Safe, so the
+                # next slot it expects is above the counter. Another mech may
+                # accept the slot, but one nonce at two mechs can leave one of
+                # them unsettleable, so the cycle ends and the mech keeps its
+                # standing; the next period signs at the counter again.
                 self._logger.info(
                     f"Mech {mech_address} refused slot {nonce} for "
-                    f"{self._safe_address()}: the counter has moved since it "
-                    "was read. Leaving it for the next period."
+                    f"{self._safe_address()}: it still holds unsettled requests "
+                    "from this Safe. Waiting for them to settle."
                 )
                 last_failure = self._failure_label_for(attempt.outcome)
                 break

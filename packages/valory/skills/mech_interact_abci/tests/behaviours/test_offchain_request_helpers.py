@@ -4517,11 +4517,12 @@ class TestStubValidatesCanonicalKwargs:
 
 
 class TestARefusedSlotEndsTheCycle:
-    """Another mech reads the same counter, so it would refuse the slot too.
+    """A refused slot ends the cycle without failover or re-signing.
 
-    A failover here is worse than useless: it spends the budget meant for a
-    genuinely bad mech. Re-signing is not attempted either: the counter
-    moves at settlement, so the next period reads it afresh.
+    The mech refuses while it still holds unsettled requests from this Safe.
+    Sending the same slot to another mech could leave one of the two
+    unsettleable, and the counter only moves at settlement, so the next
+    period reads it afresh.
     """
 
     _REFUSED = b'{"reason": "wire nonce above sender\'s next expected slot"}'
@@ -4561,6 +4562,43 @@ class TestARefusedSlotEndsTheCycle:
         assert result.last_failure_reason == OFFCHAIN_NONCE_TAKEN
         assert len(stub.posted_urls) == 1
         assert stub.penalized_mechs == []
+
+    def test_the_opt_in_waits_until_the_held_request_settles(self) -> None:
+        """A mech counting its own pending request refuses the counter until it settles.
+
+        Period one signs at the counter (7) while the mech still holds an
+        unsettled request at 7 and refuses; period two reads 7 again and is
+        refused again; once that request settles the counter reads 8 and the
+        mech accepts. No mech is penalized on the way.
+        """
+        refused = _make_http_response(503, self._REFUSED)
+        outcomes = []
+        for counter, response in (
+            (7, refused),
+            (7, refused),
+            (8, _make_http_response(200)),
+        ):
+            stub = self._two_mech_stub(
+                [
+                    _state_resp({"data": 100}),
+                    _state_resp({"data": counter}),
+                    *self._per_attempt_reads(),
+                ],
+                http_responses=[response],
+                failover_retries=1,
+            )
+            result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+            outcomes.append(
+                (
+                    _form_field(stub.posted_bodies[0], "nonce"),
+                    result.last_failure_reason,
+                )
+            )
+            assert stub.penalized_mechs == []
+            assert len(stub.posted_urls) == 1
+        assert outcomes[0] == ("7", OFFCHAIN_NONCE_TAKEN)
+        assert outcomes[1] == ("7", OFFCHAIN_NONCE_TAKEN)
+        assert outcomes[2][0] == "8" and outcomes[2][1] != OFFCHAIN_NONCE_TAKEN
 
     def test_the_counter_is_read_once_and_not_again_after_the_refusal(self) -> None:
         """The slot the request signed is the counter as read; nothing re-signs within the cycle."""
@@ -5260,7 +5298,7 @@ class TestExplicitNonceIsTheDefault:
         assert str(_EXPECTED_DEADLINE) in notice
 
     def test_the_counter_is_never_read_and_no_slot_is_taken(self) -> None:
-        """The registry exists for the counter; an explicit request has no slot."""
+        """An explicit request signs its own nonce and never reads the counter."""
         stub = self._stub([_make_http_response(200)])
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
 
@@ -5345,7 +5383,7 @@ class TestSequentialNonceIsOptIn:
         )
 
     def test_the_counter_is_read_once_and_the_slot_taken(self) -> None:
-        """The registry still tracks the slot the request was signed at."""
+        """The counter is read once for the request it signs."""
         stub = self._stub([_make_http_response(200)])
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
 

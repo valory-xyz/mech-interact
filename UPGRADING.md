@@ -98,18 +98,16 @@ Below, we describe the additional manual steps required to upgrade between diffe
   `poll_timeout`, `server_unavailable`) is penalized for
   `penalize_mech_time_window`, like other failing mechs.
 
+- The sequential-nonce slot registry is removed: `nonce_allocator` and the
+  `mech_slot_registry` shared-state key are gone, and so is
+  `offchain_nonce_retry_max`. Explicit nonces (the default) never touch
+  the Safe's counter. The sequential opt-in signs at the counter; a mech
+  that still holds an unsettled request from the Safe refuses it, and the
+  cycle ends with `nonce_taken` until that request settles. A consumer
+  that imports `MECH_SLOT_REGISTRY` (trader's `trader_abci/models.py`)
+  must drop that import in the same bump (valory-xyz/trader#1085).
+
 #### New features
-- A slot is marked abandoned only when the poller itself gets no readable
-  answer (repeated 404 or server errors, or its poll budget running out),
-  not from the wording of a mech's `rejected` reply. When a retry at an
-  abandoned slot is refused and the counter has not moved, the slot keeps
-  the earlier request's reservation.
-- When an off-chain request gets no answer (`not_found`, `poll_timeout`,
-  `server_unavailable`), its slot is marked and the next cycle signs at
-  it once more, for the next ranked mech, instead of stepping over it
-  until `SLOT_BLOCKED_GIVE_UP_SECS`. The slot stays reserved for other
-  routes meanwhile (`nonce_allocator.note_slot_abandoned`,
-  `take_abandoned_slot`).
 - New `mech_interact_abci.mech_reader` module for reading one mech from a
   handler, where the behaviour helpers are not available: `read_mech` (the
   subgraph record, then the marketplace agent card) and `read_live_rate`
