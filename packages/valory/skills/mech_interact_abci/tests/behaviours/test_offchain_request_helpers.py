@@ -33,6 +33,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+from unittest.mock import patch
 from urllib.parse import parse_qs, parse_qsl
 
 import pytest
@@ -81,7 +82,6 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     sweep_dead_slots,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
-    DELIVERY_RATE_ABOVE_CAP,
     Event,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
@@ -90,6 +90,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_DEADLINE_TOO_CLOSE,
     OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_NONCE_TAKEN,
+    OFFCHAIN_NO_DELIVERY_RATE_BOUND,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     merge_extra_attributes,
 )
@@ -1973,7 +1974,7 @@ class TestFreshCycle:
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
+        assert result.last_failure_reason == OFFCHAIN_NO_DELIVERY_RATE_BOUND
         assert stub.posted_urls == []
         assert stub.penalized_mechs == ["0x" + "aa" * 20]
 
@@ -2041,7 +2042,7 @@ class TestFreshCycle:
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
+        assert result.last_failure_reason == OFFCHAIN_NO_DELIVERY_RATE_BOUND
         assert stub.posted_urls == []
         assert stub.penalized_mechs == [mech_addr]
 
@@ -5470,6 +5471,8 @@ _CHAIN_ID = 100
 _DEADLINE_401 = (
     b'{"reason": "explicit-nonce deadline is too close for the mech to settle"}'
 )
+# A wall clock just after the round transition: the whole window is still ahead.
+_EARLY = _CONSENSUS_TIMESTAMP + 10
 # The deadline an explicit request signs: the stub's consensus time plus the
 # configured window (``_StubBehaviour`` above).
 _EXPECTED_DEADLINE = _CONSENSUS_TIMESTAMP + _EXPLICIT_DEADLINE_SECONDS
@@ -5899,7 +5902,7 @@ class TestExplicitNonceIsTheDefault:
         ]
 
     def test_a_deadline_refusal_fails_over_with_the_same_deadline(self) -> None:
-        """The refusing mech applies a floor of its own: it is penalized and the next mech is tried."""
+        """With time still left, the refusing mech applies a floor of its own: penalized, next mech tried."""
         stub = _StubBehaviour(
             ranked_mechs=[
                 _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
@@ -5918,7 +5921,8 @@ class TestExplicitNonceIsTheDefault:
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
 
-        result = _drive(executor._fresh_cycle())
+        with patch.object(OffchainRequestExecutor, "_wall_clock", return_value=_EARLY):
+            result = _drive(executor._fresh_cycle())
 
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert stub.posted_urls == [
@@ -5932,7 +5936,7 @@ class TestExplicitNonceIsTheDefault:
         assert stub.penalized_mechs == [_MECH_A]
 
     def test_a_deadline_every_mech_refuses_ends_the_cycle_with_its_label(self) -> None:
-        """Only when no mech takes the deadline does the cycle end with the deadline label."""
+        """With time left and no mech taking the deadline, the cycle ends with the deadline label."""
         stub = _StubBehaviour(
             ranked_mechs=[
                 _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
@@ -5951,12 +5955,74 @@ class TestExplicitNonceIsTheDefault:
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
 
-        result = _drive(executor._fresh_cycle())
+        with patch.object(OffchainRequestExecutor, "_wall_clock", return_value=_EARLY):
+            result = _drive(executor._fresh_cycle())
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_DEADLINE_TOO_CLOSE
         assert len(stub.posted_urls) == 2
         assert stub.penalized_mechs == [_MECH_A, _MECH_B]
+
+    @pytest.mark.parametrize(
+        "now",
+        [_EXPECTED_DEADLINE - 600 + 1, _EXPECTED_DEADLINE - 1, _EXPECTED_DEADLINE + 50],
+        ids=["under_the_floor_by_a_second", "a_second_left", "already_past"],
+    )
+    def test_a_late_cycle_ends_without_penalizing_the_refusing_mech(
+        self, now: int
+    ) -> None:
+        """Once the cycle has used up the slack, the refusal is its own lateness: no failover, no penalty."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[_make_http_response(401, _DEADLINE_401)],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        with patch.object(OffchainRequestExecutor, "_wall_clock", return_value=now):
+            result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_DEADLINE_TOO_CLOSE
+        assert len(stub.posted_urls) == 1
+        assert stub.penalized_mechs == []
+
+    def test_exactly_the_floor_left_still_fails_over(self) -> None:
+        """The boundary is inclusive, as for the deposit retry: the floor itself is enough time."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(401, _DEADLINE_401),
+                _make_http_response(200),
+            ],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        with patch.object(
+            OffchainRequestExecutor,
+            "_wall_clock",
+            return_value=_EXPECTED_DEADLINE - 600,
+        ):
+            result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.penalized_mechs == [_MECH_A]
 
     def test_a_silent_mech_followed_by_a_failover_is_called_out(self) -> None:
         """Two mechs may both settle one request, so the cycle says so when it happens."""

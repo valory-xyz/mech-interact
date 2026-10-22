@@ -67,6 +67,11 @@ Ox = "0x"
 # accepted.
 NONCE_MODE_EXPLICIT = "explicit"
 NONCE_MODE_SEQUENTIAL = "sequential"
+# The least room an explicit-nonce window must leave above the mech's floor:
+# the IPFS upload, the signature and up to the failover budget of POSTs all
+# happen between the round transition the deadline counts from and the
+# moment a mech checks it. One poll budget's worth.
+EXPLICIT_CYCLE_SLACK_SECONDS = 300
 NONCE_MODES = frozenset({NONCE_MODE_EXPLICIT, NONCE_MODE_SEQUENTIAL})
 
 
@@ -366,11 +371,12 @@ class MechMarketplaceConfig:
     # signed deadline reverts, so the window covers the mech's execution and
     # settlement, not only its answer; a mech refuses a deadline closer than
     # its own floor.
-    offchain_explicit_deadline_seconds: int = 15 * 60
+    offchain_explicit_deadline_seconds: int = 20 * 60
     # The least time a mech needs between accepting an explicit-nonce request
     # and its deadline (the mech's own floor, 600 s by default). A resend
     # after a deposit with less than this left is not attempted, and the
-    # window above must exceed it, or every fresh request would be refused.
+    # window above must exceed it by :data:`EXPLICIT_CYCLE_SLACK_SECONDS`,
+    # the time the cycle itself may take before a mech receives the request.
     offchain_explicit_min_remaining_seconds: int = 600
 
     def __post_init__(self) -> None:
@@ -415,13 +421,15 @@ class MechMarketplaceConfig:
             raise ValueError(
                 "offchain_explicit_min_remaining_seconds must be non-negative"
             )
-        if int(self.offchain_explicit_deadline_seconds) <= int(
+        slack = int(self.offchain_explicit_deadline_seconds) - int(
             self.offchain_explicit_min_remaining_seconds
-        ):
+        )
+        if slack < EXPLICIT_CYCLE_SLACK_SECONDS:
             raise ValueError(
-                "offchain_explicit_deadline_seconds must be above "
-                "offchain_explicit_min_remaining_seconds, or every explicit "
-                "request would be refused as too close to its deadline"
+                "offchain_explicit_deadline_seconds must exceed "
+                "offchain_explicit_min_remaining_seconds by at least "
+                f"{EXPLICIT_CYCLE_SLACK_SECONDS} s, or the cycle has no time to "
+                "upload, sign and post before the mech finds the deadline too close"
             )
 
 
