@@ -67,10 +67,8 @@ Ox = "0x"
 # accepted.
 NONCE_MODE_EXPLICIT = "explicit"
 NONCE_MODE_SEQUENTIAL = "sequential"
-# The least room an explicit-nonce window must leave above the mech's floor:
-# the IPFS upload, the signature and up to the failover budget of POSTs all
-# happen between the round transition the deadline counts from and the
-# moment a mech checks it. One poll budget's worth.
+# The least room an explicit-nonce window must leave above the mech's floor, for
+# the IPFS upload, signing and failover POSTs that run before a mech checks it.
 EXPLICIT_CYCLE_SLACK_SECONDS = 300
 NONCE_MODES = frozenset({NONCE_MODE_EXPLICIT, NONCE_MODE_SEQUENTIAL})
 

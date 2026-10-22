@@ -1394,14 +1394,12 @@ class OffchainRequestExecutor:
                 )
 
             if attempt.outcome is OffchainAttemptOutcome.DEADLINE_TOO_CLOSE:
-                # The deadline is fixed for the cycle while each mech checks
-                # it against its own clock on receipt, so the time left
-                # shrinks with every attempt. Once the cycle itself has used
-                # up the slack above the floor, the refusal is its own
-                # lateness: the cycle ends, the mech is not penalized, and
-                # the next period signs a fresh deadline. With time still
-                # left, the mech applies a stricter floor of its own: it is
-                # penalized and the next mech is tried.
+                # Under the floor by our own clock, the refusal is this cycle's
+                # lateness and the mech is not penalized; otherwise the mech
+                # has a stricter floor. The wall clock is read on purpose: the
+                # deadline is derived from the consensus timestamp, so that
+                # clock always shows the full window. Agents may split within
+                # seconds of the boundary; the round then retries.
                 last_failure = OFFCHAIN_DEADLINE_TOO_CLOSE
                 remaining = (deadline or 0) - self._wall_clock()
                 if remaining < int(
