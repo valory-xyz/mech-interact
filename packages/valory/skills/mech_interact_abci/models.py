@@ -359,9 +359,6 @@ class MechMarketplaceConfig:
     # Maximum retries across the ranked mech list on HTTP timeout or 503.
     # Default 2 (three mechs total per request) per the prepay spec.
     offchain_failover_max_retries: int = 2
-    # Re-signs at a fresh slot after a refusal, separate from the failover
-    # budget because the mech is not at fault.
-    offchain_nonce_retry_max: int = 3
     # ``explicit`` or ``sequential``; see :data:`NONCE_MODES`.
     offchain_nonce_mode: str = NONCE_MODE_EXPLICIT
     # How long, from the round transition that starts the request, an
@@ -406,8 +403,6 @@ class MechMarketplaceConfig:
             raise ValueError("offchain_poll_timeout_seconds must be positive")
         if self.offchain_failover_max_retries < 0:
             raise ValueError("offchain_failover_max_retries must be non-negative")
-        if self.offchain_nonce_retry_max < 0:
-            raise ValueError("offchain_nonce_retry_max must be non-negative")
         if self.offchain_nonce_mode not in NONCE_MODES:
             raise ValueError(
                 f"offchain_nonce_mode must be one of {sorted(NONCE_MODES)}; "
