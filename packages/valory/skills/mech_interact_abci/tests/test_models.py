@@ -31,6 +31,7 @@ from packages.valory.skills.abstract_round_abci.test_tools.base import DummyCont
 from packages.valory.skills.mech_interact_abci.models import (
     CHAIN_TO_NVM_CONFIG,
     DEFAULT_MARKETPLACE_API_URL,
+    EXPLICIT_CYCLE_SLACK_SECONDS,
     MechMarketplaceConfig,
     MechParams,
     MechResponseSpecs,
@@ -144,13 +145,21 @@ class TestMechMarketplaceConfig:
 
     @pytest.mark.parametrize(
         "window, floor",
-        [(900, 900), (599, 600), (1, 1), (0, 600), (900, -1)],
-        ids=["equal", "below", "equal_small", "zero_window", "negative_floor"],
+        [(900, 900), (599, 600), (1, 1), (0, 600), (900, -1), (899, 600), (601, 600)],
+        ids=[
+            "equal",
+            "below",
+            "equal_small",
+            "zero_window",
+            "negative_floor",
+            "slack_one_second_short",
+            "barely_above_the_floor",
+        ],
     )
-    def test_a_deadline_window_not_above_the_floor_is_refused_at_boot(
+    def test_a_deadline_window_without_the_cycle_slack_is_refused_at_boot(
         self, window: int, floor: int
     ) -> None:
-        """A window at or below the floor would have every explicit request refused."""
+        """A window at the floor, or only just above it, leaves the cycle no time to post."""
         with pytest.raises(ValueError, match="offchain_explicit"):
             MechMarketplaceConfig(
                 mech_marketplace_address="0xmarket",
@@ -159,11 +168,11 @@ class TestMechMarketplaceConfig:
                 offchain_explicit_min_remaining_seconds=floor,
             )
 
-    @pytest.mark.parametrize("window, floor", [(601, 600), (1, 0), (900, 600)])
-    def test_a_deadline_window_above_the_floor_is_accepted(
+    @pytest.mark.parametrize("window, floor", [(900, 600), (300, 0), (1200, 600)])
+    def test_a_deadline_window_with_the_cycle_slack_is_accepted(
         self, window: int, floor: int
     ) -> None:
-        """Strictly above the floor is enough; the defaults satisfy it."""
+        """The floor plus the cycle slack is enough; the defaults leave twice that."""
         config = MechMarketplaceConfig(
             mech_marketplace_address="0xmarket",
             response_timeout=30,
@@ -172,6 +181,18 @@ class TestMechMarketplaceConfig:
         )
         assert config.offchain_explicit_deadline_seconds == window
         assert config.offchain_explicit_min_remaining_seconds == floor
+
+    def test_the_defaults_leave_the_cycle_twice_the_slack(self) -> None:
+        """A 20 minute window over a 10 minute floor: the slack covers a slow cycle twice."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket", response_timeout=30
+        )
+        slack = (
+            config.offchain_explicit_deadline_seconds
+            - config.offchain_explicit_min_remaining_seconds
+        )
+        assert config.offchain_explicit_deadline_seconds == 1200
+        assert slack == 2 * EXPLICIT_CYCLE_SLACK_SECONDS
 
     @pytest.mark.parametrize(
         "interval_in, timeout_in",

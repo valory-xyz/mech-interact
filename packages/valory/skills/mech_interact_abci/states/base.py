@@ -80,9 +80,12 @@ OFFCHAIN_DEADLINE_TOO_CLOSE = "offchain_deadline_too_close"
 # off-chain path needs the request to reject cleanly so the FSM doesn't
 # crash-loop the same oversized ``mech_requests`` every period.
 OFFCHAIN_METADATA_OVERSIZE = "offchain_metadata_oversize"
-# The selected mech's live ``maxDeliveryRate`` is above the cap configured for
-# its payment asset, or that asset has no cap. Set by both request paths.
+# On-chain: the selected mech's ``maxDeliveryRate`` is above the cap configured
+# for its payment asset, or that asset has no cap.
 DELIVERY_RATE_ABOVE_CAP = "delivery_rate_above_cap"
+# Off-chain: the agent has no positive bound to sign for the mech's payment
+# asset (unknown payment type, uncapped asset, or an approved rate of 0).
+OFFCHAIN_NO_DELIVERY_RATE_BOUND = "offchain_no_delivery_rate_bound"
 
 ADDRESS_RE = re.compile(r"0x[0-9a-f]{40}")
 

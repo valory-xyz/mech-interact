@@ -69,6 +69,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple
@@ -104,7 +105,6 @@ from packages.valory.skills.mech_interact_abci.models import (
     delivery_rate_bound,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
-    DELIVERY_RATE_ABOVE_CAP,
     Event,
     MechInteractionResponse,
     MechMetadata,
@@ -115,6 +115,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_METADATA_OVERSIZE,
     OFFCHAIN_NONCE_TAKEN,
+    OFFCHAIN_NO_DELIVERY_RATE_BOUND,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     SCHEMA_VERSION,
     merge_extra_attributes,
@@ -790,10 +791,6 @@ class OffchainAttemptOutcome(enum.Enum):
     """
 
     EXPLICIT_NONCE_DISABLED = "explicit_nonce_disabled"
-    # The mech refused an explicit request because its signed deadline is
-    # under the mech's floor. Every mech applies the same floor to the same
-    # deadline, so the cycle ends and the next period signs a fresh one.
-    DEADLINE_TOO_CLOSE = "deadline_too_close"
     """The mech does not accept explicit-nonce requests.
 
     Only an explicit request gets this, on the exact 503 the mech sends for
@@ -801,6 +798,9 @@ class OffchainAttemptOutcome(enum.Enum):
     at the same mech with the sequential nonce and stays sequential for the
     rest of the cycle, since the mech answers every explicit request alike.
     """
+
+    DEADLINE_TOO_CLOSE = "deadline_too_close"
+    """The mech refused an explicit request whose signed deadline is under its floor."""
 
     BAD_RESPONSE = "bad_response"
     """The mech returned a non-handled status, or a 402 with a malformed body.
@@ -1202,7 +1202,7 @@ class OffchainRequestExecutor:
             )
             if delivery_rate is None:
                 self._b.shared_state.penalize_mech(mech_address)
-                last_failure = DELIVERY_RATE_ABOVE_CAP
+                last_failure = OFFCHAIN_NO_DELIVERY_RATE_BOUND
                 continue
 
             request_id_bytes = derive_request_id_bytes(
@@ -1394,19 +1394,33 @@ class OffchainRequestExecutor:
                 )
 
             if attempt.outcome is OffchainAttemptOutcome.DEADLINE_TOO_CLOSE:
-                # The window is above the configured floor (checked at boot),
-                # so this mech applies a stricter floor of its own. The
-                # cycle's clock is the round transition, so the time left
-                # is the same for every mech in it: the next mech gets the
-                # same deadline, and the cycle ends with this label only
-                # when none accepts it.
+                # The deadline is fixed for the cycle while each mech checks
+                # it against its own clock on receipt, so the time left
+                # shrinks with every attempt. Once the cycle itself has used
+                # up the slack above the floor, the refusal is its own
+                # lateness: the cycle ends, the mech is not penalized, and
+                # the next period signs a fresh deadline. With time still
+                # left, the mech applies a stricter floor of its own: it is
+                # penalized and the next mech is tried.
+                last_failure = OFFCHAIN_DEADLINE_TOO_CLOSE
+                remaining = (deadline or 0) - self._wall_clock()
+                if remaining < int(
+                    self._config.offchain_explicit_min_remaining_seconds
+                ):
+                    self._logger.warning(
+                        f"Mech {mech_address} refused explicit-nonce request "
+                        f"0x{request_id_bytes.hex()}: {remaining} s left to deadline "
+                        f"{deadline}, under the floor. The cycle ran late; the next "
+                        "period signs a fresh deadline."
+                    )
+                    break
                 self._logger.warning(
                     f"Mech {mech_address} refused explicit-nonce request "
                     f"0x{request_id_bytes.hex()}: deadline {deadline} is under "
-                    "its floor. Trying the next mech with the same deadline."
+                    f"its floor with {remaining} s left. Trying the next mech "
+                    "with the same deadline."
                 )
                 self._b.shared_state.penalize_mech(mech_address)
-                last_failure = OFFCHAIN_DEADLINE_TOO_CLOSE
                 continue
             if attempt.outcome is OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED:
                 # The mech turned the request away unread, so nothing of it
@@ -1586,6 +1600,11 @@ class OffchainRequestExecutor:
             nonce_mode=nonce_mode,
             deadline=deadline,
         )
+
+    @staticmethod
+    def _wall_clock() -> int:
+        """The agent's own Unix time, which a mech's deadline floor is checked against."""
+        return int(time.time())
 
     def _consensus_timestamp(self) -> int:
         """The Unix time of the last round transition.
