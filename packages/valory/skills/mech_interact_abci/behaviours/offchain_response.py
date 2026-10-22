@@ -53,6 +53,7 @@ from urllib.parse import urlencode
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
     PendingRequest,
 )
+from packages.valory.skills.mech_interact_abci.models import NONCE_MODE_SEQUENTIAL
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     note_slot_abandoned,
 )
@@ -146,6 +147,7 @@ class OffchainResponsePoller:
         snapshot = yield from self._poll_until_terminal(
             mech_url=pending.mech_url,
             request_id_int_str=str(int(pending.request_id, 16)),
+            settle_deadline=pending.deadline,
         )
 
         self._apply_snapshot(target, snapshot)
@@ -155,12 +157,16 @@ class OffchainResponsePoller:
                 f"response could not be fetched ({snapshot.error})."
             )
             self._b.shared_state.penalize_mech(pending.mech_address)
-            note_slot_abandoned(
-                self._b.context.shared_state,
-                chain=str(self._b.params.mech_chain_id or ""),
-                safe=pending.sender,
-                slot=pending.nonce,
-            )
+            # An explicit nonce is the request's own, not a slot of the
+            # requester's counter, so there is nothing for the registry to
+            # mark.
+            if pending.nonce_mode == NONCE_MODE_SEQUENTIAL:
+                note_slot_abandoned(
+                    self._b.context.shared_state,
+                    chain=str(self._b.params.mech_chain_id or ""),
+                    safe=pending.sender,
+                    slot=pending.nonce,
+                )
         return responses
 
     # ---------- polling loop -----------------------------------------------
@@ -169,8 +175,14 @@ class OffchainResponsePoller:
         self,
         mech_url: str,
         request_id_int_str: str,
+        settle_deadline: Optional[int] = None,
     ) -> Generator[None, None, _PollSnapshot]:
         """Drive the GET loop until a terminal status arrives or time runs out.
+
+        ``settle_deadline`` is the signed deadline of an explicit-nonce
+        request: once it has passed the marketplace will not settle the
+        request, so an answer is no longer worth waiting for and the loop
+        stops with ``deadline_expired``.
 
         Polls at ``offchain_poll_interval_seconds`` and bails out after
         ``offchain_poll_timeout_seconds``. The boundary is checked with
@@ -271,6 +283,18 @@ class OffchainResponsePoller:
             snapshot = self._parse(response)
             if snapshot.status not in _PROCESSING_STATUSES:
                 return snapshot
+
+            if settle_deadline is not None and time.time() > settle_deadline:
+                self._logger.warning(
+                    f"Offchain request {request_id_int_str} passed its signed "
+                    f"settlement deadline {settle_deadline} while still "
+                    f"processing at {url}; surfacing deadline_expired."
+                )
+                return _PollSnapshot(
+                    status="rejected",
+                    error="deadline_expired",
+                    unanswered=True,
+                )
 
             if time.monotonic() >= deadline:
                 self._logger.warning(

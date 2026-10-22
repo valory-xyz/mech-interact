@@ -54,6 +54,24 @@ MechsSubgraphResponseType = Optional[MechsInfo]
 PLAN_DID_PREFIX = "did:nv:"
 Ox = "0x"
 
+# How an off-chain request's nonce is chosen, which decides the marketplace
+# view its request id mirrors and the path that settles it.
+#
+# ``explicit`` (the default): the request carries its own nonce and the id is
+# domain-separated from the sequential one, so the marketplace's per-request
+# record is the only replay guard and requests settle in any order. A mech
+# that does not accept the path turns the request away with a 503 and the
+# cycle resends it sequentially.
+# ``sequential``: the nonce is the requester's ``mapNonces`` counter, which
+# settlement consumes in order. It sends the payload every mech has always
+# accepted.
+NONCE_MODE_EXPLICIT = "explicit"
+NONCE_MODE_SEQUENTIAL = "sequential"
+# The least room an explicit-nonce window must leave above the mech's floor, for
+# the IPFS upload, signing and failover POSTs that run before a mech checks it.
+EXPLICIT_CYCLE_SLACK_SECONDS = 300
+NONCE_MODES = frozenset({NONCE_MODE_EXPLICIT, NONCE_MODE_SEQUENTIAL})
+
 
 class MechBodySpecs(ApiSpecs):
     """ApiSpecs for bodies a mech publishes, which may be of any shape."""
@@ -344,6 +362,20 @@ class MechMarketplaceConfig:
     # Re-signs at a fresh slot after a refusal, separate from the failover
     # budget because the mech is not at fault.
     offchain_nonce_retry_max: int = 3
+    # ``explicit`` or ``sequential``; see :data:`NONCE_MODES`.
+    offchain_nonce_mode: str = NONCE_MODE_EXPLICIT
+    # How long, from the round transition that starts the request, an
+    # explicit-nonce authorisation stays settleable. Settlement past the
+    # signed deadline reverts, so the window covers the mech's execution and
+    # settlement, not only its answer; a mech refuses a deadline closer than
+    # its own floor.
+    offchain_explicit_deadline_seconds: int = 20 * 60
+    # The least time a mech needs between accepting an explicit-nonce request
+    # and its deadline (the mech's own floor, 600 s by default). A resend
+    # after a deposit with less than this left is not attempted, and the
+    # window above must exceed it by :data:`EXPLICIT_CYCLE_SLACK_SECONDS`,
+    # the time the cycle itself may take before a mech receives the request.
+    offchain_explicit_min_remaining_seconds: int = 600
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -376,6 +408,27 @@ class MechMarketplaceConfig:
             raise ValueError("offchain_failover_max_retries must be non-negative")
         if self.offchain_nonce_retry_max < 0:
             raise ValueError("offchain_nonce_retry_max must be non-negative")
+        if self.offchain_nonce_mode not in NONCE_MODES:
+            raise ValueError(
+                f"offchain_nonce_mode must be one of {sorted(NONCE_MODES)}; "
+                f"got {self.offchain_nonce_mode!r}"
+            )
+        if int(self.offchain_explicit_deadline_seconds) <= 0:
+            raise ValueError("offchain_explicit_deadline_seconds must be positive")
+        if int(self.offchain_explicit_min_remaining_seconds) < 0:
+            raise ValueError(
+                "offchain_explicit_min_remaining_seconds must be non-negative"
+            )
+        slack = int(self.offchain_explicit_deadline_seconds) - int(
+            self.offchain_explicit_min_remaining_seconds
+        )
+        if slack < EXPLICIT_CYCLE_SLACK_SECONDS:
+            raise ValueError(
+                "offchain_explicit_deadline_seconds must exceed "
+                "offchain_explicit_min_remaining_seconds by at least "
+                f"{EXPLICIT_CYCLE_SLACK_SECONDS} s, or the cycle has no time to "
+                "upload, sign and post before the mech finds the deadline too close"
+            )
 
 
 _LEGACY_MARKETPLACE_KEYS = frozenset({"use_offchain", "offchain_deposit_target_calls"})

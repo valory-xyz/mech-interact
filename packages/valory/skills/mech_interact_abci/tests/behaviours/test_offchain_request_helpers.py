@@ -30,9 +30,11 @@ import json
 import logging
 import time
 from dataclasses import asdict
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
-from urllib.parse import parse_qs
+from unittest.mock import patch
+from urllib.parse import parse_qs, parse_qsl
 
 import pytest
 
@@ -45,19 +47,28 @@ from packages.valory.skills.mech_interact_abci.behaviours.offchain_request impor
     PendingRequest,
     _BALANCE_READ_FAILED,
     _BALANCE_SHORT,
+    _EXPLICIT_NONCE_DISABLED_REASON,
     _PAYMENT_TYPE_HASH_NATIVE,
     _PAYMENT_TYPE_HASH_NVM_NATIVE,
     _PAYMENT_TYPE_HASH_NVM_TOKEN,
     _PAYMENT_TYPE_HASH_TOKEN_OLAS,
     _PAYMENT_TYPE_HASH_TOKEN_USDC,
+    _compute_explicit_domain_separator,
+    _is_explicit_nonce_refusal,
     _is_nonce_rejection,
     build_request_metadata,
     compute_cidv1_bytes,
     compute_safe_message_hash,
+    derive_explicit_nonce,
     derive_request_id_bytes,
     parse_payment_challenge,
 )
 from packages.valory.skills.mech_interact_abci.behaviours.request import PaymentType
+from packages.valory.skills.mech_interact_abci.models import (
+    MechMarketplaceConfig,
+    NONCE_MODE_EXPLICIT,
+    NONCE_MODE_SEQUENTIAL,
+)
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_ABANDONED,
     MECH_SLOT_BLOCKED,
@@ -71,12 +82,15 @@ from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     sweep_dead_slots,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
-    DELIVERY_RATE_ABOVE_CAP,
     Event,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
+    OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
+    OFFCHAIN_DEADLINE_TOO_CLOSE,
+    OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_NONCE_TAKEN,
+    OFFCHAIN_NO_DELIVERY_RATE_BOUND,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     merge_extra_attributes,
 )
@@ -90,6 +104,12 @@ def _form_field(body: Any, field: str) -> str:
     """Return one field of a form-urlencoded POST body."""
     raw = body.decode("utf-8") if isinstance(body, bytes) else str(body)
     return parse_qs(raw)[field][0]
+
+
+def _form_keys(body: Any) -> List[str]:
+    """Return the field names of a form-urlencoded POST body, in wire order."""
+    raw = body.decode("utf-8") if isinstance(body, bytes) else str(body)
+    return [key for key, _ in parse_qsl(raw, keep_blank_values=True)]
 
 
 class TestComputeCidv1Bytes:
@@ -577,7 +597,6 @@ class TestExecutorDerivesRequestIdAgainstIpfsHashBytes:
             _state_resp({"data": 100}),  # _resolve_chain_id_int
             _state_resp({"data": 7}),  # _read_on_chain_nonce
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_request_id_matches_derivation_over_ipfs_hash_bytes(self) -> None:
@@ -1268,6 +1287,14 @@ class _StubSharedState:
         return {address: 0 for address in self._penalized}
 
 
+# Tendermint's timestamp of the last round transition, identical on every agent.
+_CONSENSUS_TIMESTAMP = 1_700_000_000
+_EXPLICIT_DEADLINE_SECONDS = 900
+# The cap every stub signs unless a test sets its own caps or approved rates:
+# the bound for the mech's asset, which is what goes on the wire.
+_SIGNED_RATE = 10**16
+
+
 class _StubBehaviour:
     """Minimal stub of the parent behaviour the executor talks back to.
 
@@ -1296,6 +1323,11 @@ class _StubBehaviour:
         mech_wrapped_native_token_address: Optional[str] = None,
         delivery_rate_caps: Optional[Dict[PaymentType, int]] = None,
         approved_mech_rates: Optional[Dict[str, int]] = None,
+        # Sequential here, not the skill's default: the slot tests below
+        # predate the explicit mode and read the counter on purpose. The
+        # default itself is asserted against ``MechMarketplaceConfig``.
+        nonce_mode: str = NONCE_MODE_SEQUENTIAL,
+        consensus_timestamp: int = _CONSENSUS_TIMESTAMP,
     ) -> None:
         # Mechs the executor penalized this cycle, for the next period's ranking.
         self.penalized_mechs: List[str] = []
@@ -1317,6 +1349,9 @@ class _StubBehaviour:
                 mech_marketplace_address="0x" + "ff" * 20,
                 offchain_failover_max_retries=failover_retries,
                 offchain_nonce_retry_max=nonce_retry_max,
+                offchain_nonce_mode=nonce_mode,
+                offchain_explicit_deadline_seconds=_EXPLICIT_DEADLINE_SECONDS,
+                offchain_explicit_min_remaining_seconds=600,
                 offchain_url=offchain_url,
                 priority_mech_address=priority_mech_address,
                 auto_deposit_cap_per_cycle=auto_deposit_cap,
@@ -1330,13 +1365,18 @@ class _StubBehaviour:
             mech_chain_id="gnosis",
             mech_wrapped_native_token_address=mech_wrapped_native_token_address,
             delivery_rate_caps=(
-                {PaymentType.NATIVE: 10**18, PaymentType.TOKEN_USDC: 10**18}
+                {PaymentType.NATIVE: _SIGNED_RATE, PaymentType.TOKEN_USDC: _SIGNED_RATE}
                 if delivery_rate_caps is None
                 else delivery_rate_caps
             ),
         )
         from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
 
+        self.round_sequence = SimpleNamespace(
+            last_round_transition_timestamp=datetime.fromtimestamp(
+                consensus_timestamp, tz=timezone.utc
+            )
+        )
         self.synchronized_data = SimpleNamespace(
             ranked_mechs=ranked_mechs,
             mech_requests=(
@@ -1377,7 +1417,6 @@ class _StubBehaviour:
         "get_nonce": {"sender_address"},
         "get_chain_id": set(),
         "get_payment_type": set(),
-        "get_max_delivery_rate": set(),
         "get_balance_tracker_for_mech_type": {"mech_type"},
         "get_token_address": set(),
         "get_requester_balance": {"requester"},
@@ -1557,7 +1596,6 @@ class TestFreshCycle:
             _state_resp({"data": 100}),  # _resolve_chain_id_int
             _state_resp({"data": 7}),  # _read_on_chain_nonce
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_oversized_metadata_returns_all_failed(self) -> None:
@@ -1808,7 +1846,6 @@ class TestFreshCycle:
         # Each attempt consumes one payment_type + one delivery_rate read.
         per_attempt_reads = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         stub = _StubBehaviour(
             ranked_mechs=[
@@ -1831,48 +1868,37 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert len(stub.posted_urls) == 2
 
-    def test_a_mech_above_its_cap_is_skipped_and_the_next_one_is_tried(self) -> None:
-        """The live rate is checked per attempt; an over-cap mech is penalized, not posted to."""
+    def test_the_asset_cap_is_signed_and_the_mech_s_own_rate_is_never_read(
+        self,
+    ) -> None:
+        """The cap on the wire is the agent's bound; ``maxDeliveryRate`` is not consulted."""
         mech_a = "0x" + "aa" * 20
-        mech_b = "0x" + "bb" * 20
         stub = _StubBehaviour(
-            ranked_mechs=[
-                _FakeMechInfo(mech_a, "https://mech-aa.example"),
-                _FakeMechInfo(mech_b, "https://mech-bb.example"),
-            ],
+            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
             contract_api_responses=[
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16 + 1}),
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
-            delivery_rate_caps={PaymentType.NATIVE: 10**16},
+            delivery_rate_caps={PaymentType.NATIVE: 3 * 10**15},
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert stub.posted_urls == ["https://mech-bb.example/send_signed_requests"]
-        assert stub.penalized_mechs == [mech_a]
+        assert _form_field(stub.posted_bodies[0], "delivery_rate") == str(3 * 10**15)
+        assert "get_max_delivery_rate" not in _contract_callables(stub)
+        assert stub.penalized_mechs == []
 
-    def test_an_approved_mech_above_its_accepted_rate_is_skipped(self) -> None:
-        """Consent bounds an approved mech below the asset cap; the next mech is tried."""
+    def test_an_approved_mech_signs_its_accepted_rate_below_the_cap(self) -> None:
+        """Consent lowers the bound for an approved mech, and that lower bound is what is signed."""
         mech_a = "0x" + "aa" * 20
-        mech_b = "0x" + "bb" * 20
         stub = _StubBehaviour(
-            ranked_mechs=[
-                _FakeMechInfo(mech_a, "https://mech-aa.example"),
-                _FakeMechInfo(mech_b, "https://mech-bb.example"),
-            ],
+            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
             contract_api_responses=[
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**15 + 1}),
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
             delivery_rate_caps={PaymentType.NATIVE: 10**16},
@@ -1881,8 +1907,36 @@ class TestFreshCycle:
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
-        assert stub.posted_urls == ["https://mech-bb.example/send_signed_requests"]
-        assert stub.penalized_mechs == [mech_a]
+        assert _form_field(stub.posted_bodies[0], "delivery_rate") == str(10**15)
+
+    def test_the_signed_cap_binds_the_request_id(self) -> None:
+        """The id the mech verifies is derived over the bound, not over any other rate."""
+        mech_a = "0x" + "aa" * 20
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(mech_a, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            ],
+            http_responses=[_make_http_response(200)],
+            delivery_rate_caps={PaymentType.NATIVE: 10**16},
+            approved_mech_rates={mech_a: 10**15},
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        _drive(executor._fresh_cycle())
+        body = stub.posted_bodies[0]
+        expected = derive_request_id_bytes(
+            marketplace_address=stub.params.mech_marketplace_config.mech_marketplace_address,
+            mech_address=mech_a,
+            requester=stub.synchronized_data.safe_contract_address,
+            data=bytes.fromhex(_form_field(body, "ipfs_hash")[2:]),
+            delivery_rate=10**15,
+            payment_type=_NATIVE_PAYMENT_TYPE,
+            nonce=7,
+            chain_id=100,
+        )
+        assert _form_field(body, "request_id") == str(int.from_bytes(expected, "big"))
 
     def test_a_402_asking_more_than_the_signed_rate_is_a_bad_response(self) -> None:
         """The deposit is sized from our rate, so a 402 above it is refused, not funded."""
@@ -1892,7 +1946,6 @@ class TestFreshCycle:
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[
                 _make_http_response(402, _make_402_body(required=10**16 + 1, current=0))
@@ -1913,7 +1966,6 @@ class TestFreshCycle:
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 1}),
             ],
             http_responses=[],
             failover_retries=0,
@@ -1922,14 +1974,14 @@ class TestFreshCycle:
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == DELIVERY_RATE_ABOVE_CAP
+        assert result.last_failure_reason == OFFCHAIN_NO_DELIVERY_RATE_BOUND
         assert stub.posted_urls == []
+        assert stub.penalized_mechs == ["0x" + "aa" * 20]
 
     def test_all_timeouts_all_failed(self) -> None:
         """All ranked mechs fail → ``OFFCHAIN_ALL_FAILED`` with the right label."""
         per_attempt_reads = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         stub = _StubBehaviour(
             ranked_mechs=[
@@ -1969,13 +2021,11 @@ class TestFreshCycle:
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
 
-    def test_zero_delivery_rate_treated_as_invalid_read(self) -> None:
-        """``maxDeliveryRate == 0`` is rejected like a non-STATE read (review C20).
+    def test_a_bound_of_nothing_skips_the_mech(self) -> None:
+        """An approved rate of ``0`` leaves nothing to sign, so the mech is skipped.
 
-        Without the guard a zero rate slips past ``is None`` and silently
-        collapses ``_compute_deposit_amount`` to one-call sizing on every
-        cycle. The executor must reject the read and fail over, surfacing
-        ``OFFCHAIN_TIMEOUT_ALL_MECHS`` once the failover budget is spent.
+        A cap of ``0`` would also collapse the deposit sizing to the bare
+        shortfall, which is the other reason a bound of nothing is refused.
         """
         mech_addr = "0x" + "aa" * 20
         stub = _StubBehaviour(
@@ -1984,35 +2034,17 @@ class TestFreshCycle:
                 _state_resp({"data": 100}),
                 _state_resp({"data": 7}),
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                # ``0`` would silently neutralize the dynamic sizing.
-                _state_resp({"max_delivery_rate": 0}),
             ],
             http_responses=[],
             failover_retries=0,
+            approved_mech_rates={mech_addr: 0},
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
         result = _drive(executor._fresh_cycle())
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
-
-    def test_negative_delivery_rate_treated_as_invalid_read(self) -> None:
-        """Negative ``maxDeliveryRate`` is also rejected as an invalid read."""
-        mech_addr = "0x" + "aa" * 20
-        stub = _StubBehaviour(
-            ranked_mechs=[_FakeMechInfo(mech_addr, "https://m")],
-            contract_api_responses=[
-                _state_resp({"data": 100}),
-                _state_resp({"data": 7}),
-                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": -1}),
-            ],
-            http_responses=[],
-            failover_retries=0,
-        )
-        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
-        result = _drive(executor._fresh_cycle())
-        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
-        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+        assert result.last_failure_reason == OFFCHAIN_NO_DELIVERY_RATE_BOUND
+        assert stub.posted_urls == []
+        assert stub.penalized_mechs == [mech_addr]
 
     def test_null_metadata_nonce_does_not_crash_after_signed_post(self) -> None:
         """``MechMetadata(nonce=None)`` from an untyped producer doesn't crash mid-cycle.
@@ -2389,7 +2421,6 @@ class TestDepositIsSizedFromTheTrackerBalance:
             _state_resp({"data": 100}),
             _state_resp({"data": 7}),
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": self._RATE}),
             _state_resp({"data": self._TRACKER}),
             tracker_balance,
             *tail_reads,
@@ -2439,7 +2470,6 @@ class TestDepositIsSizedFromTheTrackerBalance:
             [self._challenge(), _make_http_response(200)],
             [
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": self._RATE}),
             ],
         )
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
@@ -2462,32 +2492,30 @@ class TestDepositIsSizedFromTheTrackerBalance:
 
 
 class TestDepositScalesWithDeliveryRate:
-    """Integration: a delivery_rate change → the next deposit scales linearly.
+    """Integration: the signed cap changes → the next deposit scales linearly.
 
-    Regression for the dynamic-pricing concern: the deposit is computed off
-    the live on-chain ``delivery_rate`` (read per attempt via
-    ``_resolve_delivery_rate``), not a static config or the 402's
-    ``required`` field. Doubling the mech price doubles the next deposit
-    without operator action.
+    The deposit is computed off the cap the request signs (the bound from
+    ``_resolve_delivery_rate``), not the 402's ``required`` field. Doubling
+    the cap doubles the next deposit without any other change.
     """
 
     _CANONICAL_TRACKER = "0x" + "11" * 20
     _CANONICAL_TOKEN = "0x" + "22" * 20
 
-    def _token_reads_with_rate(self, delivery_rate: int) -> List[Any]:
+    def _token_reads(self) -> List[Any]:
         return [
             _state_resp({"data": 100}),
             _state_resp({"data": 7}),
             _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": delivery_rate}),
         ]
 
     def _drive_cycle(self, delivery_rate: int) -> _StubBehaviour:
         mech_addr = "0x" + "aa" * 20
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo(mech_addr, "https://mech-aa.example")],
+            delivery_rate_caps={PaymentType.TOKEN_USDC: delivery_rate},
             contract_api_responses=[
-                *self._token_reads_with_rate(delivery_rate),
+                *self._token_reads(),
                 # _validate_402_destination → tracker + token
                 _state_resp({"data": self._CANONICAL_TRACKER}),
                 _state_resp({"token_address": self._CANONICAL_TOKEN}),
@@ -2530,7 +2558,7 @@ class TestDepositScalesWithDeliveryRate:
         raise AssertionError("no build_approval_tx call recorded")
 
     def test_doubling_delivery_rate_doubles_deposit(self) -> None:
-        """delivery_rate × 2 → deposit × 2, no operator action."""
+        """Doubling the cap doubles the deposit."""
         low = self._drive_cycle(delivery_rate=100)
         high = self._drive_cycle(delivery_rate=200)
         # target_calls=10 in both cycles; deposit = 10 × delivery_rate.
@@ -3814,7 +3842,6 @@ class TestFreshCycleSafeBalanceGuard:
             _state_resp({"data": 100}),  # _resolve_chain_id_int
             _state_resp({"data": 7}),  # _read_on_chain_nonce
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_short_safe_balance_surfaces_402_insufficient(self) -> None:
@@ -4006,7 +4033,6 @@ class TestValidate402Destination:
             _state_resp({"data": 100}),
             _state_resp({"data": 7}),
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _token_pre_402_reads(self) -> List[Any]:
@@ -4014,7 +4040,6 @@ class TestValidate402Destination:
             _state_resp({"data": 100}),
             _state_resp({"data": 7}),
             _state_resp({"payment_type": _TOKEN_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_pay_to_mismatch_treated_as_bad_response(self) -> None:
@@ -4028,7 +4053,6 @@ class TestValidate402Destination:
         attacker_address = "0x" + "ee" * 20
         per_attempt_reads = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         stub = _StubBehaviour(
             ranked_mechs=[
@@ -4523,7 +4547,6 @@ class TestNonceRefusalNeverFailsOverToAnotherMech:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _two_mech_stub(self, contract_api_responses: List[Any], **kwargs: Any) -> Any:
@@ -4694,7 +4717,6 @@ class TestNonceRejectionRetriesTheSameMech:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def test_it_re_reads_the_slot_and_posts_again_to_the_same_mech(self) -> None:
@@ -4799,7 +4821,6 @@ class TestTheCycleTakesItsSlotFromTheAllocator:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     @staticmethod
@@ -4949,7 +4970,6 @@ class TestTheCycleOnlyGivesBackASlotTheMechRefused:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _stub(self, http_responses: List[Any], extra_reads: int = 0) -> Any:
@@ -5021,7 +5041,6 @@ class TestOneUnansweredAttemptDecidesTheWholeCycle:
     def _stub(self, http_responses: List[Any]) -> Any:
         per_attempt = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         return _StubBehaviour(
             ranked_mechs=[
@@ -5082,7 +5101,6 @@ class TestTheCycleStopsSteppingOverAStuckSlot:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce, never moves
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
         )
@@ -5168,7 +5186,6 @@ class TestAnAbandonedSlotStaysReserved:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=http,
         )
@@ -5222,7 +5239,6 @@ class TestAnAbandonedSlotStaysReserved:
         refused = b'{"reason": "wire nonce above sender\'s next expected slot"}'
         per_attempt = [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
         stub = _StubBehaviour(
             ranked_mechs=[_FakeMechInfo("0x" + "aa" * 20, "https://mech-aa.example")],
@@ -5261,7 +5277,6 @@ class TestAnAbandonedSlotStaysReserved:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
                 _state_resp({"data": 7}),  # re-read: the counter has not moved
             ],
             http_responses=[_make_http_response(503, refused)],
@@ -5290,7 +5305,6 @@ class TestAnAbandonedSlotStaysReserved:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
         )
@@ -5323,7 +5337,6 @@ class TestAnAcceptedRequestIsNotSweptLater:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
             ],
             http_responses=[_make_http_response(200)],
         )
@@ -5361,7 +5374,6 @@ class TestTheDepositPathKeepsItsSlot:
                 _state_resp({"data": 100}),  # chainId
                 _state_resp({"data": 7}),  # nonce
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-                _state_resp({"max_delivery_rate": 10**16}),
                 _state_resp({"data": canonical_tracker}),
                 _state_resp({"requester_balance": 0}),
                 _state_resp({"data": b"\x01\x02\x03"}),
@@ -5403,7 +5415,6 @@ class TestTheCycleReclaimsASlotNoMechCanHave:
     def _per_attempt_reads() -> List[Any]:
         return [
             _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
-            _state_resp({"max_delivery_rate": 10**16}),
         ]
 
     def _stub(self, reserved_age_secs: float) -> Any:
@@ -5444,3 +5455,1095 @@ class TestTheCycleReclaimsASlotNoMechCanHave:
 
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert _form_field(stub.posted_bodies[0], "nonce") == "8"
+
+
+# ----------------------------------------------------------------------------
+# Nonce modes: a request's own nonce (explicit) or the requester's counter
+# (sequential), and the fallback from one to the other.
+# ----------------------------------------------------------------------------
+
+_MARKETPLACE = "0x" + "ff" * 20
+_MECH_A = "0x" + "aa" * 20
+_MECH_B = "0x" + "bb" * 20
+_REQUESTER = "0x" + "cc" * 20
+_DATA_HASH = b"\x11" * 32
+_CHAIN_ID = 100
+_DEADLINE_401 = (
+    b'{"reason": "explicit-nonce deadline is too close for the mech to settle"}'
+)
+# A wall clock just after the round transition: the whole window is still ahead.
+_EARLY = _CONSENSUS_TIMESTAMP + 10
+# The deadline an explicit request signs: the stub's consensus time plus the
+# configured window (``_StubBehaviour`` above).
+_EXPECTED_DEADLINE = _CONSENSUS_TIMESTAMP + _EXPLICIT_DEADLINE_SECONDS
+_SEQUENTIAL_WIRE_FIELDS = [
+    "sender",
+    "signature",
+    "ipfs_hash",
+    "request_id",
+    "delivery_rate",
+    "nonce",
+    "ipfs_data",
+]
+_DISABLED_503 = json.dumps({"reason": _EXPLICIT_NONCE_DISABLED_REASON}).encode()
+_SLOT_ABOVE_503 = b'{"reason": "wire nonce above sender\'s next expected slot"}'
+_SLOT_BELOW_401 = b'{"reason": "wire nonce below sender\'s next expected slot"}'
+
+
+def _production_default_nonce_mode() -> str:
+    """The mode the skill runs with when the operator names none."""
+    return MechMarketplaceConfig(
+        mech_marketplace_address=_MARKETPLACE, response_timeout=1
+    ).offchain_nonce_mode
+
+
+def _request_id_args(**overrides: Any) -> Dict[str, Any]:
+    """One request's fields as ``derive_request_id_bytes`` takes them."""
+    args: Dict[str, Any] = dict(
+        marketplace_address=_MARKETPLACE,
+        mech_address=_MECH_A,
+        requester=_REQUESTER,
+        data=_DATA_HASH,
+        delivery_rate=_SIGNED_RATE,
+        payment_type=_NATIVE_PAYMENT_TYPE,
+        nonce=7,
+        chain_id=_CHAIN_ID,
+    )
+    args.update(overrides)
+    return args
+
+
+def _ipfs_hash_bytes(pending: PendingRequest) -> bytes:
+    """The 32-byte multihash the request id commits to."""
+    return bytes.fromhex(pending.ipfs_hash[2:])
+
+
+def _pending_of(result: OffchainCycleResult) -> PendingRequest:
+    """The pending request a cycle wrote, or fail."""
+    assert result.pending_request_json is not None
+    pending = PendingRequest.from_dict(json.loads(result.pending_request_json))
+    assert pending is not None
+    return pending
+
+
+def _contract_callables(stub: _StubBehaviour) -> List[str]:
+    """Every contract read the executor made, in order."""
+    return [str(call["contract_callable"]) for call in stub.contract_api_calls]
+
+
+def _held_slots(stub: _StubBehaviour) -> set:
+    """The slots the agent's registry holds for the stub's Safe."""
+    registry = stub.context.shared_state[MECH_SLOT_REGISTRY]
+    key = (
+        str(stub.params.mech_chain_id).lower(),
+        stub.synchronized_data.safe_contract_address.lower(),
+    )
+    return registry.live.get(key, set())
+
+
+def _per_attempt_reads() -> List[Any]:
+    """The one read every attempt makes on a mech: its payment type."""
+    return [
+        _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+    ]
+
+
+class TestTheTwoRequestIdViews:
+    """``getRequestIdWithNonce`` is ``getRequestId`` with the tag prepended."""
+
+    def test_the_explicit_id_is_the_typed_struct_under_its_own_domain(self) -> None:
+        """Golden vector rebuilt from the EIP-712 primitives: struct hash, domain version 2."""
+        from eth_abi import encode as _abi_encode  # type: ignore[import-not-found]
+        from eth_utils import keccak as _keccak  # type: ignore[import-not-found]
+
+        domain_separator = _keccak(
+            _abi_encode(
+                ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+                [
+                    _keccak(
+                        text=(
+                            "EIP712Domain(string name,string version,"
+                            "uint256 chainId,address verifyingContract)"
+                        )
+                    ),
+                    _keccak(text="MechMarketplace"),
+                    _keccak(text="2"),
+                    _CHAIN_ID,
+                    _MARKETPLACE,
+                ],
+            )
+        )
+        struct_hash = _keccak(
+            _abi_encode(
+                [
+                    "bytes32",
+                    "address",
+                    "address",
+                    "bytes32",
+                    "uint256",
+                    "bytes32",
+                    "uint256",
+                    "uint256",
+                ],
+                [
+                    _keccak(
+                        text=(
+                            "ExplicitNonceDelivery(address mech,address requester,"
+                            "bytes data,uint256 maxDeliveryRate,bytes32 paymentType,"
+                            "uint256 nonce,uint256 deadline)"
+                        )
+                    ),
+                    _MECH_A,
+                    _REQUESTER,
+                    _keccak(_DATA_HASH),
+                    _SIGNED_RATE,
+                    _NATIVE_PAYMENT_TYPE,
+                    7,
+                    _EXPECTED_DEADLINE,
+                ],
+            )
+        )
+        expected = _keccak(b"\x19\x01" + domain_separator + struct_hash)
+
+        actual = derive_request_id_bytes(
+            **_request_id_args(
+                nonce_mode=NONCE_MODE_EXPLICIT, deadline=_EXPECTED_DEADLINE
+            )
+        )
+
+        assert actual == expected
+
+    def test_the_explicit_id_needs_a_deadline_and_changes_with_it(self) -> None:
+        """The deadline is signed; without one there is nothing to sign."""
+        with pytest.raises(ValueError, match="deadline"):
+            derive_request_id_bytes(**_request_id_args(nonce_mode=NONCE_MODE_EXPLICIT))
+        one = derive_request_id_bytes(
+            **_request_id_args(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_000)
+        )
+        two = derive_request_id_bytes(
+            **_request_id_args(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_001)
+        )
+        assert one != two
+
+    def test_the_explicit_id_matches_the_marketplace_on_a_fork(self) -> None:
+        """A vector the contract itself produced on an anvil Polygon fork.
+
+        ``getRequestIdWithNonce`` of autonolas-marketplace ``main`` at
+        ``14f191a`` (chain 137), called with these inputs; a layout change
+        in the contract breaks this test, not only the local reasoning.
+        """
+        fork_marketplace = "0x3e237772E6D9E1260d062cE05a4ABa913b4ef577"
+        actual = derive_request_id_bytes(
+            marketplace_address=fork_marketplace,
+            mech_address=_MECH_A,
+            requester=_REQUESTER,
+            data=_DATA_HASH,
+            delivery_rate=_SIGNED_RATE,
+            payment_type=bytes.fromhex(
+                "ba699a34be8fe0e7725e93dcbce1701b0211a8ca61330aaeb8a05bf2ec7abed1"
+            ),
+            nonce=7,
+            chain_id=137,
+            nonce_mode=NONCE_MODE_EXPLICIT,
+            deadline=1_700_000_900,
+        )
+        assert actual.hex() == (
+            "2c3f4aafc40d30ddded4ccf3b009e8a80e6d7a6fe1ee44008c38980baa94ed6d"
+        )
+        assert _compute_explicit_domain_separator(137, fork_marketplace).hex() == (
+            "bdd6ac6998335f7f99e44adc5ee3d78ba8a833fdcdf2891508bc51206e717d61"
+        )
+
+    def test_the_two_views_never_agree_on_one_request(self) -> None:
+        """A signature for one path must not verify on the other."""
+        explicit = derive_request_id_bytes(
+            **_request_id_args(
+                nonce_mode=NONCE_MODE_EXPLICIT, deadline=_EXPECTED_DEADLINE
+            )
+        )
+        sequential = derive_request_id_bytes(
+            **_request_id_args(nonce_mode=NONCE_MODE_SEQUENTIAL)
+        )
+        assert explicit != sequential
+
+    def test_sequential_is_the_view_mirrored_when_no_mode_is_named(self) -> None:
+        """Every existing caller keeps deriving the sequential id."""
+        assert derive_request_id_bytes(**_request_id_args()) == (
+            derive_request_id_bytes(
+                **_request_id_args(nonce_mode=NONCE_MODE_SEQUENTIAL)
+            )
+        )
+
+    @pytest.mark.parametrize("mode", ["", "random", "EXPLICIT", "both"])
+    def test_an_unknown_mode_is_refused(self, mode: str) -> None:
+        """An id derived for a view that does not exist can never settle."""
+        with pytest.raises(ValueError, match="nonce_mode"):
+            derive_request_id_bytes(**_request_id_args(nonce_mode=mode))
+
+
+class TestDeriveExplicitNonce:
+    """The explicit nonce is a function of the request and the cycle, so every agent agrees."""
+
+    def test_two_requests_get_different_nonces(self) -> None:
+        """The request data carries the caller's UUID, which is what varies."""
+        assert derive_explicit_nonce(
+            _REQUESTER, b"\x11" * 32, _CONSENSUS_TIMESTAMP
+        ) != (derive_explicit_nonce(_REQUESTER, b"\x22" * 32, _CONSENSUS_TIMESTAMP))
+
+    def test_the_same_request_gets_the_same_nonce_every_time(self) -> None:
+        """Consensus over the pending request needs every agent to sign one id."""
+        assert derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP) == (
+            derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP)
+        )
+
+    def test_the_same_content_in_another_cycle_gets_another_nonce(self) -> None:
+        """A caller that reuses its metadata nonce does not reuse the request id."""
+        assert derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP) != (
+            derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP + 1)
+        )
+
+    def test_it_binds_the_requester(self) -> None:
+        """Two Safes sending the same data do not share a nonce."""
+        assert derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP) != (
+            derive_explicit_nonce(_MECH_B, _DATA_HASH, _CONSENSUS_TIMESTAMP)
+        )
+
+    def test_it_is_a_uint256_the_wire_can_carry(self) -> None:
+        """The mech bounds the wire nonce to a uint256 decimal."""
+        nonce = derive_explicit_nonce(_REQUESTER, _DATA_HASH, _CONSENSUS_TIMESTAMP)
+        assert 0 <= nonce < 2**256
+        assert str(nonce) == str(int(str(nonce)))
+
+
+class TestExplicitNonceRefusalWording:
+    """Only the mech's exact disabled-path wording is a refusal of the mode."""
+
+    @pytest.mark.parametrize(
+        "body, expected",
+        [
+            pytest.param(_DISABLED_503, True, id="the exact wording"),
+            pytest.param(
+                json.dumps({"reason": _EXPLICIT_NONCE_DISABLED_REASON + "!"}).encode(),
+                False,
+                id="a trailing detail is another reason",
+            ),
+            pytest.param(b'{"reason": "no workers available"}', False, id="busy"),
+            pytest.param(b'{"reason": 7}', False, id="a non-string reason"),
+            pytest.param(b"not-json", False, id="unreadable"),
+            pytest.param(b"", False, id="empty"),
+            pytest.param(None, False, id="absent"),
+            pytest.param(b"[1]", False, id="a body without fields"),
+        ],
+    )
+    def test_the_wording_is_matched_exactly(
+        self, body: Optional[bytes], expected: bool
+    ) -> None:
+        """A looser match would resend sequentially on unrelated 503s."""
+        assert _is_explicit_nonce_refusal(body) is expected
+
+
+class TestRefusalsAreReadAgainstTheNonceMode:
+    """A refusal only means something for the kind of request that got it."""
+
+    def _outcome(
+        self, status: int, body: bytes, nonce_mode: str
+    ) -> OffchainAttemptOutcome:
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[],
+            http_responses=[_make_http_response(status, body)],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        attempt: OffchainAttemptResult = _drive(
+            executor._post_signed_request(
+                mech_url="https://m",
+                mech_address=_MECH_A,
+                ipfs_hash="0x" + "cc" * 31,
+                ipfs_data="{}",
+                request_id_bytes=bytes(32),
+                signature_hex="0x" + "dd" * 65,
+                nonce=7,
+                delivery_rate=1,
+                sender=_REQUESTER,
+                nonce_mode=nonce_mode,
+            )
+        )
+        return attempt.outcome
+
+    @pytest.mark.parametrize(
+        "status, body, nonce_mode, expected",
+        [
+            pytest.param(
+                503,
+                _DISABLED_503,
+                NONCE_MODE_EXPLICIT,
+                OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED,
+                id="disabled path, explicit request",
+            ),
+            pytest.param(
+                503,
+                _DISABLED_503,
+                NONCE_MODE_SEQUENTIAL,
+                OffchainAttemptOutcome.BAD_RESPONSE,
+                id="disabled path, sequential request: cannot apply",
+            ),
+            pytest.param(
+                401,
+                _DISABLED_503,
+                NONCE_MODE_EXPLICIT,
+                OffchainAttemptOutcome.BAD_RESPONSE,
+                id="the wording on another status is not the refusal",
+            ),
+            pytest.param(
+                503,
+                _SLOT_ABOVE_503,
+                NONCE_MODE_SEQUENTIAL,
+                OffchainAttemptOutcome.NONCE_TAKEN,
+                id="slot refusal, sequential request",
+            ),
+            pytest.param(
+                503,
+                _SLOT_ABOVE_503,
+                NONCE_MODE_EXPLICIT,
+                OffchainAttemptOutcome.SERVER_BUSY,
+                id="slot refusal, explicit request: no slot to retry",
+            ),
+            pytest.param(
+                401,
+                _SLOT_BELOW_401,
+                NONCE_MODE_EXPLICIT,
+                OffchainAttemptOutcome.BAD_RESPONSE,
+                id="slot refusal on 401, explicit request",
+            ),
+            pytest.param(
+                503,
+                b'{"reason": "no workers available"}',
+                NONCE_MODE_EXPLICIT,
+                OffchainAttemptOutcome.SERVER_BUSY,
+                id="a plain 503 keeps failing over",
+            ),
+        ],
+    )
+    def test_the_outcome_depends_on_the_mode_the_request_was_sent_with(
+        self,
+        status: int,
+        body: bytes,
+        nonce_mode: str,
+        expected: OffchainAttemptOutcome,
+    ) -> None:
+        """Mis-reading one as the other either loops forever or stalls."""
+        assert self._outcome(status, body, nonce_mode) is expected
+
+
+class TestExplicitNonceIsTheDefault:
+    """A request carries its own nonce and leaves the counter alone."""
+
+    def _stub(self, http_responses: List[Any], **overrides: Any) -> _StubBehaviour:
+        return _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(_MECH_A, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+            ],
+            http_responses=http_responses,
+            nonce_mode=_production_default_nonce_mode(),
+            **overrides,
+        )
+
+    def test_the_default_mode_is_explicit(self) -> None:
+        """What a consumer gets without naming a mode."""
+        assert _production_default_nonce_mode() == NONCE_MODE_EXPLICIT
+
+    def test_the_wire_carries_the_mode_and_the_request_s_own_nonce(self) -> None:
+        """``nonce_mode=explicit`` and the derived nonce, not the counter."""
+        stub = self._stub([_make_http_response(200)])
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        pending = _pending_of(result)
+        expected_nonce = derive_explicit_nonce(
+            _REQUESTER, _ipfs_hash_bytes(pending), _CONSENSUS_TIMESTAMP
+        )
+        body = stub.posted_bodies[0]
+        assert _form_field(body, "nonce_mode") == NONCE_MODE_EXPLICIT
+        assert _form_field(body, "nonce") == str(expected_nonce)
+        assert _form_keys(body) == _SEQUENTIAL_WIRE_FIELDS + ["nonce_mode", "deadline"]
+        assert _form_field(body, "deadline") == str(_EXPECTED_DEADLINE)
+        assert pending.nonce == expected_nonce
+        assert pending.nonce_mode == NONCE_MODE_EXPLICIT
+
+    def test_the_id_mirrors_the_explicit_view_and_is_what_gets_signed(self) -> None:
+        """The sequential id for the same fields would not settle on this path."""
+        stub = self._stub([_make_http_response(200)])
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        pending = _pending_of(result)
+        args = _request_id_args(
+            data=_ipfs_hash_bytes(pending),
+            nonce=derive_explicit_nonce(
+                _REQUESTER, _ipfs_hash_bytes(pending), _CONSENSUS_TIMESTAMP
+            ),
+        )
+        explicit_id = derive_request_id_bytes(
+            **args, nonce_mode=NONCE_MODE_EXPLICIT, deadline=_EXPECTED_DEADLINE
+        )
+        assert pending.deadline == _EXPECTED_DEADLINE
+        assert bytes.fromhex(pending.request_id) == explicit_id
+        assert bytes.fromhex(pending.request_id) != derive_request_id_bytes(**args)
+        assert _form_field(stub.posted_bodies[0], "request_id") == str(
+            int.from_bytes(explicit_id, "big")
+        )
+        assert stub.signed_request_ids == [
+            compute_safe_message_hash(explicit_id, _REQUESTER, _CHAIN_ID)
+        ]
+
+    def test_a_deadline_refusal_fails_over_with_the_same_deadline(self) -> None:
+        """With time still left, the refusing mech applies a floor of its own: penalized, next mech tried."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(401, _DEADLINE_401),
+                _make_http_response(200),
+            ],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        with patch.object(OffchainRequestExecutor, "_wall_clock", return_value=_EARLY):
+            result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == [
+            "https://mech-aa.example/send_signed_requests",
+            "https://mech-bb.example/send_signed_requests",
+        ]
+        assert [_form_field(body, "deadline") for body in stub.posted_bodies] == [
+            str(_EXPECTED_DEADLINE),
+            str(_EXPECTED_DEADLINE),
+        ]
+        assert stub.penalized_mechs == [_MECH_A]
+
+    def test_a_deadline_every_mech_refuses_ends_the_cycle_with_its_label(self) -> None:
+        """With time left and no mech taking the deadline, the cycle ends with the deadline label."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(401, _DEADLINE_401),
+                _make_http_response(401, _DEADLINE_401),
+            ],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        with patch.object(OffchainRequestExecutor, "_wall_clock", return_value=_EARLY):
+            result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_DEADLINE_TOO_CLOSE
+        assert len(stub.posted_urls) == 2
+        assert stub.penalized_mechs == [_MECH_A, _MECH_B]
+
+    @pytest.mark.parametrize(
+        "now",
+        [_EXPECTED_DEADLINE - 600 + 1, _EXPECTED_DEADLINE - 1, _EXPECTED_DEADLINE + 50],
+        ids=["under_the_floor_by_a_second", "a_second_left", "already_past"],
+    )
+    def test_a_late_cycle_ends_without_penalizing_the_refusing_mech(
+        self, now: int
+    ) -> None:
+        """Once the cycle has used up the slack, the refusal is its own lateness: no failover, no penalty."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[_make_http_response(401, _DEADLINE_401)],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        with patch.object(OffchainRequestExecutor, "_wall_clock", return_value=now):
+            result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_DEADLINE_TOO_CLOSE
+        assert len(stub.posted_urls) == 1
+        assert stub.penalized_mechs == []
+
+    def test_exactly_the_floor_left_still_fails_over(self) -> None:
+        """The boundary is inclusive, as for the deposit retry: the floor itself is enough time."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[
+                _make_http_response(401, _DEADLINE_401),
+                _make_http_response(200),
+            ],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        with patch.object(
+            OffchainRequestExecutor,
+            "_wall_clock",
+            return_value=_EXPECTED_DEADLINE - 600,
+        ):
+            result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.penalized_mechs == [_MECH_A]
+
+    def test_a_silent_mech_followed_by_a_failover_is_called_out(self) -> None:
+        """Two mechs may both settle one request, so the cycle says so when it happens."""
+        warnings: List[str] = []
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[None, _make_http_response(200)],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        stub.context.logger.warning = lambda *a, **k: warnings.append(a[0] if a else "")
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert len(stub.posted_urls) == 2
+        (notice,) = [w for w in warnings if "may still be serving" in w]
+        assert _MECH_A in notice
+        assert str(_EXPECTED_DEADLINE) in notice
+
+    def test_the_counter_is_never_read_and_no_slot_is_taken(self) -> None:
+        """The registry exists for the counter; an explicit request has no slot."""
+        stub = self._stub([_make_http_response(200)])
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        _drive(executor._fresh_cycle())
+
+        assert "get_nonce" not in _contract_callables(stub)
+        assert _held_slots(stub) == set()
+        assert MECH_SLOT_RESERVED_AT not in stub.context.shared_state
+
+    def test_each_request_gets_its_own_nonce_and_every_agent_the_same_one(
+        self,
+    ) -> None:
+        """Different requests differ; the same request agrees across agents."""
+
+        def nonce_for(metadata_nonce: str) -> str:
+            stub = self._stub(
+                [_make_http_response(200)],
+                mech_requests=[
+                    MechMetadata(prompt="hi", tool="t", nonce=metadata_nonce)
+                ],
+            )
+            _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+            return _form_field(stub.posted_bodies[0], "nonce")
+
+        assert nonce_for("one") != nonce_for("two")
+        assert nonce_for("one") == nonce_for("one")
+
+    def test_an_unanswered_attempt_fails_over_at_a_fresh_id(self) -> None:
+        """Each mech signs its own id, so a second mech is not a second slot."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[None, _make_http_response(200)],
+            nonce_mode=NONCE_MODE_EXPLICIT,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _pending_of(result).mech_address == _MECH_B
+        ids = [_form_field(body, "request_id") for body in stub.posted_bodies]
+        assert ids[0] != ids[1]
+        assert "get_nonce" not in _contract_callables(stub)
+
+
+class TestSequentialNonceIsOptIn:
+    """Sequential sends the body every mech has always parsed, field for field."""
+
+    def _stub(self, http_responses: List[Any]) -> _StubBehaviour:
+        return _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(_MECH_A, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                _state_resp({"data": 7}),
+                *_per_attempt_reads(),
+            ],
+            http_responses=http_responses,
+            nonce_mode=NONCE_MODE_SEQUENTIAL,
+        )
+
+    def test_the_body_is_exactly_the_one_sent_before(self) -> None:
+        """No ``nonce_mode`` field, the counter as the nonce, the sequential id."""
+        stub = self._stub([_make_http_response(200)])
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        body = stub.posted_bodies[0]
+        assert _form_keys(body) == _SEQUENTIAL_WIRE_FIELDS
+        assert _form_field(body, "nonce") == "7"
+        pending = _pending_of(result)
+        assert pending.nonce_mode == NONCE_MODE_SEQUENTIAL
+        assert bytes.fromhex(pending.request_id) == derive_request_id_bytes(
+            **_request_id_args(data=_ipfs_hash_bytes(pending), nonce=7)
+        )
+
+    def test_the_counter_is_read_once_and_the_slot_taken(self) -> None:
+        """The registry still tracks the slot the request was signed at."""
+        stub = self._stub([_make_http_response(200)])
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        _drive(executor._fresh_cycle())
+
+        assert _contract_callables(stub).count("get_nonce") == 1
+        assert _held_slots(stub) == {7}
+
+
+class TestAMechWithoutExplicitNoncesIsServedSequentially:
+    """The disabled-path 503 resends at the counter; nothing else does."""
+
+    def _stub(
+        self,
+        http_responses: List[Any],
+        reads: List[Any],
+        mechs: Optional[List[_FakeMechInfo]] = None,
+        **overrides: Any,
+    ) -> _StubBehaviour:
+        return _StubBehaviour(
+            ranked_mechs=mechs or [_FakeMechInfo(_MECH_A, "https://mech-aa.example")],
+            contract_api_responses=[_state_resp({"data": _CHAIN_ID}), *reads],
+            http_responses=http_responses,
+            nonce_mode=NONCE_MODE_EXPLICIT,
+            **overrides,
+        )
+
+    def test_the_request_is_resent_to_the_same_mech_at_the_counter(self) -> None:
+        """Same mech, sequential body, sequential id, and the slot is tracked."""
+        stub = self._stub(
+            http_responses=[
+                _make_http_response(503, _DISABLED_503),
+                _make_http_response(200),
+            ],
+            reads=[
+                *_per_attempt_reads(),
+                _state_resp({"data": 7}),  # the counter, read only now
+                *_per_attempt_reads(),
+            ],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == ["https://mech-aa.example/send_signed_requests"] * 2
+        first, second = stub.posted_bodies
+        assert _form_field(first, "nonce_mode") == NONCE_MODE_EXPLICIT
+        assert _form_keys(second) == _SEQUENTIAL_WIRE_FIELDS
+        assert _form_field(second, "nonce") == "7"
+        pending = _pending_of(result)
+        assert (pending.nonce, pending.nonce_mode) == (7, NONCE_MODE_SEQUENTIAL)
+        assert bytes.fromhex(pending.request_id) == derive_request_id_bytes(
+            **_request_id_args(data=_ipfs_hash_bytes(pending), nonce=7)
+        )
+        assert _held_slots(stub) == {7}
+
+    def test_the_counter_is_read_only_after_the_refusal(self) -> None:
+        """Reading it up front would be the sequential path with extra steps."""
+        stub = self._stub(
+            http_responses=[
+                _make_http_response(503, _DISABLED_503),
+                _make_http_response(200),
+            ],
+            reads=[
+                *_per_attempt_reads(),
+                _state_resp({"data": 7}),
+                *_per_attempt_reads(),
+            ],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        _drive(executor._fresh_cycle())
+
+        callables = _contract_callables(stub)
+        assert callables.count("get_nonce") == 1
+        assert callables.index("get_nonce") > callables.index("get_payment_type")
+
+    def test_the_refusal_does_not_spend_the_failover_budget(self) -> None:
+        """The mech is not at fault and the request never left the queue."""
+        stub = self._stub(
+            http_responses=[
+                _make_http_response(503, _DISABLED_503),
+                _make_http_response(200),
+            ],
+            reads=[
+                *_per_attempt_reads(),
+                _state_resp({"data": 7}),
+                *_per_attempt_reads(),
+            ],
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert len(stub.posted_urls) == 2
+
+    def test_the_rest_of_the_cycle_stays_sequential(self) -> None:
+        """After the refusal a later mech gets the same slot, not a new mode."""
+        stub = self._stub(
+            mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            http_responses=[
+                _make_http_response(503, _DISABLED_503),
+                _make_http_response(503, b'{"reason": "no workers available"}'),
+                _make_http_response(200),
+            ],
+            reads=[
+                *_per_attempt_reads(),
+                _state_resp({"data": 7}),
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+            ],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls[-1] == "https://mech-bb.example/send_signed_requests"
+        last = stub.posted_bodies[-1]
+        assert _form_keys(last) == _SEQUENTIAL_WIRE_FIELDS
+        assert _form_field(last, "nonce") == "7"
+        assert _contract_callables(stub).count("get_nonce") == 1
+        assert _pending_of(result).mech_address == _MECH_B
+
+    def test_an_unanswered_explicit_attempt_holds_no_slot(self) -> None:
+        """Only a sequential request can be sitting on the slot the cycle took."""
+        stub = self._stub(
+            mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            http_responses=[
+                None,  # explicit, unanswered
+                _make_http_response(503, _DISABLED_503),
+                _make_http_response(503, b'{"reason": "no workers available"}'),
+            ],
+            reads=[
+                *_per_attempt_reads(),
+                *_per_attempt_reads(),
+                _state_resp({"data": 7}),
+                *_per_attempt_reads(),
+            ],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert _held_slots(stub) == set(), "kept a slot no request was signed at"
+
+    def test_a_counter_that_cannot_be_read_ends_the_cycle(self) -> None:
+        """Without the counter there is nothing to resend with."""
+        stub = self._stub(
+            http_responses=[_make_http_response(503, _DISABLED_503)],
+            reads=[
+                *_per_attempt_reads(),
+                _StateResponse(performative="ERROR", state=SimpleNamespace(body={})),
+            ],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_TIMEOUT_ALL_MECHS
+        assert len(stub.posted_urls) == 1
+
+    def test_any_other_503_fails_over_without_reading_the_counter(self) -> None:
+        """A busy mech is a busy mech; the next one still gets an explicit nonce."""
+        stub = self._stub(
+            mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            http_responses=[
+                _make_http_response(503, b'{"reason": "no workers available"}'),
+                _make_http_response(200),
+            ],
+            reads=[*_per_attempt_reads(), *_per_attempt_reads()],
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls[-1] == "https://mech-bb.example/send_signed_requests"
+        assert _form_field(stub.posted_bodies[-1], "nonce_mode") == NONCE_MODE_EXPLICIT
+        assert "get_nonce" not in _contract_callables(stub)
+
+    def test_a_plain_503_on_the_last_mech_keeps_its_label(self) -> None:
+        """The disabled-path label is only for the disabled path."""
+        stub = self._stub(
+            http_responses=[_make_http_response(503, b'{"reason": "busy"}')],
+            reads=_per_attempt_reads(),
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_503_ALL_MECHS
+
+    def test_the_refusal_on_a_sequential_request_is_not_resent(self) -> None:
+        """A sequential request was never explicit, so there is nothing to fall back to."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(_MECH_A, "https://mech-aa.example")],
+            contract_api_responses=[
+                _state_resp({"data": _CHAIN_ID}),
+                _state_resp({"data": 7}),
+                *_per_attempt_reads(),
+            ],
+            http_responses=[_make_http_response(503, _DISABLED_503)],
+            nonce_mode=NONCE_MODE_SEQUENTIAL,
+            failover_retries=0,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+
+        result = _drive(executor._fresh_cycle())
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_BAD_RESPONSE
+        assert len(stub.posted_urls) == 1
+
+
+class TestARetryAfterDepositKeepsItsNonceMode:
+    """The re-POST after a deposit sends the request as it was first sent."""
+
+    def _pending_raw(self, **overrides: Any) -> Dict[str, Any]:
+        raw: Dict[str, Any] = {
+            "request_id": _VALID_REQUEST_ID_HEX,
+            "nonce": 7,
+            "mech_address": _MECH_A,
+            "mech_url": "https://mech-aa.example",
+            "sender": _REQUESTER,
+            "delivery_rate": 1000,
+            "ipfs_hash": "0x" + "cc" * 31,
+            "ipfs_data": '{"prompt":"x"}',
+        }
+        raw.update(overrides)
+        return raw
+
+    def _retry(self, raw: Dict[str, Any], response: Any) -> Any:
+        pending = PendingRequest.from_dict(raw)
+        assert pending is not None
+        stub = _StubBehaviour(
+            ranked_mechs=[],
+            contract_api_responses=[_state_resp({"data": _CHAIN_ID})],
+            http_responses=[response],
+            offchain_pending_request=raw,
+        )
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        return stub, _drive(executor._retry_pending(pending))
+
+    def test_an_explicit_retry_carries_the_mode_and_its_own_nonce(self) -> None:
+        """The mech must read the id against the explicit view again."""
+        own_nonce = 2**255 + 3
+        stub, result = self._retry(
+            self._pending_raw(
+                nonce=own_nonce, nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000
+            ),
+            _make_http_response(200),
+        )
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        body = stub.posted_bodies[0]
+        assert _form_field(body, "nonce_mode") == NONCE_MODE_EXPLICIT
+        assert _form_field(body, "nonce") == str(own_nonce)
+        assert _form_field(body, "deadline") == "1900000000"
+
+    def test_a_retry_too_close_to_its_deadline_is_not_sent(self) -> None:
+        """Under the mech's floor the resend would be refused; the next period starts over."""
+        stub, result = self._retry(
+            self._pending_raw(
+                nonce_mode=NONCE_MODE_EXPLICIT,
+                deadline=_CONSENSUS_TIMESTAMP + 599,
+            ),
+            _make_http_response(200),
+        )
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_DEADLINE_TOO_CLOSE
+        assert stub.posted_urls == []
+
+    def test_a_retry_with_exactly_the_floor_left_is_sent(self) -> None:
+        """The boundary is inclusive: the floor itself is enough."""
+        stub, result = self._retry(
+            self._pending_raw(
+                nonce_mode=NONCE_MODE_EXPLICIT,
+                deadline=_CONSENSUS_TIMESTAMP + 600,
+            ),
+            _make_http_response(200),
+        )
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert len(stub.posted_urls) == 1
+
+    def test_a_blob_written_before_the_field_existed_retries_sequentially(
+        self,
+    ) -> None:
+        """Its id mirrors the sequential view, so the body must say nothing else."""
+        stub, result = self._retry(self._pending_raw(), _make_http_response(200))
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_keys(stub.posted_bodies[0]) == _SEQUENTIAL_WIRE_FIELDS
+
+    def test_a_path_switched_off_since_the_deposit_is_reported_as_such(self) -> None:
+        """The cached id cannot be resent sequentially; the next period starts over."""
+        stub, result = self._retry(
+            self._pending_raw(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000),
+            _make_http_response(503, _DISABLED_503),
+        )
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_EXPLICIT_NONCE_DISABLED
+        assert len(stub.posted_urls) == 1
+
+
+class TestPendingRequestNonceMode:
+    """The blob records which view its id mirrors."""
+
+    def _raw(self, **overrides: Any) -> Dict[str, Any]:
+        raw: Dict[str, Any] = {
+            "request_id": _VALID_REQUEST_ID_HEX,
+            "nonce": 7,
+            "mech_address": _MECH_A,
+            "mech_url": "https://m",
+            "sender": _REQUESTER,
+            "delivery_rate": 1,
+            "ipfs_hash": "0x" + "cc" * 31,
+            "ipfs_data": "{}",
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_the_mode_survives_the_round_trip(self) -> None:
+        """What the request round writes is what the poller reads."""
+        pending = PendingRequest.from_dict(
+            self._raw(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000)
+        )
+        assert pending is not None
+        again = PendingRequest.from_dict(json.loads(pending.to_json()))
+        assert again is not None
+        assert again.nonce_mode == NONCE_MODE_EXPLICIT
+
+    @pytest.mark.parametrize("raw_mode", [None, ""], ids=("absent", "empty"))
+    def test_a_blob_without_a_mode_is_sequential(self, raw_mode: Any) -> None:
+        """Blobs written before the field existed were all sequential."""
+        raw = self._raw()
+        if raw_mode is not None:
+            raw["nonce_mode"] = raw_mode
+        pending = PendingRequest.from_dict(raw)
+        assert pending is not None
+        assert pending.nonce_mode == NONCE_MODE_SEQUENTIAL
+
+    @pytest.mark.parametrize("mode", ["random", "EXPLICIT", 7])
+    def test_an_unknown_mode_is_rejected(self, mode: Any) -> None:
+        """A blob naming a view that does not exist is discarded, not resumed."""
+        assert PendingRequest.from_dict(self._raw(nonce_mode=mode)) is None
+        with pytest.raises(ValueError, match="nonce_mode"):
+            PendingRequest(**self._raw(nonce_mode=str(mode)))
+
+    def test_the_deadline_survives_the_round_trip_and_is_absent_on_old_blobs(
+        self,
+    ) -> None:
+        """The signed deadline is carried as written; a blob without one reads None."""
+        pending = PendingRequest.from_dict(
+            self._raw(nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000)
+        )
+        assert pending is not None
+        again = PendingRequest.from_dict(json.loads(pending.to_json()))
+        assert again is not None
+        assert again.deadline == 1_900_000_000
+        old = PendingRequest.from_dict(self._raw())
+        assert old is not None
+        assert old.deadline is None
+
+    def test_an_explicit_blob_without_a_deadline_is_rejected(self) -> None:
+        """A blob from before the deadline existed cannot be resent; it is discarded."""
+        assert (
+            PendingRequest.from_dict(self._raw(nonce_mode=NONCE_MODE_EXPLICIT)) is None
+        )
+        with pytest.raises(ValueError, match="deadline"):
+            PendingRequest(**self._raw(nonce_mode=NONCE_MODE_EXPLICIT))
+
+    def test_a_negative_deadline_is_rejected(self) -> None:
+        """A deadline is a Unix timestamp; a negative one is a corrupt blob."""
+        assert PendingRequest.from_dict(self._raw(deadline=-1)) is None
+        with pytest.raises(ValueError, match="deadline"):
+            PendingRequest(**self._raw(deadline=-1))
+
+    def test_a_256_bit_nonce_round_trips_through_json(self) -> None:
+        """The explicit nonce is a full uint256; the blob must carry it intact."""
+        nonce = 2**256 - 1
+        pending = PendingRequest.from_dict(
+            self._raw(
+                nonce=nonce, nonce_mode=NONCE_MODE_EXPLICIT, deadline=1_900_000_000
+            )
+        )
+        assert pending is not None
+        again = PendingRequest.from_dict(json.loads(pending.to_json()))
+        assert again is not None
+        assert again.nonce == nonce

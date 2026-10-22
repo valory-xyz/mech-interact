@@ -34,6 +34,7 @@ import pytest
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_response import (
     OffchainResponsePoller,
 )
+from packages.valory.skills.mech_interact_abci.models import NONCE_MODE_EXPLICIT
 from packages.valory.skills.mech_interact_abci.nonce_allocator import (
     MECH_SLOT_ABANDONED,
 )
@@ -104,9 +105,9 @@ def _drive(gen: Any) -> Any:
         return exc.value
 
 
-def _pending_dict() -> dict:
+def _pending_dict(**overrides: Any) -> dict:
     """A well-formed pending request as the request round writes it."""
-    return {
+    pending = {
         "request_id": "ab" * 32,
         "nonce": 7,
         "mech_address": "0x" + "aa" * 20,
@@ -117,6 +118,8 @@ def _pending_dict() -> dict:
         "ipfs_data": "{}",
         "metadata_nonce": "meta-nonce",
     }
+    pending.update(overrides)
+    return pending
 
 
 class TestAMechThatGivesNoAnswerIsSetAside:
@@ -187,6 +190,22 @@ class TestAMechThatGivesNoAnswerIsSetAside:
         assert stub.penalties == expected
         abandoned = stub.context.shared_state.get(MECH_SLOT_ABANDONED, set())
         assert abandoned == ({("gnosis", "0x" + "bb" * 20, 7)} if penalized else set())
+
+    def test_an_unanswered_explicit_request_marks_no_slot(self) -> None:
+        """Its nonce is its own, not a slot of the counter another request can reuse."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(404) for _ in range(5)],
+            pending=_pending_dict(
+                nonce=2**255 + 3,
+                nonce_mode=NONCE_MODE_EXPLICIT,
+                deadline=1_900_000_000,
+            ),
+            mech_responses=[],
+        )
+        _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert stub.penalties == ["0x" + "aa" * 20]
+        assert stub.context.shared_state.get(MECH_SLOT_ABANDONED, set()) == set()
 
 
 class TestRunFallbackPlaceholder:
@@ -456,6 +475,51 @@ class TestPollUntilTerminal:
         snapshot = _drive(poller._poll_until_terminal("https://m", "42"))
         assert snapshot.status == "rejected"
         assert snapshot.error == "poll_timeout"
+
+
+class TestASignedDeadlineBoundsThePoll:
+    """Once an explicit request can no longer settle, waiting for it is pointless."""
+
+    def test_a_passed_deadline_stops_the_poll(self) -> None:
+        """A request still processing after its deadline is given up as ``deadline_expired``."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, b'{"status":"processing"}')] * 3,
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(
+            poller._poll_until_terminal("https://m", "42", settle_deadline=1)
+        )
+        assert snapshot.status == "rejected"
+        assert snapshot.error == "deadline_expired"
+        assert snapshot.unanswered is True
+        assert stub.sleep_calls == 0
+
+    def test_a_deadline_still_ahead_keeps_polling(self) -> None:
+        """A deadline in the future changes nothing about the poll budget."""
+        stub = _StubBehaviour(
+            http_responses=[
+                _http_response(200, b'{"status":"processing"}'),
+                _http_response(200, b'{"status":"rejected","reason":"no"}'),
+            ],
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(
+            poller._poll_until_terminal("https://m", "42", settle_deadline=2**32)
+        )
+        assert snapshot.status == "rejected"
+        assert snapshot.error != "deadline_expired"
+        assert stub.sleep_calls == 1
+
+    def test_the_pending_deadline_reaches_the_loop(self) -> None:
+        """``run`` hands the blob's deadline to the loop."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, b'{"status":"processing"}')] * 3,
+            pending=_pending_dict(nonce_mode="explicit", deadline=1),
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        responses = _drive(poller.run())
+        assert responses[-1].error == "deadline_expired"
+        assert stub.penalties == [_pending_dict()["mech_address"]]
 
 
 class TestLoadPending:

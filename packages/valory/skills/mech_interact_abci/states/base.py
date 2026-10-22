@@ -69,14 +69,23 @@ OFFCHAIN_TIMEOUT_ALL_MECHS = "offchain_timeout_all_mechs"
 OFFCHAIN_BAD_RESPONSE = "offchain_bad_response"
 # The mech refused the slot, not the request; see ``OffchainAttemptOutcome``.
 OFFCHAIN_NONCE_TAKEN = "offchain_nonce_taken"
+# The mech does not accept explicit-nonce requests and the cycle could not
+# resend sequentially; see ``OffchainAttemptOutcome``.
+OFFCHAIN_EXPLICIT_NONCE_DISABLED = "offchain_explicit_nonce_disabled"
+# The signed settlement deadline of an explicit-nonce request no longer leaves
+# the mech room to execute and settle; the next period signs a fresh one.
+OFFCHAIN_DEADLINE_TOO_CLOSE = "offchain_deadline_too_close"
 # Emitted when the caller-supplied metadata exceeds the single-block CIDv1
 # ceiling (256 KiB). The on-chain IPFS path chunks these transparently; the
 # off-chain path needs the request to reject cleanly so the FSM doesn't
 # crash-loop the same oversized ``mech_requests`` every period.
 OFFCHAIN_METADATA_OVERSIZE = "offchain_metadata_oversize"
-# The selected mech's live ``maxDeliveryRate`` is above the cap configured for
-# its payment asset, or that asset has no cap. Set by both request paths.
+# On-chain: the selected mech's ``maxDeliveryRate`` is above the cap configured
+# for its payment asset, or that asset has no cap.
 DELIVERY_RATE_ABOVE_CAP = "delivery_rate_above_cap"
+# Off-chain: the agent has no positive bound to sign for the mech's payment
+# asset (unknown payment type, uncapped asset, or an approved rate of 0).
+OFFCHAIN_NO_DELIVERY_RATE_BOUND = "offchain_no_delivery_rate_bound"
 
 ADDRESS_RE = re.compile(r"0x[0-9a-f]{40}")
 
