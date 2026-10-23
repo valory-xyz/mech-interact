@@ -72,7 +72,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, Generator, List, NamedTuple, Optional, Set, Tuple
 from urllib.parse import urlencode
 
 from eth_abi import encode as abi_encode  # type: ignore[import-not-found]
@@ -106,19 +106,23 @@ from packages.valory.skills.mech_interact_abci.models import (
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
+    INVALID_REQUEST,
     MechInteractionResponse,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
+    OFFCHAIN_BELOW_MINIMUM_CAP,
     OFFCHAIN_DEADLINE_TOO_CLOSE,
     OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_METADATA_OVERSIZE,
     OFFCHAIN_NONCE_TAKEN,
     OFFCHAIN_NO_DELIVERY_RATE_BOUND,
+    OFFCHAIN_NO_MECH_SERVES_TOOL,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     SCHEMA_VERSION,
     merge_extra_attributes,
+    request_problem,
 )
 from packages.valory.skills.mech_interact_abci.states.request import (
     OFFCHAIN_DEPOSIT_TX_SUBMITTER,
@@ -736,6 +740,31 @@ def _is_deadline_refusal(body: Optional[bytes]) -> bool:
     return isinstance(reason, str) and reason.startswith(_DEADLINE_TOO_CLOSE_REASON)
 
 
+# Verbatim ``reason`` a mech sends with its 400 when the signed cap is below
+# the least it charges for a run; the body names that least as
+# ``minimum_cap``. A deposit cannot fix it, only a higher cap can.
+_MINIMUM_CAP_REASON = "signed cap below the mech's minimum charge"
+
+
+def _minimum_cap_refusal(body: Optional[bytes]) -> Tuple[bool, Optional[int]]:
+    """Read a minimum-cap refusal from a 400 body.
+
+    :param body: the rejection response body.
+    :return: whether ``reason`` is the mech's minimum-cap wording, exactly,
+        and the ``minimum_cap`` it names (``None`` when absent or malformed).
+    """
+    if not body:
+        return False, None
+    try:
+        payload = loads_bounded(body)
+        reason = payload.get("reason", "")
+    except (ValueError, AttributeError, RecursionError):
+        return False, None
+    if reason != _MINIMUM_CAP_REASON:
+        return False, None
+    return True, _try_int(payload.get("minimum_cap"))
+
+
 def _is_explicit_nonce_refusal(body: Optional[bytes]) -> bool:
     """Return True when the mech turned the request away for its explicit nonce.
 
@@ -802,6 +831,12 @@ class OffchainAttemptOutcome(enum.Enum):
     DEADLINE_TOO_CLOSE = "deadline_too_close"
     """The mech refused an explicit request whose signed deadline is under its floor."""
 
+    BELOW_MINIMUM_CAP = "below_minimum_cap"
+    """The mech refused the signed cap as below its minimum charge (HTTP 400).
+
+    Nothing was charged and no deposit can help, so failover moves on.
+    """
+
     BAD_RESPONSE = "bad_response"
     """The mech returned a non-handled status, or a 402 with a malformed body.
 
@@ -820,6 +855,8 @@ class OffchainAttemptResult:
     mech_url: str
     challenge: Optional[PaymentChallenge] = None
     status_code: Optional[int] = None
+    # Only on ``BELOW_MINIMUM_CAP``: the least the mech said it charges.
+    minimum_cap: Optional[int] = None
 
 
 # ----------------------------------------------------------------------------
@@ -853,6 +890,7 @@ _REFUSED_OUTCOMES = frozenset(
         OffchainAttemptOutcome.SERVER_BUSY,
         OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED,
         OffchainAttemptOutcome.DEADLINE_TOO_CLOSE,
+        OffchainAttemptOutcome.BELOW_MINIMUM_CAP,
     }
 )
 
@@ -1110,6 +1148,13 @@ class OffchainRequestExecutor:
             return OffchainCycleResult(offchain_result=Event.OFFCHAIN_DONE.value)
 
         request_meta: MechMetadata = requests[0]
+        problem = request_problem(request_meta)
+        if problem is not None:
+            self._logger.error(f"Offchain request not sent: {problem}.")
+            return OffchainCycleResult(
+                offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
+                last_failure_reason=INVALID_REQUEST,
+            )
         try:
             # ``build_request_metadata`` -> ``compute_cidv1_bytes`` raises
             # ``ValueError`` above the 256 KiB single-block ceiling. The
@@ -1174,6 +1219,7 @@ class OffchainRequestExecutor:
             deadline = cycle_time + int(self._config.offchain_explicit_deadline_seconds)
 
         attempted: List[str] = []
+        passed_over: Set[str] = set()
         last_failure: Optional[str] = None
         last_outcome: Optional[OffchainAttemptOutcome] = None
 
@@ -1183,9 +1229,15 @@ class OffchainRequestExecutor:
             # resend after a disabled-path refusal is the one exception and
             # refunds it below.
             failovers_left -= 1
-            mech_address, mech_url = self._pick_next_mech(attempted)
+            mech_address, mech_url = self._pick_next_mech(
+                attempted, request_meta.tool, passed_over
+            )
             if mech_address is None or mech_url is None:
-                last_failure = self._failure_label_for(last_outcome)
+                last_failure = (
+                    OFFCHAIN_NO_MECH_SERVES_TOOL
+                    if passed_over and not attempted
+                    else self._failure_label_for(last_outcome)
+                )
                 break
 
             attempted.append(mech_address.lower())
@@ -1303,19 +1355,25 @@ class OffchainRequestExecutor:
                     last_outcome = OffchainAttemptOutcome.BAD_RESPONSE
                     last_failure = OFFCHAIN_BAD_RESPONSE
                     continue
-                # The deposit is sized from the chain's view of the Safe's
-                # balance, not from the balance the mech reports.
+                # The mech reports the balance left after what the Safe's
+                # in-flight requests reserve, so it may be below the chain's;
+                # never above it, which bounds the deposit by the chain's view.
                 tracker_balance = yield from self._read_requester_balance(tracker)
                 if tracker_balance is None:
                     last_outcome = OffchainAttemptOutcome.TIMEOUT
                     last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS
                     continue
                 required = attempt.challenge.required  # type: ignore[union-attr]
-                if tracker_balance >= required:
+                available = min(
+                    tracker_balance,
+                    attempt.challenge.current_balance,  # type: ignore[union-attr]
+                )
+                if available >= required:
                     self._logger.warning(
                         f"Mech {mech_address} reports a shortfall but the Safe "
-                        f"holds {tracker_balance} on {tracker}, enough for the "
-                        f"{required} required; refusing the 402."
+                        f"has {available} available on {tracker} (chain balance "
+                        f"{tracker_balance}), enough for the {required} "
+                        "required; refusing the 402."
                     )
                     last_outcome = OffchainAttemptOutcome.BAD_RESPONSE
                     last_failure = OFFCHAIN_BAD_RESPONSE
@@ -1325,6 +1383,7 @@ class OffchainRequestExecutor:
                     payment_type=payment_type_bytes,
                     delivery_rate=delivery_rate,
                     tracker_balance=tracker_balance,
+                    available_balance=available,
                 )
                 tx_hex = build.tx_hex
                 if tx_hex is None:
@@ -1417,6 +1476,17 @@ class OffchainRequestExecutor:
                     "with the same deadline."
                 )
                 self._b.shared_state.penalize_mech(mech_address)
+                continue
+            if attempt.outcome is OffchainAttemptOutcome.BELOW_MINIMUM_CAP:
+                # Same rule as a rate above the bound: this mech costs more
+                # than the agent signs for, so it is set aside for a while.
+                self._logger.warning(
+                    f"Mech {mech_address} refused the signed cap {delivery_rate}: "
+                    f"its minimum charge is {attempt.minimum_cap}. Trying the "
+                    "next mech."
+                )
+                self._b.shared_state.penalize_mech(mech_address)
+                last_failure = OFFCHAIN_BELOW_MINIMUM_CAP
                 continue
             if attempt.outcome is OffchainAttemptOutcome.EXPLICIT_NONCE_DISABLED:
                 # The mech turned the request away unread, so nothing of it
@@ -1742,6 +1812,16 @@ class OffchainRequestExecutor:
                 mech_url=mech_url,
                 status_code=status,
             )
+        if status == 400:
+            below_minimum, minimum_cap = _minimum_cap_refusal(body_bytes)
+            if below_minimum:
+                return OffchainAttemptResult(
+                    outcome=OffchainAttemptOutcome.BELOW_MINIMUM_CAP,
+                    mech_address=mech_address,
+                    mech_url=mech_url,
+                    status_code=status,
+                    minimum_cap=minimum_cap,
+                )
         if status == 503 and _is_explicit_nonce_refusal(body_bytes):
             return OffchainAttemptResult(
                 outcome=(
@@ -2183,9 +2263,19 @@ class OffchainRequestExecutor:
     # ---------- mech selection ---------------------------------------------
 
     def _pick_next_mech(
-        self, attempted: List[str]
+        self,
+        attempted: List[str],
+        tool: Optional[str] = None,
+        passed_over: Optional[Set[str]] = None,
     ) -> Tuple[Optional[str], Optional[str]]:
         """Pick the next ranked mech with a known HTTP URL.
+
+        A ranked mech whose manifest tool list is known and does not hold
+        ``tool`` is passed over, since it would fail the request at the
+        requester's cost; its lower-cased address is added to ``passed_over``
+        when that set is given. The list is the one already held in synchronized
+        data; a mech with no known list, and the static fallback, are not
+        checked.
 
         Reuses ``synchronized_data.ranked_mechs`` from the existing on-chain
         selection (no separate ranking for offchain), filtering out mechs
@@ -2212,6 +2302,18 @@ class OffchainRequestExecutor:
             for mech in self._synced.ranked_mechs:
                 if mech.address.lower() in attempted_lc | penalized_lc:
                     continue
+                if (
+                    tool is not None
+                    and mech.relevant_tools
+                    and (tool not in mech.relevant_tools)
+                ):
+                    self._logger.warning(
+                        f"Not sending to mech {mech.address}: its manifest does "
+                        f"not list the tool {tool!r}."
+                    )
+                    if passed_over is not None:
+                        passed_over.add(mech.address.lower())
+                    continue
                 url = mech.http_url or self._config.offchain_url
                 if not url:
                     continue
@@ -2233,6 +2335,7 @@ class OffchainRequestExecutor:
         payment_type: bytes,
         delivery_rate: int,
         tracker_balance: int,
+        available_balance: Optional[int] = None,
     ) -> Generator[None, None, _DepositBuildResult]:
         """Build the Safe-multisend hash for the 402 retry path.
 
@@ -2241,7 +2344,13 @@ class OffchainRequestExecutor:
         cover ``offchain_deposit_target_calls`` forward calls at the current
         mech ``delivery_rate``, clamped by ``auto_deposit_cap_per_cycle``.
         ``tracker_balance`` is the Safe's balance read from the canonical
-        tracker; the 402's own ``currentBalance`` is not used.
+        tracker. ``available_balance`` is that figure lowered to the 402's
+        ``currentBalance`` when the mech reports less because of in-flight
+        reservations (``None`` means the same as ``tracker_balance``). This
+        request's shortfall is read against the available balance, which is
+        negative when reservations exceed the balance, and the forward top-up
+        against the tracker's. The deposit stays within
+        ``auto_deposit_cap_per_cycle``.
 
         ERC20: bundles ``approve(BalanceTracker, deposit_amount) +
         depositFor(safe, deposit_amount)`` atomically through MultiSend.
@@ -2263,9 +2372,14 @@ class OffchainRequestExecutor:
         attempt only happens if the consumer re-enters this skill with a
         fresh request.
         """
-        # From here on the challenge carries the chain's balance, so every
+        # From here on the challenge carries the available balance, so every
         # shortfall the builders check is the real one.
-        challenge = dataclasses.replace(challenge, current_balance=tracker_balance)
+        challenge = dataclasses.replace(
+            challenge,
+            current_balance=(
+                tracker_balance if available_balance is None else available_balance
+            ),
+        )
         if challenge.shortfall <= 0:
             return _DepositBuildResult(None, None)
         payment_label = self._classify_payment_type(payment_type)
@@ -2925,6 +3039,8 @@ class OffchainRequestExecutor:
             return OFFCHAIN_EXPLICIT_NONCE_DISABLED
         if outcome is OffchainAttemptOutcome.DEADLINE_TOO_CLOSE:
             return OFFCHAIN_DEADLINE_TOO_CLOSE
+        if outcome is OffchainAttemptOutcome.BELOW_MINIMUM_CAP:
+            return OFFCHAIN_BELOW_MINIMUM_CAP
         return OFFCHAIN_TIMEOUT_ALL_MECHS
 
 

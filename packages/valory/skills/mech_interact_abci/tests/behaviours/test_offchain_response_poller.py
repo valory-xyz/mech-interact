@@ -547,3 +547,115 @@ class TestLoadPending:
         stub = _StubBehaviour(http_responses=[], pending=raw)
         poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
         assert poller._load_pending() is None
+
+
+_MECH = "0x" + "aa" * 20
+
+
+def _failed_body(**fields: Any) -> bytes:
+    """A ``failed`` poll envelope with the given fields."""
+    return json.dumps({"status": "failed", **fields}).encode()
+
+
+class TestAFailedRunIsFinished:
+    """A run the mech settled as failed ends polling with the charge recorded."""
+
+    @pytest.mark.parametrize(
+        ("fields", "fault", "charged"),
+        [
+            (
+                {
+                    "error": "ValueError: Tool nope is not supported.",
+                    "fault": "client",
+                    "delivery_rate": 10**16,
+                },
+                "client",
+                10**16,
+            ),
+            (
+                {
+                    "error": "TimeoutError: the model did not answer",
+                    "fault": "mech",
+                    "delivery_rate": "1",
+                },
+                "mech",
+                1,
+            ),
+            ({"error": "E: x", "fault": "nobody", "delivery_rate": 5}, None, 5),
+            ({"error": "E: x", "fault": "client", "delivery_rate": -1}, "client", None),
+            (
+                {"error": "E: x", "fault": "client", "delivery_rate": 1.5},
+                "client",
+                None,
+            ),
+            ({"error": "E: x", "fault": "mech", "delivery_rate": True}, "mech", None),
+            (
+                {"error": "E: x", "fault": "mech", "delivery_rate": "a lot"},
+                "mech",
+                None,
+            ),
+            ({"error": "E: x", "fault": "mech"}, "mech", None),
+        ],
+    )
+    def test_a_failed_envelope_is_terminal_and_recorded(
+        self, fields: dict, fault: Any, charged: Any
+    ) -> None:
+        """One poll ends it: no result, the mech's error, fault and charge kept."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, _failed_body(**fields))],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert stub.sleep_calls == 0
+        assert stub._http_responses == []
+        assert responses[-1].result is None
+        assert responses[-1].error == fields["error"]
+        assert responses[-1].fault == fault
+        assert responses[-1].charged_delivery_rate == charged
+
+    @pytest.mark.parametrize("fault", ["client", "mech"])
+    def test_a_failed_run_does_not_penalize_the_mech(self, fault: str) -> None:
+        """The mech answered; a client fault is not its doing, a mech fault is a tool failure."""
+        stub = _StubBehaviour(
+            http_responses=[
+                _http_response(
+                    200, _failed_body(error="E: x", fault=fault, delivery_rate=1)
+                )
+            ],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert stub.penalties == []
+
+    def test_a_failed_envelope_without_an_error_still_ends_polling(self) -> None:
+        """A missing error is reported as ``failed`` rather than polled to timeout."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, _failed_body(fault="mech"))],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert responses[-1].error == "failed"
+        assert stub.penalties == []
+
+    def test_a_rejected_envelope_records_no_fault_or_charge(self) -> None:
+        """A refusal at acceptance is never charged, so neither field is set."""
+        body = json.dumps(
+            {"status": "rejected", "reason": "bad prompt", "delivery_rate": 5}
+        ).encode()
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, body)],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert responses[-1].error == "bad prompt"
+        assert responses[-1].fault is None
+        assert responses[-1].charged_delivery_rate is None
+        assert stub.penalties == []

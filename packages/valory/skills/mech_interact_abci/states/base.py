@@ -75,6 +75,11 @@ OFFCHAIN_EXPLICIT_NONCE_DISABLED = "offchain_explicit_nonce_disabled"
 # The signed settlement deadline of an explicit-nonce request no longer leaves
 # the mech room to execute and settle; the next period signs a fresh one.
 OFFCHAIN_DEADLINE_TOO_CLOSE = "offchain_deadline_too_close"
+# Every mech tried refused the signed cap as below its minimum charge.
+OFFCHAIN_BELOW_MINIMUM_CAP = "offchain_below_minimum_cap"
+# No ranked mech was sent the request: each one left lists tools without the
+# request's tool.
+OFFCHAIN_NO_MECH_SERVES_TOOL = "offchain_no_mech_serves_tool"
 # Emitted when the caller-supplied metadata exceeds the single-block CIDv1
 # ceiling (256 KiB). The on-chain IPFS path chunks these transparently; the
 # off-chain path needs the request to reject cleanly so the FSM doesn't
@@ -86,6 +91,13 @@ DELIVERY_RATE_ABOVE_CAP = "delivery_rate_above_cap"
 # Off-chain: the agent has no positive bound to sign for the mech's payment
 # asset (unknown payment type, uncapped asset, or an approved rate of 0).
 OFFCHAIN_NO_DELIVERY_RATE_BOUND = "offchain_no_delivery_rate_bound"
+# Either path: the request is missing something every mech needs to run it
+# (see ``request_problem``), so it is not sent.
+INVALID_REQUEST = "invalid_request"
+# What an off-chain mech's poll envelope says about a run it settled as
+# failed: whether the request or the mech caused the failure.
+FAULT_CLIENT = "client"
+FAULT_MECH = "mech"
 
 ADDRESS_RE = re.compile(r"0x[0-9a-f]{40}")
 
@@ -128,6 +140,40 @@ class MechMetadata:
     # prompt/tool/nonce) so the tool receives them as run() kwargs. Mirrors the
     # mech-client `extra_attributes` channel. Defaults to None for back-compat.
     extra_attributes: Optional[Dict[str, Any]] = None
+
+
+# Request fields the metadata builders set themselves; extras may not override them.
+RESERVED_REQUEST_KEYS = frozenset(
+    {"prompt", "tool", "nonce", "schema_version", "request_context"}
+)
+
+
+def request_problem(request: MechMetadata) -> Optional[str]:
+    """Say why a request must not be sent, or ``None`` when it may be.
+
+    A mech settles a run that fails because of the request at the full signed
+    cap, so a request every mech would fail is refused here instead. An empty
+    prompt is sendable: a tool may read all its inputs from extra attributes
+    and ignore the prompt. Only the
+    request itself is read, so the check costs no I/O. Whether a given mech
+    serves the tool is checked where that mech is picked.
+
+    :param request: the request about to be sent.
+    :return: a short reason the request is not sendable, or ``None``.
+    """
+    if not isinstance(request.prompt, str):
+        return "the prompt is not a string"
+    if not isinstance(request.tool, str) or not request.tool.strip():
+        return "the tool is empty"
+    extras = request.extra_attributes
+    if extras is None:
+        return None
+    if not isinstance(extras, dict):
+        return "extra_attributes is not an object"
+    clobbered = sorted(extras.keys() & RESERVED_REQUEST_KEYS)
+    if clobbered:
+        return f"extra_attributes overrides reserved request keys {clobbered}"
+    return None
 
 
 def merge_extra_attributes(
@@ -207,6 +253,11 @@ class MechInteractionResponse(MechRequest):
     # request was sent to until a delivery is observed, then the delivering
     # mech. ``None`` on responses that predate the field.
     mech_address: Optional[str] = None
+    # Set only for an off-chain run the mech settled as failed: who caused
+    # the failure (``FAULT_CLIENT`` or ``FAULT_MECH``, ``None`` if the mech did
+    # not say) and what it charged, in base units of its payment asset.
+    fault: Optional[str] = None
+    charged_delivery_rate: Optional[int] = None
 
     def retries_exceeded(self) -> None:
         """Set an incorrect format response."""
