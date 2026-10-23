@@ -31,7 +31,7 @@ import logging
 from dataclasses import asdict
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from unittest.mock import patch
 from urllib.parse import parse_qs, parse_qsl
 
@@ -70,6 +70,7 @@ from packages.valory.skills.mech_interact_abci.models import (
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
+    INVALID_REQUEST,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_503_ALL_MECHS,
@@ -1188,9 +1189,15 @@ def _make_402_body(
 class _FakeMechInfo:
     """Stand-in for a ``MechInfo`` entry in ``synchronized_data.ranked_mechs``."""
 
-    def __init__(self, address: str, http_url: Optional[str]) -> None:
+    def __init__(
+        self,
+        address: str,
+        http_url: Optional[str],
+        relevant_tools: Optional[Set[str]] = None,
+    ) -> None:
         self.address = address
         self.http_url = http_url
+        self.relevant_tools = relevant_tools or set()
 
 
 class _StateResponse(SimpleNamespace):
@@ -5788,3 +5795,112 @@ class TestPendingRequestNonceMode:
         again = PendingRequest.from_dict(json.loads(pending.to_json()))
         assert again is not None
         assert again.nonce == nonce
+
+
+_MECH_A = "0x" + "aa" * 20
+_MECH_B = "0x" + "bb" * 20
+_TOOL = "prediction-online"
+
+
+def _one_attempt_reads() -> List[Any]:
+    """Contract reads one sequential attempt consumes: chain id, nonce, payment type."""
+    return [
+        _state_resp({"data": 100}),
+        _state_resp({"data": 7}),
+        _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+    ]
+
+
+class TestARequestIsCheckedBeforeItIsSent:
+    """A request a mech would fail at the requester's cost is not sent.
+
+    The checks read only the request and the ranked mechs already in
+    synchronized data, so the only HTTP call of a sent request stays the POST.
+    """
+
+    @pytest.mark.parametrize(
+        "request_meta",
+        [
+            MechMetadata(prompt="", tool=_TOOL, nonce="n"),
+            MechMetadata(prompt="  ", tool=_TOOL, nonce="n"),
+            MechMetadata(prompt="Will it rain?", tool="", nonce="n"),
+            MechMetadata(
+                prompt="Will it rain?",
+                tool=_TOOL,
+                nonce="n",
+                extra_attributes={"tool": "other-tool"},
+            ),
+        ],
+    )
+    def test_a_request_with_a_problem_ends_the_cycle_unsent(
+        self, request_meta: MechMetadata
+    ) -> None:
+        """Nothing is read, signed or posted, and the reason is reported."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(_MECH_A, "https://mech-aa.example")],
+            contract_api_responses=[],
+            http_responses=[],
+            mech_requests=[request_meta],
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == INVALID_REQUEST
+        assert stub.posted_urls == []
+        assert stub.contract_api_calls == []
+        assert stub.signed_request_ids == []
+        assert stub.penalized_mechs == []
+
+    @pytest.mark.parametrize("relevant_tools", [{_TOOL}, {_TOOL, "other-tool"}, set()])
+    def test_a_mech_listing_the_tool_or_no_list_gets_the_request(
+        self, relevant_tools: Set[str]
+    ) -> None:
+        """A listed tool, or no known list, sends with one HTTP call: the POST."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example", relevant_tools)
+            ],
+            contract_api_responses=_one_attempt_reads(),
+            http_responses=[_make_http_response(200)],
+            mech_requests=[MechMetadata(prompt="Will it rain?", tool=_TOOL, nonce="n")],
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == ["https://mech-aa.example/send_signed_requests"]
+
+    def test_a_mech_not_listing_the_tool_is_passed_over(self) -> None:
+        """The next ranked mech that lists the tool gets it; the first is not penalized."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example", {"other-tool"}),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example", {_TOOL}),
+            ],
+            contract_api_responses=_one_attempt_reads(),
+            http_responses=[_make_http_response(200)],
+            mech_requests=[MechMetadata(prompt="Will it rain?", tool=_TOOL, nonce="n")],
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == ["https://mech-bb.example/send_signed_requests"]
+        assert stub.penalized_mechs == []
+
+    def test_no_mech_listing_the_tool_sends_nothing(self) -> None:
+        """With every ranked mech passed over and no static fallback, nothing is posted."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example", {"other-tool"})
+            ],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+            ],
+            http_responses=[],
+            mech_requests=[MechMetadata(prompt="Will it rain?", tool=_TOOL, nonce="n")],
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert stub.posted_urls == []
+        assert stub.signed_request_ids == []

@@ -19,7 +19,7 @@
 
 """Tests for the request behaviour module properties."""
 
-from typing import Any, Callable, Dict, Generator, Optional
+from typing import Any, Callable, Dict, Generator, List, Optional
 from unittest.mock import patch
 
 import pytest
@@ -35,7 +35,10 @@ from packages.valory.skills.mech_interact_abci.behaviours.request import (
     PaymentType,
     TOKEN_PAYMENT_TYPES,
 )
-from packages.valory.skills.mech_interact_abci.states.base import MechMetadata
+from packages.valory.skills.mech_interact_abci.states.base import (
+    INVALID_REQUEST,
+    MechMetadata,
+)
 from packages.valory.skills.mech_interact_abci.tests.behaviours.conftest import (
     assert_unset_property_logs,
 )
@@ -499,3 +502,36 @@ class TestSendMetadataToIpfs:
         assert pending.mech_address == expected
         assert pending.nonce == "n"
         assert pending.result is None
+
+
+class TestOnchainRequestsAreCheckedBeforePaying:
+    """The on-chain path refuses a request every mech would fail."""
+
+    @pytest.mark.parametrize(
+        ("requests", "sendable"),
+        [
+            ([MechMetadata(prompt="Will it rain?", tool="t", nonce="n")], True),
+            ([], True),
+            ([MechMetadata(prompt="", tool="t", nonce="n")], False),
+            (
+                [
+                    MechMetadata(prompt="Will it rain?", tool="t", nonce="n1"),
+                    MechMetadata(prompt="Will it snow?", tool="", nonce="n2"),
+                ],
+                False,
+            ),
+        ],
+    )
+    def test_requests_are_sendable(
+        self,
+        request_behaviour: MechRequestBehaviour,
+        requests: List[MechMetadata],
+        sendable: bool,
+    ) -> None:
+        """Any unsendable request in the batch stops it and records why."""
+        request_behaviour._mech_requests = requests
+        request_behaviour.context.state.last_failure_reason = None
+
+        assert request_behaviour._requests_are_sendable() is sendable
+        expected_reason = None if sendable else INVALID_REQUEST
+        assert request_behaviour.context.state.last_failure_reason == expected_reason

@@ -63,10 +63,12 @@ from packages.valory.skills.mech_interact_abci.payment_types import (
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     DELIVERY_RATE_ABOVE_CAP,
+    INVALID_REQUEST,
     MechInteractionResponse,
     MechMetadata,
     SERIALIZED_EMPTY_LIST,
     merge_extra_attributes,
+    request_problem,
 )
 from packages.valory.skills.mech_interact_abci.states.request import MechRequestRound
 from packages.valory.skills.mech_interact_abci.utils import DataclassEncoder
@@ -1041,6 +1043,19 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
 
         return False
 
+    def _requests_are_sendable(self) -> bool:
+        """Check every pending request with ``request_problem`` before paying for it.
+
+        :return: ``False``, with ``last_failure_reason`` set, if any is not sendable.
+        """
+        for metadata in self._mech_requests:
+            problem = request_problem(metadata)
+            if problem is not None:
+                self.context.logger.error(f"Mech request not sent: {problem}.")
+                self.shared_state.last_failure_reason = INVALID_REQUEST
+                return False
+        return True
+
     def _build_skip_payload(self) -> MechRequestPayload:
         """Build the no-op payload used by both skip paths in `async_act`."""
         return MechRequestPayload(
@@ -1109,6 +1124,12 @@ class MechRequestBehaviour(MechInteractBaseBehaviour):
             return
 
         if not self._mech_requests:
+            with self.context.benchmark_tool.measure(self.behaviour_id).local():
+                payload = self._build_skip_payload()
+            yield from self.finish_behaviour(payload)
+            return
+
+        if not self._requests_are_sendable():
             with self.context.benchmark_tool.measure(self.behaviour_id).local():
                 payload = self._build_skip_payload()
             yield from self.finish_behaviour(payload)

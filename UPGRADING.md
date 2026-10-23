@@ -108,6 +108,25 @@ Below, we describe the additional manual steps required to upgrade between diffe
   must drop that import in the same bump (valory-xyz/trader#1085).
 
 #### New features
+- An off-chain poll envelope with `status: "failed"` ends polling. The
+  mech settles a failed run on chain at the envelope's `delivery_rate`:
+  the full signed cap when `fault` is `client`, a small fixed amount when
+  it is `mech`. The response gets no `result`, the mech's `error`, and the
+  new `MechInteractionResponse.fault` and `charged_delivery_rate` fields.
+  The mech is not penalized for either fault; a consumer reads the empty
+  result as a tool failure, as it does for any errored response. Before
+  this, such a run was polled until timeout and the mech penalized.
+  `rejected` is unchanged: a refusal at acceptance, never charged.
+- Both request paths refuse, before reading the chain, signing or
+  sending, a request with an empty prompt or tool, or with
+  `extra_attributes` that set `prompt`, `tool`, `nonce`, `schema_version`
+  or `request_context`. The round reports `last_failure_reason`
+  `invalid_request` (`offchain_last_failure_reason` off-chain). The
+  off-chain failover also passes over a ranked mech whose manifest tool
+  list does not hold the request's tool. These checks read only data
+  already in memory and add no network call. The manifest's tool list is
+  the only per-tool data the skill holds, so the parameters and models a
+  tool accepts are not checked.
 - New `mech_interact_abci.mech_reader` module for reading one mech from a
   handler, where the behaviour helpers are not available: `read_mech` (the
   subgraph record, then the marketplace agent card) and `read_live_rate`

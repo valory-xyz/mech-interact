@@ -106,6 +106,7 @@ from packages.valory.skills.mech_interact_abci.models import (
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
+    INVALID_REQUEST,
     MechInteractionResponse,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
@@ -119,6 +120,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     SCHEMA_VERSION,
     merge_extra_attributes,
+    request_problem,
 )
 from packages.valory.skills.mech_interact_abci.states.request import (
     OFFCHAIN_DEPOSIT_TX_SUBMITTER,
@@ -1110,6 +1112,13 @@ class OffchainRequestExecutor:
             return OffchainCycleResult(offchain_result=Event.OFFCHAIN_DONE.value)
 
         request_meta: MechMetadata = requests[0]
+        problem = request_problem(request_meta)
+        if problem is not None:
+            self._logger.error(f"Offchain request not sent: {problem}.")
+            return OffchainCycleResult(
+                offchain_result=Event.OFFCHAIN_ALL_FAILED.value,
+                last_failure_reason=INVALID_REQUEST,
+            )
         try:
             # ``build_request_metadata`` -> ``compute_cidv1_bytes`` raises
             # ``ValueError`` above the 256 KiB single-block ceiling. The
@@ -1183,7 +1192,7 @@ class OffchainRequestExecutor:
             # resend after a disabled-path refusal is the one exception and
             # refunds it below.
             failovers_left -= 1
-            mech_address, mech_url = self._pick_next_mech(attempted)
+            mech_address, mech_url = self._pick_next_mech(attempted, request_meta.tool)
             if mech_address is None or mech_url is None:
                 last_failure = self._failure_label_for(last_outcome)
                 break
@@ -2183,9 +2192,15 @@ class OffchainRequestExecutor:
     # ---------- mech selection ---------------------------------------------
 
     def _pick_next_mech(
-        self, attempted: List[str]
+        self, attempted: List[str], tool: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[str]]:
         """Pick the next ranked mech with a known HTTP URL.
+
+        A ranked mech whose manifest tool list is known and does not hold
+        ``tool`` is passed over, since it would fail the request at the
+        requester's cost. The list is the one already held in synchronized
+        data; a mech with no known list, and the static fallback, are not
+        checked.
 
         Reuses ``synchronized_data.ranked_mechs`` from the existing on-chain
         selection (no separate ranking for offchain), filtering out mechs
@@ -2211,6 +2226,16 @@ class OffchainRequestExecutor:
         if self._config.use_dynamic_mech_selection:
             for mech in self._synced.ranked_mechs:
                 if mech.address.lower() in attempted_lc | penalized_lc:
+                    continue
+                if (
+                    tool is not None
+                    and mech.relevant_tools
+                    and (tool not in mech.relevant_tools)
+                ):
+                    self._logger.warning(
+                        f"Not sending to mech {mech.address}: its manifest does "
+                        f"not list the tool {tool!r}."
+                    )
                     continue
                 url = mech.http_url or self._config.offchain_url
                 if not url:

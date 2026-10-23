@@ -31,8 +31,11 @@ Wire shape (mirrors the mech server at
   server's parser ignores the URL path suffix and reads the field from the
   body.
 * 200 with ``{}`` means "still processing"; the poller waits and retries.
-* Terminal: 200 with ``status == "ok"`` (result available) or 200 with
-  ``status == "rejected"`` (the mech aborted the task).
+* Terminal: 200 with ``status == "ok"`` (result available), 200 with
+  ``status == "rejected"`` (refused at acceptance, never charged) or 200
+  with ``status == "failed"`` (the run failed and is settled on chain at
+  the envelope's ``delivery_rate``; ``fault`` says whether the request or
+  the mech caused it).
 
 State carried across rounds:
 
@@ -47,13 +50,15 @@ State carried across rounds:
 import dataclasses
 import json
 import time
-from typing import Any, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 from urllib.parse import urlencode
 
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
     PendingRequest,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
+    FAULT_CLIENT,
+    FAULT_MECH,
     MechInteractionResponse,
 )
 from packages.valory.skills.mech_interact_abci.utils import loads_bounded
@@ -63,15 +68,19 @@ from packages.valory.skills.mech_interact_abci.utils import loads_bounded
 class _PollSnapshot:
     """One terminal observation from ``/fetch_offchain_info``."""
 
-    status: str  # "ok" / "rejected" / "processing"
+    status: str  # "ok" / "rejected" / "failed" / "processing"
     result: Optional[str] = None
     error: Optional[str] = None
+    # Only on "failed": who caused it and what the mech charged.
+    fault: Optional[str] = None
+    charged_delivery_rate: Optional[int] = None
     # Set only by this poller when the mech gave no answer it could read;
     # never from anything the mech's own reply says.
     unanswered: bool = False
 
 
 _PROCESSING_STATUSES = frozenset({"processing", ""})
+_FAULTS = frozenset({FAULT_CLIENT, FAULT_MECH})
 
 # Number of consecutive 5xx responses tolerated before the poll loop
 # fast-fails. Bounds an outage where the mech server stays unhealthy for
@@ -147,6 +156,15 @@ class OffchainResponsePoller:
         )
 
         self._apply_snapshot(target, snapshot)
+        if snapshot.status == "failed":
+            # Neither fault penalizes the mech here: a client fault is the
+            # request's doing, and a mech fault is a tool failure, which the
+            # consumer accounts for from the empty result as it does on chain.
+            self._logger.warning(
+                f"Offchain request {pending.request_id[:10]}… failed at mech "
+                f"{pending.mech_address} (fault={snapshot.fault}, charged="
+                f"{snapshot.charged_delivery_rate}): {snapshot.error}"
+            )
         if snapshot.unanswered:
             self._logger.warning(
                 f"Penalizing mech {pending.mech_address}: its off-chain "
@@ -366,7 +384,40 @@ class OffchainResponsePoller:
                 status="rejected",
                 error=str(payload.get("reason") or "rejected"),
             )
+        if status == "failed":
+            return self._parse_failed(payload)
         return _PollSnapshot(status="processing")
+
+    def _parse_failed(self, payload: Dict[str, Any]) -> _PollSnapshot:
+        """Read a ``failed`` envelope; it is terminal whatever its other fields say."""
+        fault = payload.get("fault")
+        if fault not in _FAULTS:
+            self._logger.warning(
+                f"Offchain 'failed' envelope carries no known fault: {fault!r}."
+            )
+            fault = None
+        charged = payload.get("delivery_rate")
+        charged_int: Optional[int] = None
+        # Integer base units only: ``bool`` is an ``int`` subclass and a float
+        # would be truncated, so neither is read as a charge.
+        if isinstance(charged, (int, str)) and not isinstance(charged, bool):
+            try:
+                charged_int = int(charged)
+            except ValueError:
+                charged_int = None
+        if charged_int is not None and charged_int < 0:
+            charged_int = None
+        if charged_int is None:
+            self._logger.warning(
+                f"Offchain 'failed' envelope carries no readable delivery_rate: "
+                f"{charged!r}."
+            )
+        return _PollSnapshot(
+            status="failed",
+            error=str(payload.get("error") or "failed"),
+            fault=fault,
+            charged_delivery_rate=charged_int,
+        )
 
     # ---------- response-list helpers ---------------------------------------
 
@@ -402,6 +453,11 @@ class OffchainResponsePoller:
         if snapshot.status == "ok":
             target.result = snapshot.result
             target.error = "Unknown" if snapshot.error is None else snapshot.error
+        elif snapshot.status == "failed":
+            target.result = None
+            target.error = snapshot.error or "failed"
+            target.fault = snapshot.fault
+            target.charged_delivery_rate = snapshot.charged_delivery_rate
         else:
             target.result = None
             target.error = snapshot.error if snapshot.error is not None else "rejected"
