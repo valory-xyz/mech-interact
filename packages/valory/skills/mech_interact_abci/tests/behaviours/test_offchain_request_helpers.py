@@ -75,6 +75,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_402_INSUFFICIENT,
     OFFCHAIN_503_ALL_MECHS,
     OFFCHAIN_BAD_RESPONSE,
+    OFFCHAIN_BELOW_MINIMUM_CAP,
     OFFCHAIN_DEADLINE_TOO_CLOSE,
     OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_NONCE_TAKEN,
@@ -2423,7 +2424,7 @@ class TestDepositIsSizedFromTheTrackerBalance:
             http_responses=http_responses,
             ledger_api_responses=[_ledger_balance_resp(10 * 10**18)],
             auto_deposit_cap=10**18,
-            deposit_target_calls=10,
+            deposit_target_calls=kw.pop("deposit_target_calls", 10),
             **kw,
         )
         executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
@@ -2452,11 +2453,19 @@ class TestDepositIsSizedFromTheTrackerBalance:
         )
         assert deposit_call["amount"] == 9 * self._RATE + 1
 
-    def test_a_402_the_tracker_balance_already_covers_is_a_bad_response(self) -> None:
-        """A mech claiming a shortfall the chain does not show is refused; the next mech is tried."""
+    def test_a_402_the_available_balance_already_covers_is_a_bad_response(
+        self,
+    ) -> None:
+        """A 402 whose own balance and the chain's both cover it is refused; the next mech is tried."""
+        covered = _make_http_response(
+            402,
+            _make_402_body(
+                pay_to=self._TRACKER, required=self._RATE, current=self._RATE
+            ),
+        )
         stub, result = self._cycle(
             _state_resp({"requester_balance": self._RATE}),
-            [self._challenge(), _make_http_response(200)],
+            [covered, _make_http_response(200)],
             [
                 _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
             ],
@@ -2467,6 +2476,59 @@ class TestDepositIsSizedFromTheTrackerBalance:
             c.get("contract_callable") == "build_deposit_for_data"
             for c in stub.contract_api_calls
         )
+
+    def test_in_flight_reservations_lower_the_balance_the_shortfall_is_read_against(
+        self,
+    ) -> None:
+        """The chain covers the request, the mech's reserved-net balance does not: deposit.
+
+        This request's shortfall is ``required - currentBalance``; the forward
+        top-up still reads the chain, so the deposit is the larger of the two.
+        """
+        reserved_net = self._RATE // 4
+        challenge = _make_http_response(
+            402,
+            _make_402_body(
+                pay_to=self._TRACKER, required=self._RATE, current=reserved_net
+            ),
+        )
+        stub, result = self._cycle(
+            _state_resp({"requester_balance": 10 * self._RATE}),
+            [challenge],
+            self._DEPOSIT_BUILD_READS,
+        )
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        # the chain already holds the ten-call target, so only this request's
+        # shortfall against the reserved-net balance is deposited
+        assert deposit_call["amount"] == self._RATE - reserved_net
+
+    def test_a_mech_balance_above_the_chain_does_not_shrink_the_deposit(self) -> None:
+        """The mech's figure can only lower the available balance, never raise it."""
+        challenge = _make_http_response(
+            402,
+            _make_402_body(
+                pay_to=self._TRACKER, required=self._RATE, current=self._RATE - 1
+            ),
+        )
+        # No forward top-up, so the deposit is exactly this request's shortfall.
+        stub, result = self._cycle(
+            _state_resp({"requester_balance": 0}),
+            [challenge],
+            self._DEPOSIT_BUILD_READS,
+            deposit_target_calls=0,
+        )
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        assert deposit_call["amount"] == self._RATE
 
     def test_a_failed_tracker_balance_read_fails_over_without_depositing(self) -> None:
         """An RPC blip on the balance read is a transient failure, not a reason to deposit."""
@@ -3981,6 +4043,90 @@ class TestAttemptResultPlumbing:
             )
         )
         assert attempt.outcome == expected
+
+    @pytest.mark.parametrize(
+        ("required", "expected"),
+        [
+            (1, OffchainAttemptOutcome.DEPOSIT_NEEDED),
+            (2, OffchainAttemptOutcome.BAD_RESPONSE),
+        ],
+    )
+    def test_402_required_is_bounded_by_the_signed_cap(
+        self, required: int, expected: OffchainAttemptOutcome
+    ) -> None:
+        """``required`` is this request's cap; anything above the signed cap is refused."""
+        body = _make_402_body(required=required, current=0)
+        stub = self._stub_with_response(_make_http_response(402, body))
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        attempt = _drive(
+            executor._post_signed_request(
+                mech_url="https://m",
+                mech_address="0x" + "aa" * 20,
+                ipfs_hash="0x" + "cc" * 31,
+                ipfs_data="{}",
+                request_id_bytes=bytes(32),
+                signature_hex="0x" + "dd" * 65,
+                nonce=0,
+                delivery_rate=1,
+                sender="0x" + "bb" * 20,
+            )
+        )
+        assert attempt.outcome == expected
+
+    @pytest.mark.parametrize(
+        ("body", "expected", "minimum"),
+        [
+            (
+                {
+                    "reason": "signed cap below the mech's minimum charge",
+                    "minimum_cap": 500,
+                },
+                OffchainAttemptOutcome.BELOW_MINIMUM_CAP,
+                500,
+            ),
+            (
+                {
+                    "reason": "signed cap below the mech's minimum charge",
+                    "minimum_cap": "500",
+                },
+                OffchainAttemptOutcome.BELOW_MINIMUM_CAP,
+                500,
+            ),
+            (
+                {"reason": "signed cap below the mech's minimum charge"},
+                OffchainAttemptOutcome.BELOW_MINIMUM_CAP,
+                None,
+            ),
+            (
+                {"reason": "invalid signature"},
+                OffchainAttemptOutcome.BAD_RESPONSE,
+                None,
+            ),
+            (None, OffchainAttemptOutcome.BAD_RESPONSE, None),
+        ],
+    )
+    def test_400_minimum_cap_refusal_is_classified(
+        self, body: Any, expected: OffchainAttemptOutcome, minimum: Any
+    ) -> None:
+        """Only the exact minimum-cap wording on a 400 counts, and the minimum is kept."""
+        raw = json.dumps(body).encode() if body is not None else b"not-json"
+        stub = self._stub_with_response(_make_http_response(400, raw))
+        executor = OffchainRequestExecutor(stub)  # type: ignore[arg-type]
+        attempt = _drive(
+            executor._post_signed_request(
+                mech_url="https://m",
+                mech_address="0x" + "aa" * 20,
+                ipfs_hash="0x" + "cc" * 31,
+                ipfs_data="{}",
+                request_id_bytes=bytes(32),
+                signature_hex="0x" + "dd" * 65,
+                nonce=0,
+                delivery_rate=1,
+                sender="0x" + "bb" * 20,
+            )
+        )
+        assert attempt.outcome == expected
+        assert attempt.minimum_cap == minimum
 
     def test_402_with_malformed_body_classified_bad_response(self) -> None:
         """A 402 whose body is not a structured challenge → ``BAD_RESPONSE``.
@@ -5904,3 +6050,63 @@ class TestARequestIsCheckedBeforeItIsSent:
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
         assert stub.posted_urls == []
         assert stub.signed_request_ids == []
+
+
+_MINIMUM_CAP_BODY = json.dumps(
+    {"reason": "signed cap below the mech's minimum charge", "minimum_cap": 10**17}
+).encode()
+
+
+class TestACapBelowTheMinimumFailsOver:
+    """A mech refusing the signed cap as below its minimum is set aside, never paid into."""
+
+    def test_the_next_mech_gets_the_request(self) -> None:
+        """The refusing mech is penalized, nothing is deposited, the next mech is posted to."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example"),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example"),
+            ],
+            contract_api_responses=[
+                *_one_attempt_reads(),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+            ],
+            http_responses=[
+                _make_http_response(400, _MINIMUM_CAP_BODY),
+                _make_http_response(200),
+            ],
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == [
+            "https://mech-aa.example/send_signed_requests",
+            "https://mech-bb.example/send_signed_requests",
+        ]
+        assert stub.penalized_mechs == [_MECH_A]
+        assert not any(
+            c.get("contract_callable") == "build_deposit_for_data"
+            for c in stub.contract_api_calls
+        )
+
+    def test_every_mech_refusing_reports_below_minimum_cap(self) -> None:
+        """With no mech left, the cycle fails with the minimum-cap label."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(_MECH_A, "https://mech-aa.example")],
+            contract_api_responses=_one_attempt_reads(),
+            http_responses=[_make_http_response(400, _MINIMUM_CAP_BODY)],
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_BELOW_MINIMUM_CAP
+        assert stub.penalized_mechs == [_MECH_A]
+
+    def test_a_retry_refused_below_the_minimum_reports_the_label(self) -> None:
+        """The label maps from the outcome on every path that reports one."""
+        assert (
+            OffchainRequestExecutor._failure_label_for(
+                OffchainAttemptOutcome.BELOW_MINIMUM_CAP
+            )
+            == OFFCHAIN_BELOW_MINIMUM_CAP
+        )

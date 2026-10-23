@@ -75,6 +75,8 @@ OFFCHAIN_EXPLICIT_NONCE_DISABLED = "offchain_explicit_nonce_disabled"
 # The signed settlement deadline of an explicit-nonce request no longer leaves
 # the mech room to execute and settle; the next period signs a fresh one.
 OFFCHAIN_DEADLINE_TOO_CLOSE = "offchain_deadline_too_close"
+# Every mech tried refused the signed cap as below its minimum charge.
+OFFCHAIN_BELOW_MINIMUM_CAP = "offchain_below_minimum_cap"
 # Emitted when the caller-supplied metadata exceeds the single-block CIDv1
 # ceiling (256 KiB). The on-chain IPFS path chunks these transparently; the
 # off-chain path needs the request to reject cleanly so the FSM doesn't

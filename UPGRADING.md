@@ -127,6 +127,18 @@ Below, we describe the additional manual steps required to upgrade between diffe
   already in memory and add no network call. The manifest's tool list is
   the only per-tool data the skill holds, so the parameters and models a
   tool accepts are not checked.
+- An off-chain HTTP 400 whose `reason` is "signed cap below the mech's
+  minimum charge" is a refusal (nothing charged, no deposit). The minimum
+  the body names as `minimum_cap` is logged and kept on the attempt, the
+  mech is penalized as for a rate above the bound, and failover moves on;
+  with no mech left the cycle reports `offchain_below_minimum_cap`.
+- The 402 top-up reads this request's shortfall as `required` less the
+  lower of the chain's balance and the 402's `currentBalance` (which the
+  mech reports net of the Safe's in-flight reservations). The forward
+  top-up still reads the chain's balance, so a lower figure from the mech
+  raises the deposit by at most `required`, which stays bounded by the
+  signed cap. A 402 is refused as a bad response only when both figures
+  cover `required`.
 - New `mech_interact_abci.mech_reader` module for reading one mech from a
   handler, where the behaviour helpers are not available: `read_mech` (the
   subgraph record, then the marketplace agent card) and `read_live_rate`
