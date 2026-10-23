@@ -512,7 +512,8 @@ class TestOnchainRequestsAreCheckedBeforePaying:
         [
             ([MechMetadata(prompt="Will it rain?", tool="t", nonce="n")], True),
             ([], True),
-            ([MechMetadata(prompt="", tool="t", nonce="n")], False),
+            ([MechMetadata(prompt="", tool="t", nonce="n")], True),
+            ([MechMetadata(prompt=None, tool="t", nonce="n")], False),  # type: ignore[arg-type]
             (
                 [
                     MechMetadata(prompt="Will it rain?", tool="t", nonce="n1"),

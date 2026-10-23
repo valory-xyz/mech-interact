@@ -110,21 +110,25 @@ Below, we describe the additional manual steps required to upgrade between diffe
 #### New features
 - An off-chain poll envelope with `status: "failed"` ends polling. The
   mech settles a failed run on chain at the envelope's `delivery_rate`:
-  the full signed cap when `fault` is `client`, a small fixed amount when
-  it is `mech`. The response gets no `result`, the mech's `error`, and the
-  new `MechInteractionResponse.fault` and `charged_delivery_rate` fields.
+  the full signed cap when `fault` is `client`; when it is `mech` the
+  amount depends on the mech's settings and can also be the full cap.
+  The response gets no `result`, the mech's `error`, and the new
+  `MechInteractionResponse.fault` and `charged_delivery_rate` fields.
   The mech is not penalized for either fault; a consumer reads the empty
   result as a tool failure, as it does for any errored response. Before
   this, such a run was polled until timeout and the mech penalized.
   `rejected` is unchanged: a refusal at acceptance, never charged.
 - Both request paths refuse, before reading the chain, signing or
-  sending, a request with an empty prompt or tool, or with
-  `extra_attributes` that set `prompt`, `tool`, `nonce`, `schema_version`
+  sending, a request whose prompt is not a string, whose tool is empty,
+  or whose `extra_attributes` set `prompt`, `tool`, `nonce`, `schema_version`
   or `request_context`. The round reports `last_failure_reason`
   `invalid_request` (`offchain_last_failure_reason` off-chain). The
   off-chain failover also passes over a ranked mech whose manifest tool
-  list does not hold the request's tool. These checks read only data
-  already in memory and add no network call. The manifest's tool list is
+  list does not hold the request's tool; when that passes over every
+  ranked mech, nothing is sent and the cycle reports
+  `offchain_no_mech_serves_tool`. An empty-string prompt is sent, since a
+  tool may read its inputs from `extra_attributes`. These checks read only
+  data already in memory and add no network call. The manifest's tool list is
   the only per-tool data the skill holds, so the parameters and models a
   tool accepts are not checked.
 - An off-chain HTTP 400 whose `reason` is "signed cap below the mech's
@@ -135,10 +139,11 @@ Below, we describe the additional manual steps required to upgrade between diffe
 - The 402 top-up reads this request's shortfall as `required` less the
   lower of the chain's balance and the 402's `currentBalance` (which the
   mech reports net of the Safe's in-flight reservations). The forward
-  top-up still reads the chain's balance, so a lower figure from the mech
-  raises the deposit by at most `required`, which stays bounded by the
-  signed cap. A 402 is refused as a bad response only when both figures
-  cover `required`.
+  top-up still reads the chain's balance. A negative `currentBalance`
+  (reservations above the balance) is read as is, so the shortfall is
+  `required` plus its size. The shortfall is checked against
+  `auto_deposit_cap_per_cycle` and the deposit stays within it. A 402 is
+  refused as a bad response only when both figures cover `required`.
 - New `mech_interact_abci.mech_reader` module for reading one mech from a
   handler, where the behaviour helpers are not available: `read_mech` (the
   subgraph record, then the marketplace agent card) and `read_live_rate`

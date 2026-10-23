@@ -77,6 +77,9 @@ OFFCHAIN_EXPLICIT_NONCE_DISABLED = "offchain_explicit_nonce_disabled"
 OFFCHAIN_DEADLINE_TOO_CLOSE = "offchain_deadline_too_close"
 # Every mech tried refused the signed cap as below its minimum charge.
 OFFCHAIN_BELOW_MINIMUM_CAP = "offchain_below_minimum_cap"
+# No ranked mech was sent the request: each one left lists tools without the
+# request's tool.
+OFFCHAIN_NO_MECH_SERVES_TOOL = "offchain_no_mech_serves_tool"
 # Emitted when the caller-supplied metadata exceeds the single-block CIDv1
 # ceiling (256 KiB). The on-chain IPFS path chunks these transparently; the
 # off-chain path needs the request to reject cleanly so the FSM doesn't
@@ -149,15 +152,17 @@ def request_problem(request: MechMetadata) -> Optional[str]:
     """Say why a request must not be sent, or ``None`` when it may be.
 
     A mech settles a run that fails because of the request at the full signed
-    cap, so a request every mech would fail is refused here instead. Only the
+    cap, so a request every mech would fail is refused here instead. An empty
+    prompt is sendable: a tool may read all its inputs from extra attributes
+    and ignore the prompt. Only the
     request itself is read, so the check costs no I/O. Whether a given mech
     serves the tool is checked where that mech is picked.
 
     :param request: the request about to be sent.
     :return: a short reason the request is not sendable, or ``None``.
     """
-    if not isinstance(request.prompt, str) or not request.prompt.strip():
-        return "the prompt is empty"
+    if not isinstance(request.prompt, str):
+        return "the prompt is not a string"
     if not isinstance(request.tool, str) or not request.tool.strip():
         return "the tool is empty"
     extras = request.extra_attributes

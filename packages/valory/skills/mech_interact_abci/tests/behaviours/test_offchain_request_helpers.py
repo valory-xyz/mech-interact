@@ -80,6 +80,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_EXPLICIT_NONCE_DISABLED,
     OFFCHAIN_NONCE_TAKEN,
     OFFCHAIN_NO_DELIVERY_RATE_BOUND,
+    OFFCHAIN_NO_MECH_SERVES_TOOL,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     merge_extra_attributes,
 )
@@ -944,6 +945,15 @@ class TestParsePaymentChallenge:
         )
         assert challenge is not None
         assert challenge.shortfall == 0
+
+    def test_a_negative_balance_is_parsed_and_added_to_the_shortfall(self) -> None:
+        """A balance reported net of reservations may be negative."""
+        challenge = parse_payment_challenge(
+            self._body(currentBalance="-250", required="1000")
+        )
+        assert challenge is not None
+        assert challenge.current_balance == -250
+        assert challenge.shortfall == 1250
 
     def test_default_asset_when_missing(self) -> None:
         """No ``asset`` field defaults to the zero address (native model)."""
@@ -2506,6 +2516,32 @@ class TestDepositIsSizedFromTheTrackerBalance:
         # the chain already holds the ten-call target, so only this request's
         # shortfall against the reserved-net balance is deposited
         assert deposit_call["amount"] == self._RATE - reserved_net
+
+    def test_a_negative_mech_balance_raises_the_shortfall_above_required(
+        self,
+    ) -> None:
+        """Reservations above the balance give a negative figure; the shortfall adds it back."""
+        over_reserved = -(self._RATE // 4)
+        challenge = _make_http_response(
+            402,
+            _make_402_body(
+                pay_to=self._TRACKER, required=self._RATE, current=over_reserved
+            ),
+        )
+        # No forward top-up, so the deposit is exactly this request's shortfall.
+        stub, result = self._cycle(
+            _state_resp({"requester_balance": self._RATE}),
+            [challenge],
+            self._DEPOSIT_BUILD_READS,
+            deposit_target_calls=0,
+        )
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        deposit_call = next(
+            c
+            for c in stub.contract_api_calls
+            if c.get("contract_callable") == "build_deposit_for_data"
+        )
+        assert deposit_call["amount"] == self._RATE - over_reserved
 
     def test_a_mech_balance_above_the_chain_does_not_shrink_the_deposit(self) -> None:
         """The mech's figure can only lower the available balance, never raise it."""
@@ -5967,8 +6003,7 @@ class TestARequestIsCheckedBeforeItIsSent:
     @pytest.mark.parametrize(
         "request_meta",
         [
-            MechMetadata(prompt="", tool=_TOOL, nonce="n"),
-            MechMetadata(prompt="  ", tool=_TOOL, nonce="n"),
+            MechMetadata(prompt=None, tool=_TOOL, nonce="n"),  # type: ignore[arg-type]
             MechMetadata(prompt="Will it rain?", tool="", nonce="n"),
             MechMetadata(
                 prompt="Will it rain?",
@@ -6015,6 +6050,29 @@ class TestARequestIsCheckedBeforeItIsSent:
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert stub.posted_urls == ["https://mech-aa.example/send_signed_requests"]
 
+    def test_an_empty_prompt_is_sent(self) -> None:
+        """A tool that reads its inputs from extra attributes gets an empty prompt."""
+        stub = _StubBehaviour(
+            ranked_mechs=[_FakeMechInfo(_MECH_A, "https://mech-aa.example")],
+            contract_api_responses=_one_attempt_reads(),
+            http_responses=[_make_http_response(200)],
+            mech_requests=[
+                MechMetadata(
+                    prompt="",
+                    tool=_TOOL,
+                    nonce="n",
+                    extra_attributes={"num_questions": 3},
+                )
+            ],
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert stub.posted_urls == ["https://mech-aa.example/send_signed_requests"]
+        sent = json.loads(_form_field(stub.posted_bodies[0], "ipfs_data"))
+        assert sent["prompt"] == ""
+        assert sent["num_questions"] == 3
+
     def test_a_mech_not_listing_the_tool_is_passed_over(self) -> None:
         """The next ranked mech that lists the tool gets it; the first is not penalized."""
         stub = _StubBehaviour(
@@ -6048,8 +6106,26 @@ class TestARequestIsCheckedBeforeItIsSent:
         result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
 
         assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_NO_MECH_SERVES_TOOL
         assert stub.posted_urls == []
         assert stub.signed_request_ids == []
+
+    def test_a_tried_mech_keeps_its_own_failure_label(self) -> None:
+        """Once a mech was sent the request, its outcome labels the cycle."""
+        stub = _StubBehaviour(
+            ranked_mechs=[
+                _FakeMechInfo(_MECH_A, "https://mech-aa.example", {_TOOL}),
+                _FakeMechInfo(_MECH_B, "https://mech-bb.example", {"other-tool"}),
+            ],
+            contract_api_responses=_one_attempt_reads(),
+            http_responses=[_make_http_response(503)],
+            mech_requests=[MechMetadata(prompt="Will it rain?", tool=_TOOL, nonce="n")],
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        assert result.offchain_result == Event.OFFCHAIN_ALL_FAILED.value
+        assert result.last_failure_reason == OFFCHAIN_503_ALL_MECHS
+        assert stub.posted_urls == ["https://mech-aa.example/send_signed_requests"]
 
 
 _MINIMUM_CAP_BODY = json.dumps(

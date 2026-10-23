@@ -72,7 +72,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, Generator, List, NamedTuple, Optional, Set, Tuple
 from urllib.parse import urlencode
 
 from eth_abi import encode as abi_encode  # type: ignore[import-not-found]
@@ -118,6 +118,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     OFFCHAIN_METADATA_OVERSIZE,
     OFFCHAIN_NONCE_TAKEN,
     OFFCHAIN_NO_DELIVERY_RATE_BOUND,
+    OFFCHAIN_NO_MECH_SERVES_TOOL,
     OFFCHAIN_TIMEOUT_ALL_MECHS,
     SCHEMA_VERSION,
     merge_extra_attributes,
@@ -1218,6 +1219,7 @@ class OffchainRequestExecutor:
             deadline = cycle_time + int(self._config.offchain_explicit_deadline_seconds)
 
         attempted: List[str] = []
+        passed_over: Set[str] = set()
         last_failure: Optional[str] = None
         last_outcome: Optional[OffchainAttemptOutcome] = None
 
@@ -1227,9 +1229,15 @@ class OffchainRequestExecutor:
             # resend after a disabled-path refusal is the one exception and
             # refunds it below.
             failovers_left -= 1
-            mech_address, mech_url = self._pick_next_mech(attempted, request_meta.tool)
+            mech_address, mech_url = self._pick_next_mech(
+                attempted, request_meta.tool, passed_over
+            )
             if mech_address is None or mech_url is None:
-                last_failure = self._failure_label_for(last_outcome)
+                last_failure = (
+                    OFFCHAIN_NO_MECH_SERVES_TOOL
+                    if passed_over and not attempted
+                    else self._failure_label_for(last_outcome)
+                )
                 break
 
             attempted.append(mech_address.lower())
@@ -2255,13 +2263,17 @@ class OffchainRequestExecutor:
     # ---------- mech selection ---------------------------------------------
 
     def _pick_next_mech(
-        self, attempted: List[str], tool: Optional[str] = None
+        self,
+        attempted: List[str],
+        tool: Optional[str] = None,
+        passed_over: Optional[Set[str]] = None,
     ) -> Tuple[Optional[str], Optional[str]]:
         """Pick the next ranked mech with a known HTTP URL.
 
         A ranked mech whose manifest tool list is known and does not hold
         ``tool`` is passed over, since it would fail the request at the
-        requester's cost. The list is the one already held in synchronized
+        requester's cost; its lower-cased address is added to ``passed_over``
+        when that set is given. The list is the one already held in synchronized
         data; a mech with no known list, and the static fallback, are not
         checked.
 
@@ -2299,6 +2311,8 @@ class OffchainRequestExecutor:
                         f"Not sending to mech {mech.address}: its manifest does "
                         f"not list the tool {tool!r}."
                     )
+                    if passed_over is not None:
+                        passed_over.add(mech.address.lower())
                     continue
                 url = mech.http_url or self._config.offchain_url
                 if not url:
@@ -2333,9 +2347,10 @@ class OffchainRequestExecutor:
         tracker. ``available_balance`` is that figure lowered to the 402's
         ``currentBalance`` when the mech reports less because of in-flight
         reservations (``None`` means the same as ``tracker_balance``). This
-        request's shortfall is read against the available balance, and the
-        forward top-up against the tracker's, so a lower figure from the mech
-        can raise the deposit by at most this request's ``required``.
+        request's shortfall is read against the available balance, which is
+        negative when reservations exceed the balance, and the forward top-up
+        against the tracker's. The deposit stays within
+        ``auto_deposit_cap_per_cycle``.
 
         ERC20: bundles ``approve(BalanceTracker, deposit_amount) +
         depositFor(safe, deposit_amount)`` atomically through MultiSend.
