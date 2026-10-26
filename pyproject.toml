@@ -62,7 +62,7 @@ pytest_targets = [
     "packages/valory/contracts/mech_marketplace_legacy/tests",
 ]
 upstream_pins = [
-    "valory-xyz/mech@v0.34.2-rc2",
+    "valory-xyz/mech@v0.36.0",
 ]
 tomte_dep_pin = "==0.7.3"
 
