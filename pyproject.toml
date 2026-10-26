@@ -30,7 +30,7 @@ dependencies = [
     "openapi-core<0.23,>=0.22",
     "openapi-spec-validator<0.8.0,>=0.7.0",
     "web3<8,>=7.0.0",
-    "certifi",
+    "certifi>=2026.10.19",
     "multidict",
     "ecdsa>=0.15",
     "py-ecc<10,>=8",

@@ -1539,7 +1539,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.8.5,<4.0.0" },
     { name = "asn1crypto", specifier = ">=1.4.0,<1.5.0" },
     { name = "bases", specifier = ">=0.3,<0.4" },
-    { name = "certifi" },
+    { name = "certifi", specifier = ">=2026.10.19" },
     { name = "click", specifier = ">=8.1.0,<9" },
     { name = "ecdsa", specifier = ">=0.15" },
     { name = "grpcio", specifier = "==1.78.0" },
