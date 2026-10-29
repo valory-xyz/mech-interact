@@ -22,7 +22,7 @@
 import json
 from types import SimpleNamespace
 from typing import Any, Generator, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -32,6 +32,7 @@ from packages.valory.skills.mech_interact_abci.behaviours.response import (
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     MechInteractionResponse,
+    MechRequest,
 )
 
 
@@ -259,59 +260,94 @@ class TestIsLegacyMatch:
 class TestIsMarketplaceMatch:
     """Tests for _is_marketplace_match."""
 
-    def test_first_pending_with_request_ids_matches(self) -> None:
-        """Test marketplace match succeeds for first pending response with requestIds."""
+    def test_takes_the_request_id_paired_with_its_data(self) -> None:
+        """Test the pending response gets the event's request id for its own data."""
         behaviour = _make_response_behaviour()
-        pending = MechInteractionResponse(nonce="n1")
-        request = MagicMock()
-        request.requestIds = ["0x1", "0x2"]
-
-        result = behaviour._is_marketplace_match(
-            pending, request, is_first_pending=True
+        pending = MechInteractionResponse(nonce="n2", data="ccdd")
+        request = MechRequest(
+            requestIds=["0x1", "0x2"], requestDatas=["0xaabb", "0xccdd"]
         )
+
+        result = behaviour._is_marketplace_match(pending, request)
 
         assert result is True
-        assert pending.requestIds == ["0x1", "0x2"]
+        assert pending.requestIds == ["0x2"]
 
-    def test_not_first_pending_does_not_match(self) -> None:
-        """Test marketplace match always fails for non-first pending responses."""
+    def test_data_not_in_event_does_not_match(self) -> None:
+        """Test marketplace match fails when the event does not carry the data."""
         behaviour = _make_response_behaviour()
-        pending = MechInteractionResponse(nonce="n2")
-        request = MagicMock()
-        request.requestIds = ["0x1"]
+        pending = MechInteractionResponse(nonce="n1", data="eeff")
+        request = MechRequest(requestIds=["0x1"], requestDatas=["0xaabb"])
 
-        result = behaviour._is_marketplace_match(
-            pending, request, is_first_pending=False
-        )
+        result = behaviour._is_marketplace_match(pending, request)
+
+        assert result is False
+        assert pending.requestIds == []
+
+    def test_event_without_request_ids(self) -> None:
+        """Test marketplace match fails when the event has no requestIds."""
+        behaviour = _make_response_behaviour()
+        pending = MechInteractionResponse(nonce="n1", data="aabb")
+        request = MechRequest()
+
+        result = behaviour._is_marketplace_match(pending, request)
 
         assert result is False
 
-    def test_first_pending_without_request_ids(self) -> None:
-        """Test marketplace match fails when request has no requestIds."""
+
+class TestProcessRequestEvent:
+    """Tests for _process_request_event."""
+
+    def test_asks_the_parser_for_the_request_datas(self) -> None:
+        """Test the event parser is asked for the data that marketplace matching pairs ids with."""
+        calls = []
+
+        def interact(**kwargs: Any) -> Generator[None, None, bool]:
+            calls.append(kwargs)
+            return True
+            yield  # pylint: disable=unreachable
+
         behaviour = _make_response_behaviour()
-        pending = MechInteractionResponse(nonce="n1")
-        request = MagicMock()
-        request.requestIds = []
+        with (
+            patch.object(
+                MechResponseBehaviour,
+                "mech_contract_interact",
+                new_callable=PropertyMock,
+                return_value=interact,
+            ),
+            patch.object(
+                MechResponseBehaviour, "synchronized_data", new_callable=PropertyMock
+            ),
+        ):
+            gen = behaviour._process_request_event()
+            with pytest.raises(StopIteration):
+                next(gen)
 
-        result = behaviour._is_marketplace_match(
-            pending, request, is_first_pending=True
-        )
+        assert calls[0]["contract_callable"] == "process_request_event"
+        assert calls[0]["include_request_datas"] is True
 
-        assert result is False
 
-    def test_first_pending_missing_request_ids_attr(self) -> None:
-        """Test marketplace match fails when request lacks requestIds attribute."""
-        behaviour = _make_response_behaviour()
-        pending = MechInteractionResponse(nonce="n1")
-        request = SimpleNamespace(data="abc")  # no requestIds attr
+class TestSetCurrentResponse:
+    """Tests for _set_current_response."""
 
-        result = behaviour._is_marketplace_match(
-            pending,
-            request,  # type: ignore[arg-type]
-            is_first_pending=True,
-        )
+    @patch.object(MechResponseBehaviour, "should_use_marketplace_v2", return_value=True)
+    def test_marketplace_event_selects_its_own_pending_response(
+        self, _mock: MagicMock
+    ) -> None:
+        """Test an event for the second pending request does not claim the first."""
+        first = MechInteractionResponse(nonce="n1", data="aabb")
+        second = MechInteractionResponse(nonce="n2", data="ccdd")
+        behaviour = _make_response_behaviour(_mech_responses=[first, second])
+        behaviour._context.shared_state = {}
+        behaviour._context.params.use_mech_marketplace = True
+        request = MechRequest(requestIds=["0x2"], requestDatas=["0xccdd"])
 
-        assert result is False
+        behaviour._set_current_response(request)
+
+        assert behaviour.current_mech_response is second
+        assert second.requestIds == ["0x2"]
+        assert first.requestIds == []
+        behaviour.context.logger.warning.assert_not_called()
 
 
 class TestCheckMatch:
@@ -325,12 +361,12 @@ class TestCheckMatch:
         behaviour = _make_response_behaviour()
         behaviour._context.params.use_mech_marketplace = True
 
-        pending = MechInteractionResponse(nonce="n1")
-        request = MagicMock()
-        request.requestIds = ["0xabc"]
+        pending = MechInteractionResponse(nonce="n1", data="aabb")
+        request = MechRequest(requestIds=["0xabc"], requestDatas=["0xaabb"])
 
-        result = behaviour._check_match(pending, request, is_first_pending=True)
+        result = behaviour._check_match(pending, request)
         assert result is True
+        assert pending.requestIds == ["0xabc"]
 
     def test_dispatches_to_legacy_when_marketplace_disabled(self) -> None:
         """Test _check_match delegates to legacy match when marketplace is disabled."""
@@ -342,7 +378,7 @@ class TestCheckMatch:
         request.data = b"\xaa\xbb"
         request.requestId = 5
 
-        result = behaviour._check_match(pending, request, is_first_pending=True)
+        result = behaviour._check_match(pending, request)
         assert result is True
         assert pending.requestId == 5
 
@@ -359,7 +395,7 @@ class TestCheckMatch:
         request.data = b"\xcc\xdd"
         request.requestId = 10
 
-        result = behaviour._check_match(pending, request, is_first_pending=True)
+        result = behaviour._check_match(pending, request)
         assert result is True
 
 

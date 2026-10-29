@@ -212,7 +212,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         return self._mech_contract_interact
 
-    def _process_request_event(self) -> WaitableConditionType:  # pragma: no cover
+    def _process_request_event(self) -> WaitableConditionType:
         """Process the request event."""
 
         result = yield from self.mech_contract_interact(
@@ -222,6 +222,7 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
             tx_hash=self.synchronized_data.final_tx_hash,
             expected_logs=len(self._mech_responses),
             chain_id=self.params.mech_chain_id,
+            include_request_datas=True,
         )
         return result
 
@@ -513,28 +514,19 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
 
         return True
 
-    def _set_current_response(self, request: MechRequest) -> None:  # pragma: no cover
+    def _set_current_response(self, request: MechRequest) -> None:
         """Set the current Mech response by matching parsed event data to a pending response."""
         self.context.logger.info(f"Attempting to match parsed event request: {request}")
 
-        for i, pending_response in enumerate(self._mech_responses):
-            is_match = self._check_match(pending_response, request, i == 0)
-
-            if is_match:
+        for pending_response in self._mech_responses:
+            if self._check_match(pending_response, request):
                 self.current_mech_response = pending_response
                 return  # Return immediately after finding a match
 
         # If the loop completes without returning, no match was found.
-        flow_type = (
-            "Marketplace (Temporary Logic)"
-            if self.params.use_mech_marketplace
-            else "Legacy"
-        )
         self.context.logger.error(
             f"Could not find a matching pending response for parsed request event: {request}. "
-            f"Flow: {flow_type}. "
-            f"This might be due to differences in the 'data' field (legacy), state tracking issues, "
-            f"or limitations of the temporary marketplace matching. "
+            f"This might be due to differences in the 'data' field or state tracking issues. "
             f"Response processing for this request might fail."
         )
 
@@ -559,51 +551,30 @@ class MechResponseBehaviour(MechInteractBaseBehaviour):
         return match
 
     def _is_marketplace_match(
-        self,
-        pending_response: MechInteractionResponse,
-        request: MechRequest,
-        is_first_pending: bool,
+        self, pending_response: MechInteractionResponse, request: MechRequest
     ) -> bool:
-        """Check if a marketplace pending response matches the request (TEMPORARY LOGIC)."""
-        # NOTE: Replace this temporary logic with robust matching for multiple concurrent marketplace requests if,
-        # in the future, we need to support multiple concurrent requests.
-        # This currently assumes the first pending response corresponds to the first event.
-        if not is_first_pending:
-            # Current temporary logic only attempts to match the first pending response.
-            return False
+        """Check if a marketplace pending response matches the request based on data.
 
-        if not hasattr(request, "requestIds") or not request.requestIds:
-            self.context.logger.warning(
-                "Marketplace flow active for first pending response, "
-                f"but parsed request lacks 'requestIds' or list is empty: {request}"
-            )
-            return False
-
-        # Log the warning only when attempting the temporary match on the first item
-        self.context.logger.warning(
-            "Marketplace flow: Using TEMPORARY matching logic. Assuming the first pending response "
-            "corresponds to the received event request. This is unsafe for multiple concurrent requests."
-        )
-
-        # If it's the first pending response and the request has IDs, assume it's a match (temporary)
-        pending_response.requestIds = list(request.requestIds)
-        self.context.logger.info(
-            f"Updated (first) pending_response.requestIds: {pending_response.requestIds} (TEMPORARY MATCH)"
-        )
-        return True
+        The event lists each request id next to the data it was requested with,
+        so the pending response takes the id paired with its own data.
+        """
+        for request_id, request_data in zip(request.requestIds, request.requestDatas):
+            if request_data.removeprefix(Ox) == pending_response.data:
+                self.context.logger.info(
+                    f"Matched MARKETPLACE pending response (Nonce: {pending_response.nonce}) "
+                    f"to request ID {request_id} based on data field matching. "
+                    f"Data: {request_data}"
+                )
+                pending_response.requestIds = [request_id]
+                return True
+        return False
 
     def _check_match(
-        self,
-        pending_response: MechInteractionResponse,
-        request: MechRequest,
-        is_first_pending: bool,
+        self, pending_response: MechInteractionResponse, request: MechRequest
     ) -> bool:
         """Check if a pending response matches the request based on the flow."""
         if self.params.use_mech_marketplace and self.should_use_marketplace_v2():
-            # Marketplace flow: TEMPORARY logic - attempts to match only the first pending response.
-            return self._is_marketplace_match(
-                pending_response, request, is_first_pending
-            )
+            return self._is_marketplace_match(pending_response, request)
 
         # Legacy flow: Match based on data field comparison.
         return self._is_legacy_match(pending_response, request)

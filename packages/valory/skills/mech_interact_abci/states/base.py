@@ -178,7 +178,8 @@ class MechRequest:
 
     data: Union[str, bytes] = ""
     requestId: int = 0
-    requestIds: List[int] = field(default_factory=list)
+    requestIds: List[Union[int, str]] = field(default_factory=list)
+    requestDatas: List[str] = field(default_factory=list)
     numRequests: int = 0
 
 
