@@ -10,13 +10,13 @@ requires-python = ">=3.10,<3.15"
 readme = "README.md"
 license = "Apache-2.0"
 dependencies = [
-    "open-autonomy==0.21.28",
-    "open-aea==2.2.9",
-    "open-aea-ledger-ethereum==2.2.9",
-    "open-aea-ledger-cosmos==2.2.9",
-    "open-aea-cli-ipfs==2.2.9",
-    "open-aea-test-autonomy==0.21.28",
-    "open-aea-helpers==0.21.28",
+    "open-autonomy==0.21.30",
+    "open-aea==2.2.10",
+    "open-aea-ledger-ethereum==2.2.10",
+    "open-aea-ledger-cosmos==2.2.10",
+    "open-aea-cli-ipfs==2.2.10",
+    "open-aea-test-autonomy==0.21.30",
+    "open-aea-helpers==0.21.30",
     "requests>=2.28.1",
     "aiohttp<4.0.0,>=3.8.5",
     "asn1crypto<1.5.0,>=1.4.0",
@@ -30,7 +30,7 @@ dependencies = [
     "openapi-core<0.23,>=0.22",
     "openapi-spec-validator<0.8.0,>=0.7.0",
     "web3<8,>=7.0.0",
-    "certifi",
+    "certifi>=2026.10.19",
     "multidict",
     "ecdsa>=0.15",
     "py-ecc<10,>=8",
@@ -62,7 +62,7 @@ pytest_targets = [
     "packages/valory/contracts/mech_marketplace_legacy/tests",
 ]
 upstream_pins = [
-    "valory-xyz/mech@v0.34.2-rc2",
+    "valory-xyz/mech@v0.36.0",
 ]
 tomte_dep_pin = "==0.7.3"
 
