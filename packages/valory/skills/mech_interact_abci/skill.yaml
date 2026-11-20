@@ -81,7 +81,7 @@ contracts:
 - valory/ierc1155:0.1.0:bafybeiftkq3sksnjabnwntb6akm5adnfahss3tswkd5e3yrmnny5os32zu
 - valory/nvm_balance_tracker_token:0.1.0:bafybeieyp3qk52hcdjekmengxyy344q2hngnuvgoikrbaoyhodhu5onslm
 - valory/nvm_balance_tracker_native:0.1.0:bafybeiaaztpgdyscpuqauzgcy65zywbtkuuqwt3cnlrwt5aohiyds37j54
-- valory/balance_tracker:0.1.0:bafybeihpxw2kjr523alay3pda352co5ytqyjsiwvwvjygdy4r2fuk264om
+- valory/balance_tracker:0.1.0:bafybeihs37t7bqa4tarqzcar6gzlfu3prx4tcex34w74yem7hud7ofjgja
 - valory/balance_tracker_fixed_price_native:0.1.0:bafybeie2y2wht5eq3lw2ptjtygjpjkxkzayjwjjbut74wsxtb575tlvyd4
 - valory/mech_marketplace:0.1.0:bafybeidk67435jzze4pyrqjixspubbsb2rvpe7jobnhttxavi3s3upu7ne
 - valory/escrow_payment_condition:0.1.0:bafybeihvatfnl5ttmuqjj5fehv7eblvcl2cqls66foaiwegw3u2qyk2heq

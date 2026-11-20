@@ -13,7 +13,7 @@
         "contract/valory/agreement_store_manager/0.1.0": "bafybeicd4xl4wiprm6zokoshylfjbdkoui6ece6zxh645sjmfecm6jb6by",
         "contract/valory/transfer_nft_condition/0.1.0": "bafybeiagyephkopic6vxkjeooyjrbu7jqgyyvyag5rqcsjpxdigjourzvi",
         "contract/valory/subscription_provider/0.1.0": "bafybeicy74abpnvu34htjd3stixvotdi7xejzsgdqg5dbbfjn4qmvdonfm",
-        "skill/valory/mech_interact_abci/0.1.0": "bafybeiby46jynmaenvr7obj6kwc6tl3clkaagtoxpg6bdqdzefil7ltoce"
+        "skill/valory/mech_interact_abci/0.1.0": "bafybeiblo742wmd6tv3ttu2qalksh45hzsmw2xu3yqgbqzr4gx5ffsi3da"
     },
     "third_party": {
         "protocol/valory/acn_data_share/0.1.0": "bafybeieqisfr6lhaaesq37lk7vyaxza2h6nucshksgyo2djqfyf2saqo4i",
@@ -25,7 +25,7 @@
         "protocol/valory/abci/0.1.0": "bafybeiak4pwac3pwjtd7weskxdhkrcopckr32vtazfbuteu6yqjkwarpte",
         "protocol/valory/tendermint/0.1.0": "bafybeihzb7e32f7jcrzvubilqaxzmyk7ea6ss3pg3tliatdlrr76qeknyq",
         "protocol/valory/ipfs/0.1.0": "bafybeibz5xqhxdbuvba7nuw2w6ardjermtcoqercopnypdplnaekf3joam",
-        "contract/valory/balance_tracker/0.1.0": "bafybeihpxw2kjr523alay3pda352co5ytqyjsiwvwvjygdy4r2fuk264om",
+        "contract/valory/balance_tracker/0.1.0": "bafybeihs37t7bqa4tarqzcar6gzlfu3prx4tcex34w74yem7hud7ofjgja",
         "contract/valory/balance_tracker_fixed_price_native/0.1.0": "bafybeie2y2wht5eq3lw2ptjtygjpjkxkzayjwjjbut74wsxtb575tlvyd4",
         "contract/valory/mech_marketplace/0.1.0": "bafybeidk67435jzze4pyrqjixspubbsb2rvpe7jobnhttxavi3s3upu7ne",
         "contract/valory/multisend/0.1.0": "bafybeibyx4c6bpkragj5j2augv27til6xrdlnpgyrlttg5dsccxje4yis4",
@@ -35,7 +35,7 @@
         "contract/valory/gnosis_safe/0.1.0": "bafybeifv2ajl76hvtpdtcv2alkislkqr5t7jcyspd5cimmnkfhnyemeux4",
         "contract/valory/erc20/0.1.0": "bafybeigafpclygxbid3tbtavpjtz4rxqi4j7uwqlhxbumdm6itzmat6m3m",
         "contract/valory/agent_mech/0.1.0": "bafybeic3oixev5nonyeq7rfxn4kcsqwzqri2kn64as7ushhvhj5autbzhi",
-        "contract/valory/olas_mech/0.1.0": "bafybeiapcdgr7g3kux6nrs33ttohfupj4zi4mzl3uhbvyd5i6zjqhefb6u",
+        "contract/valory/olas_mech/0.1.0": "bafybeiczz7qtmmykge2b3qtpsjltgpbzwo2hx3jv5ko3hkas2tfsgtjo6y",
         "connection/valory/http_client/0.23.0": "bafybeihel6sg2yayxu7lqygaswdgciaxpqrgsbl5rwx74c6znu5qz2edd4",
         "connection/valory/p2p_libp2p_client/0.1.0": "bafybeielj3jso3wvrarp5n5rq7llpw4vgxybqiyensgjalb5ubfiawwhhu",
         "connection/valory/ledger/0.19.0": "bafybeicynh5l5f5f5jpx72qwzis7jvmxk5p4eqltk32uxbj2pgu2x4rqz4",
