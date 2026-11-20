@@ -2,7 +2,7 @@
 
 Below, we describe the additional manual steps required to upgrade between different versions:
 
-## Unreleased (built with `open-aea@2.2.6` and `open-autonomy@0.21.22`)
+## Unreleased (built with `open-aea@2.2.10` and `open-autonomy@0.21.30`)
 
 #### Breaking Changes
 - `delivery_rate_cap` (under `mechs_subgraph`) is replaced by the
