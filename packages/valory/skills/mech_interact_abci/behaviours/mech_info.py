@@ -22,7 +22,7 @@
 
 import json
 import re
-from typing import Any, Dict, Generator, List, Optional, Set
+from typing import Any, Dict, Generator, List, Optional, Set, Tuple
 
 from packages.valory.skills.mech_interact_abci.behaviours.base import (
     MechInteractBaseBehaviour,
@@ -38,6 +38,10 @@ from packages.valory.skills.mech_interact_abci.models import (
     MechsSubgraphResponseType,
 )
 from packages.valory.skills.mech_interact_abci.payloads import JSONPayload
+from packages.valory.skills.mech_interact_abci.payment_types import (
+    PAYMENT_ASSETS,
+    PaymentType,
+)
 from packages.valory.skills.mech_interact_abci.states.base import MechInfoEncoder
 from packages.valory.skills.mech_interact_abci.states.mech_info import (
     MechInformationRound,
@@ -73,6 +77,70 @@ def manifest_tools(raw: Any) -> Set[str]:
             if len(tools) == MAX_TOOLS_PER_MECH:
                 break
     return set(tools)
+
+
+# An expected cost is signed into a contract call, so it is a positive
+# decimal string that fits a uint256.
+MAX_AMOUNT_DIGITS = 78
+UINT256_MAX = 2**256 - 1
+
+
+def _base_units(value: Any) -> Optional[int]:
+    """Read a manifest amount: a positive decimal integer string within uint256.
+
+    :param value: the raw ``amount`` value.
+    :return: the amount, or None when it is not one.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text.isascii() or not text.isdecimal() or len(text) > MAX_AMOUNT_DIGITS:
+        return None
+    amount = int(text)
+    return amount if 0 < amount <= UINT256_MAX else None
+
+
+def manifest_expected_costs(payload: Any) -> Dict[str, Tuple[str, int]]:
+    """The expected cost each tool publishes under ``toolMetadata``.
+
+    :param payload: the parsed manifest.
+    :return: ``(asset, amount)`` by lowercase tool name; a tool whose entry
+        is missing or malformed is left out.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    tool_metadata = payload.get("toolMetadata")
+    if not isinstance(tool_metadata, dict):
+        return {}
+    costs: Dict[str, Tuple[str, int]] = {}
+    for tool, entry in tool_metadata.items():
+        if not isinstance(tool, str) or not isinstance(entry, dict):
+            continue
+        block = entry.get("expectedCost")
+        if not isinstance(block, dict):
+            continue
+        asset = block.get("asset")
+        amount = _base_units(block.get("amount"))
+        if not isinstance(asset, str) or not asset.strip() or amount is None:
+            continue
+        costs[tool.strip().lower()] = (asset.strip().lower(), amount)
+    return costs
+
+
+def costs_in_asset(
+    costs: Dict[str, Tuple[str, int]], payment_type: str
+) -> Dict[str, int]:
+    """The expected costs stated in the asset a mech is paid in.
+
+    :param costs: ``manifest_expected_costs`` output.
+    :param payment_type: the mech's ``paymentType`` selector, hex.
+    :return: amount by tool; empty for an unknown payment type.
+    """
+    try:
+        asset = PAYMENT_ASSETS[PaymentType(str(payment_type).lower())]
+    except (ValueError, KeyError):
+        return {}
+    return {tool: amount for tool, (name, amount) in costs.items() if name == asset}
 
 
 class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
@@ -175,13 +243,26 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
             # behaviour falls back to ``MechMarketplaceConfig.offchain_url``
             # for those mechs.
             manifest_url = self._extract_manifest_url(res_raw)
+            expected_costs = manifest_expected_costs(self._manifest_payload(res_raw))
             for mech in mechs:
                 mech.relevant_tools |= metadata_tools
+                mech.expected_costs = costs_in_asset(expected_costs, mech.payment_type)
                 if manifest_url is not None:
                     mech.http_url = manifest_url
             self.mech_tools_api.reset_retries()
 
         return True
+
+    @staticmethod
+    def _manifest_payload(res_raw: Any) -> Any:
+        """Parse the full manifest body, or None when it is missing or unparseable."""
+        body = getattr(res_raw, "body", None)
+        if not body:
+            return None
+        try:
+            return loads_bounded(body)
+        except (TypeError, ValueError, RecursionError):
+            return None
 
     def _extract_manifest_url(self, res_raw: Any) -> Optional[str]:
         """Parse the manifest body once more to extract the off-chain ``url``.
@@ -193,13 +274,7 @@ class MechInformationBehaviour(QueryingBehaviour, MechInteractBaseBehaviour):
         callers treat that as ``http_url`` simply not being published yet
         for the mechs sharing this CID.
         """
-        body = getattr(res_raw, "body", None)
-        if not body:
-            return None
-        try:
-            payload = loads_bounded(body)
-        except (TypeError, ValueError, RecursionError):
-            return None
+        payload = self._manifest_payload(res_raw)
         if not isinstance(payload, dict):
             return None
         url = payload.get("url")

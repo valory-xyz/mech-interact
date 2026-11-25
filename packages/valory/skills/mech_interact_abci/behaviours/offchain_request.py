@@ -103,10 +103,12 @@ from packages.valory.skills.mech_interact_abci.models import (
     NONCE_MODE_EXPLICIT,
     NONCE_MODE_SEQUENTIAL,
     delivery_rate_bound,
+    offchain_offer,
 )
 from packages.valory.skills.mech_interact_abci.states.base import (
     Event,
     INVALID_REQUEST,
+    MechInfo,
     MechInteractionResponse,
     MechMetadata,
     OFFCHAIN_402_INSUFFICIENT,
@@ -1248,7 +1250,7 @@ class OffchainRequestExecutor:
                 continue
 
             delivery_rate = self._resolve_delivery_rate(
-                mech_address, payment_type_bytes
+                mech_address, payment_type_bytes, request_meta.tool
             )
             if delivery_rate is None:
                 self._b.shared_state.penalize_mech(mech_address)
@@ -2070,23 +2072,24 @@ class OffchainRequestExecutor:
         return payment_type
 
     def _resolve_delivery_rate(
-        self, mech_address: str, payment_type: bytes
+        self, mech_address: str, payment_type: bytes, tool: Optional[str] = None
     ) -> Optional[int]:
-        """The cap signed into the request: the agent's own bound for this mech.
+        """The rate signed into the request for this mech and tool.
 
         This is the one place the signed rate comes from: it is what the
         request id binds, what the 402 shortfall is checked against and what
         the deposit is sized from. The bound is the ``delivery_rate_caps``
         entry for the mech's payment asset, lowered to the rate the consumer
-        approved for the mech. The mech charges its actual cost at or below
-        it and the marketplace refuses a settlement above it, so the mech's
-        on-chain ``maxDeliveryRate`` has no part in what this agent pays
-        off-chain; discovery still filters mechs by it, since on-chain
-        requests pay it.
+        approved for the mech; the agent never signs above it. Within it the
+        offer follows ``offchain_offer``: a multiple of the tool's expected
+        cost for a mech that publishes one, else the mech's on-chain
+        ``maxDeliveryRate``, which a mech without published costs charges in
+        full.
 
         :param mech_address: the mech about to be requested.
         :param payment_type: the mech's ``paymentType`` selector.
-        :return: the cap, or None when the mech may not be requested: an
+        :param tool: the requested tool, for its expected cost.
+        :return: the rate, or None when the mech may not be requested: an
             unknown payment type, an asset without a cap, or a bound of
             nothing. A cap of ``0`` would also collapse the deposit sizing in
             ``_compute_deposit_amount`` to the bare shortfall.
@@ -2104,7 +2107,27 @@ class OffchainRequestExecutor:
                 f"payment type {payment_type_hex} (bound {bound})."
             )
             return None
-        return bound
+        info = self._known_mech(mech_address)
+        expected_cost = (
+            info.expected_costs.get(tool) if info is not None and tool else None
+        )
+        max_delivery_rate = info.max_delivery_rate if info is not None else 0
+        return offchain_offer(bound, expected_cost, max_delivery_rate)
+
+    def _known_mech(self, mech_address: str) -> Optional[MechInfo]:
+        """The discovered information for ``mech_address``, or None when it is not known.
+
+        A static ``priority_mech_address`` outside discovery has none, and is
+        offered the bound as before.
+
+        :param mech_address: the mech's address.
+        :return: its ``MechInfo``, or None.
+        """
+        address = mech_address.lower()
+        for info in self._synced.mechs_info:
+            if info.address.lower() == address:
+                return info
+        return None
 
     # ---------- 402 destination validation ---------------------------------
 

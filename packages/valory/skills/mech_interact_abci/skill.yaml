@@ -12,9 +12,9 @@ fingerprint:
   __init__.py: bafybeic6zmplvwsgp5gh2rse2ushtaqnodvmb4kxooace5ghabz4exqbt4
   behaviours/__init__.py: bafybeifgcheyski75lgbvssqy6czxq55gnqpjddexhprpsazeczqwkl46q
   behaviours/base.py: bafybeid5dma3o2jykbd6v6btr56pyh2uayy4lngcrpo5rv4e3trk5qjfca
-  behaviours/mech_info.py: bafybeihy5wf6w2vxghe3mrf46s6upzv7trjh54a4ihs5vv6ro3ewqjbgnm
+  behaviours/mech_info.py: bafybeibndphgpsrjfbucss7bs3yoe6kzaz3hn37pya6pkxwnu7ingybvai
   behaviours/mech_version.py: bafybeihxptnxmqslzfbquioym55l7holeykdtsd3avxy737qrocb5mmebu
-  behaviours/offchain_request.py: bafybeicixju7ju6aziatamrm3ulr2wfh3eiptrd5y7iyxme3pbhmluvs7i
+  behaviours/offchain_request.py: bafybeieoggj5jdq7oafbpsm3eamp426azr4urz2fas43ejhieh65cklsxq
   behaviours/offchain_response.py: bafybeiazwep27k2mjfurxte2ikl53aaoixcmn4nn4bh42aauovdp26qque
   behaviours/purchase_subcription.py: bafybeieet7du56scd2cltnuy7xlvvrapvk7ugmnv426k2xfnmim4wj5bfy
   behaviours/request.py: bafybeigjszcddphq4jxme4gaeyc34xic5dcqdwdxgzyod4aycp44up4lya
@@ -28,12 +28,12 @@ fingerprint:
   graph_tooling/requests.py: bafybeigxpeeoqm6t736ue5js6bmpftweunvw57ymkdk2h5a7pceocwvzbq
   handlers.py: bafybeifksdx5y5cod6mdnekqsjr36voedjlc3wjp2as4or5ltvl4mkyj5e
   mech_reader.py: bafybeie2kndd3w3bvkwm2mt6iwtzgtljczawqsgvatgzbcaeyu2rampafy
-  models.py: bafybeifnffm5sbt6il3ggtdagnydxltcgfa6fx56rvnnzzk3nzeupkfnhu
+  models.py: bafybeicvlo7xmmsqgk2xsgu5oa333ukig2wbgz6shrzcsae4xipfngp4sa
   payloads.py: bafybeict2xbdyk7caajfprlzralqeiyrk7avvbh5gn2hni42edbtqbl7nm
-  payment_types.py: bafybeicdmeke6c4nmttukmk6cftvhb6ifenev5pfne5mp6yx7ma7dkyur4
+  payment_types.py: bafybeidozptmgdli3lr4kvxbl5nou3ify66njleikm4sbzaiaornk4vdke
   rounds.py: bafybeihi64plsdpu2u6zf7lzplcjm3xguueoqsio2gqfpo2oi6yxbaeuma
   states/__init__.py: bafybeibq6l52a6f6vnm273rfgqbps3mffmgzmgujcm5igomgtelgflo5xm
-  states/base.py: bafybeihz3mupiuin73ouxzsyrr6svu5xuzastzitedc6s6yjqhihherfke
+  states/base.py: bafybeibiyniajq2ie7ous34f4juwulsoo3l36rm6k3qiaivhlz6w3y44jm
   states/final_states.py: bafybeiflwvwybwaa3q3bcqhbmr7ifh6ubc3dipyod7mag5o73bekmpsev4
   states/mech_info.py: bafybeihbbas6sjgcidewq623kvev4yxxrprvjmnhrgqxhpuazq6o3cmlpq
   states/mech_version.py: bafybeig62u4mklkod7gz7h2sh5ytm42nnryltyqaze2w52ovjaa6q7ogma
@@ -45,7 +45,7 @@ fingerprint:
   tests/behaviours/conftest.py: bafybeiemvv76bfkkzg5v7co6ayz4kfmhnbzgptxhjwrvb74hgum2oixtxm
   tests/behaviours/test_base.py: bafybeih5gzn23htrkovh4mrlycygbpjdc4smq27hgfptrlg7ekndybavjy
   tests/behaviours/test_mech_version.py: bafybeidmjgq2cwqafq36j7irm4nf53ca6imkyvtbtetscltqwiu6ebb444
-  tests/behaviours/test_offchain_request_helpers.py: bafybeidj4js435td6wqh7ubtck6elh4s7edk6v2bubztumrhgmnpfvhoke
+  tests/behaviours/test_offchain_request_helpers.py: bafybeicu6ycaraxjlygzvhozldg645kdh3rj6stiikgvh5gm4xjnzeayey
   tests/behaviours/test_offchain_response_poller.py: bafybeibffiyhtgnvrgqejfnx5byri4vgzcs5msmanha2jansbkox6qs3em
   tests/behaviours/test_purchase_subscription.py: bafybeih2nd26wx6dpvycl2xlewmgqirjtwwtu6ge3gu4dhpby2aoogml5u
   tests/behaviours/test_request.py: bafybeifauz775whgdxrbrvraoafkc7hlbrit7ryxuiikbugjw6iphn5ha4
@@ -57,7 +57,7 @@ fingerprint:
   tests/test_dialogues.py: bafybeicztq6kz273kpq6qtp4arh5btyovj7tiwcyy227bomblv52rx2rjq
   tests/test_graph_tooling.py: bafybeiaxihwxdhsjodefdbu42qibeqyhexdob3sqfs5hyo5ylgg7xzpzg4
   tests/test_handlers.py: bafybeihvo4mw3f3oizodlnysaw5nyup7rd3pm4zt2xkaa7nj6rr62vbjhq
-  tests/test_mech_info_behaviour.py: bafybeigvpoknjeaottpxr6xlx3eexn3j6rv3eaazl4yepkpbnhvl4axxma
+  tests/test_mech_info_behaviour.py: bafybeicfhlthyx57s53m7u2br5xjy4ewecf46n3g6zavb7wwdakvrnecke
   tests/test_mech_reader.py: bafybeia5brfoaqqam3ngtsaqtudxtdqe4svjgl6dpmqoidb5b5lva24bbm
   tests/test_mech_reader_skill.py: bafybeigqvntpl3th62gsgc5qbt4l7ah2d6psn5u7hlauezjv6ss432julu
   tests/test_models.py: bafybeifl4m5vukj27qhiypi4h7jeke243ffy5iblhjxubzb7uxry5zdviy

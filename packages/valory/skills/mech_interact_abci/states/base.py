@@ -342,6 +342,9 @@ class MechInfo:
     # offchain rollout; consumers fall back to the static ``offchain_url``
     # config when None.
     http_url: Optional[str] = None
+    # Expected cost per tool from the manifest's ``toolMetadata``, in the
+    # mech's payment asset; a tool is absent when the mech publishes none.
+    expected_costs: Dict[str, int] = field(default_factory=dict)
 
     def __post_init__(
         self,

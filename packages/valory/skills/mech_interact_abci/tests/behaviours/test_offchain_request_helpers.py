@@ -1326,6 +1326,7 @@ class _StubBehaviour:
         mech_wrapped_native_token_address: Optional[str] = None,
         delivery_rate_caps: Optional[Dict[PaymentType, int]] = None,
         approved_mech_rates: Optional[Dict[str, int]] = None,
+        mechs_info: Optional[List[Any]] = None,
         # Sequential here, not the skill's default: the slot tests below
         # predate the explicit mode and read the counter on purpose. The
         # default itself is asserted against ``MechMarketplaceConfig``.
@@ -1387,6 +1388,7 @@ class _StubBehaviour:
             safe_contract_address="0x" + "cc" * 20,
             offchain_pending_request=offchain_pending_request,
             approved_mech_rates=approved_mech_rates or {},
+            mechs_info=mechs_info or [],
         )
         self._contract_api_responses = list(contract_api_responses)
         self._http_responses = list(http_responses)
@@ -6186,3 +6188,116 @@ class TestACapBelowTheMinimumFailsOver:
             )
             == OFFCHAIN_BELOW_MINIMUM_CAP
         )
+
+
+# A mech's discovered information as the per-mech offer reads it.
+_OFFER_MECH = "0x" + "aa" * 20
+_OFFER_TOOL = "t"
+_OFFER_CAP = 10**16
+
+
+def _discovered(
+    expected_costs: Dict[str, int], max_delivery_rate: int, address: str = _OFFER_MECH
+) -> SimpleNamespace:
+    """A discovered mech with the fields the offer uses."""
+    return SimpleNamespace(
+        address=address,
+        expected_costs=expected_costs,
+        max_delivery_rate=max_delivery_rate,
+    )
+
+
+def _offer_stub(mechs_info: List[Any], **overrides: Any) -> "_StubBehaviour":
+    """A stub that sends one native request to ``_OFFER_MECH`` and is accepted."""
+    kwargs: Dict[str, Any] = {
+        "ranked_mechs": [_FakeMechInfo(_OFFER_MECH, "https://mech-aa.example")],
+        "contract_api_responses": [
+            _state_resp({"data": 100}),
+            _state_resp({"data": 7}),
+            _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+        ],
+        "http_responses": [_make_http_response(200)],
+        "delivery_rate_caps": {PaymentType.NATIVE: _OFFER_CAP},
+        "mechs_info": mechs_info,
+    }
+    kwargs.update(overrides)
+    return _StubBehaviour(**kwargs)
+
+
+class TestPerMechOffer:
+    """The signed rate follows the mech: expected cost when published, else its on-chain rate."""
+
+    @pytest.mark.parametrize(
+        "mechs_info, signed",
+        [
+            # priced: twice the tool's expected cost
+            ([_discovered({_OFFER_TOOL: 3 * 10**15}, 10**15)], 6 * 10**15),
+            # priced, twice the expected cost above the cap: the cap
+            ([_discovered({_OFFER_TOOL: 8 * 10**15}, 10**15)], _OFFER_CAP),
+            # priced, the expected cost alone above the cap: still the cap
+            ([_discovered({_OFFER_TOOL: 2 * _OFFER_CAP}, 10**15)], _OFFER_CAP),
+            # unpriced: the mech's on-chain rate
+            ([_discovered({}, 5 * 10**15)], 5 * 10**15),
+            # unpriced, on-chain rate above the cap: the cap
+            ([_discovered({}, 3 * _OFFER_CAP)], _OFFER_CAP),
+            # another tool priced, this one not: the on-chain rate
+            ([_discovered({"other": 3 * 10**15}, 4 * 10**15)], 4 * 10**15),
+            # unpriced with no known on-chain rate: the cap
+            ([_discovered({}, 0)], _OFFER_CAP),
+            # mech not discovered (static priority mech): the cap
+            (
+                [_discovered({_OFFER_TOOL: 10**15}, 10**15, "0x" + "bb" * 20)],
+                _OFFER_CAP,
+            ),
+            ([], _OFFER_CAP),
+        ],
+    )
+    def test_signed_rate_follows_the_mech(
+        self, mechs_info: List[Any], signed: int
+    ) -> None:
+        """The posted delivery rate is the per-mech offer, never above the cap."""
+        stub = _offer_stub(mechs_info)
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+        assert result.offchain_result == Event.OFFCHAIN_DONE.value
+        assert _form_field(stub.posted_bodies[0], "delivery_rate") == str(signed)
+
+    def test_an_approved_rate_still_lowers_a_priced_offer(self) -> None:
+        """The consumer's accepted rate bounds the offer like the cap does."""
+        stub = _offer_stub(
+            [_discovered({_OFFER_TOOL: 3 * 10**15}, 10**15)],
+            approved_mech_rates={_OFFER_MECH: 2 * 10**15},
+        )
+        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+        assert _form_field(stub.posted_bodies[0], "delivery_rate") == str(2 * 10**15)
+
+    def test_the_deposit_is_sized_from_the_per_mech_offer(self) -> None:
+        """A 402 deposit covers the target calls at the offer, not at the cap."""
+        from packages.valory.skills.transaction_settlement_abci.payload_tools import (
+            skill_input_hex_to_payload,
+        )
+
+        tracker = "0x" + "11" * 20
+        offer = 6 * 10**15
+        stub = _offer_stub(
+            [_discovered({_OFFER_TOOL: offer // 2}, 10**15)],
+            contract_api_responses=[
+                _state_resp({"data": 100}),
+                _state_resp({"data": 7}),
+                _state_resp({"payment_type": _NATIVE_PAYMENT_TYPE}),
+                _state_resp({"data": tracker}),
+                _state_resp({"requester_balance": 0}),
+                _state_resp({"data": b"\x01\x02\x03"}),
+                _state_resp({"tx_hash": "0x" + "fe" * 32}),
+            ],
+            http_responses=[
+                _make_http_response(
+                    402, _make_402_body(pay_to=tracker, required=500, current=0)
+                ),
+            ],
+            ledger_api_responses=[_ledger_balance_resp(10 * 10**18)],
+            auto_deposit_cap=10**18,
+            deposit_target_calls=10,
+        )
+        result = _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+        assert result.offchain_result == Event.OFFCHAIN_DEPOSIT_NEEDED.value
+        assert skill_input_hex_to_payload(result.tx_hash)["ether_value"] == 10 * offer

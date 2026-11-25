@@ -175,6 +175,34 @@ def parse_delivery_rate_caps(raw: Mapping[str, Any]) -> DeliveryRateCaps:
     return caps
 
 
+# The off-chain offer to a priced mech is this many times the tool's
+# expected cost, as mech-client signs by default.
+EXPECTED_COST_FACTOR = 2
+
+
+def offchain_offer(
+    bound: int, expected_cost: Optional[int], max_delivery_rate: int
+) -> int:
+    """The rate to sign into an off-chain request, never above ``bound``.
+
+    A priced mech publishes the tool's expected cost and charges the run's
+    actual cost, at least that much; it is offered ``EXPECTED_COST_FACTOR``
+    times it. A mech that publishes none charges the full signed rate, so it
+    is offered its on-chain ``maxDeliveryRate``.
+
+    :param bound: the most the agent signs for this mech (``delivery_rate_bound``).
+    :param expected_cost: the tool's expected cost in the mech's payment
+        asset, or None when the mech publishes none.
+    :param max_delivery_rate: the mech's on-chain rate; 0 when unknown.
+    :return: the offer, at most ``bound``.
+    """
+    if expected_cost is not None and expected_cost > 0:
+        return min(bound, EXPECTED_COST_FACTOR * expected_cost)
+    if max_delivery_rate > 0:
+        return min(bound, max_delivery_rate)
+    return bound
+
+
 def delivery_rate_bound(
     address: str,
     payment_type_id: str,

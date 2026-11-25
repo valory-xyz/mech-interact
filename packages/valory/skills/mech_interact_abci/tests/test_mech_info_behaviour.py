@@ -29,11 +29,21 @@ from packages.valory.skills.mech_interact_abci.behaviours.mech_info import (
     CID_PREFIX,
     MAX_TOOLS_PER_MECH,
     MechInformationBehaviour,
+    costs_in_asset,
+    manifest_expected_costs,
     manifest_tools,
 )
 from packages.valory.skills.mech_interact_abci.graph_tooling.requests import FetchStatus
+from packages.valory.skills.mech_interact_abci.models import (
+    EXPECTED_COST_FACTOR,
+    offchain_offer,
+)
 from packages.valory.skills.mech_interact_abci.payment_types import PaymentType
-from packages.valory.skills.mech_interact_abci.states.base import MechInfo, Service
+from packages.valory.skills.mech_interact_abci.states.base import (
+    MechInfo,
+    MechInfoEncoder,
+    Service,
+)
 
 
 def _make_mech_info_behaviour(**overrides: Any) -> MechInformationBehaviour:
@@ -983,3 +993,132 @@ class TestEligibleMechs:
         finally:
             patcher.stop()
         behaviour.fetch_mechs_info_batch.assert_not_called()
+
+
+_USDC_COST = "15000"
+_TOOL = "superforcaster_full_search"
+
+
+def _cost_entry(asset: Any, amount: Any) -> dict:
+    """A ``toolMetadata`` entry publishing one expected cost."""
+    return {"expectedCost": {"asset": asset, "amount": amount}}
+
+
+class TestManifestExpectedCosts:
+    """Reading ``toolMetadata.<tool>.expectedCost`` from a manifest."""
+
+    def test_a_usable_entry_is_read(self) -> None:
+        """Asset and tool are lowercased, the amount is an integer."""
+        payload = {
+            "toolMetadata": {
+                "Superforcaster_Full_Search": _cost_entry("USDC", _USDC_COST)
+            }
+        }
+        assert manifest_expected_costs(payload) == {_TOOL: ("usdc", 15000)}
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            _cost_entry("usdc", "0"),
+            _cost_entry("usdc", "-5"),
+            _cost_entry("usdc", "1.5"),
+            _cost_entry("usdc", 15000),
+            _cost_entry("usdc", ""),
+            _cost_entry("usdc", "1" * 79),
+            _cost_entry("usdc", str(2**256)),
+            _cost_entry("", _USDC_COST),
+            _cost_entry(None, _USDC_COST),
+            {"expectedCost": "15000"},
+            {"other": 1},
+            "not a dict",
+        ],
+    )
+    def test_a_bad_entry_is_left_out(self, entry: Any) -> None:
+        """Malformed amounts, assets or blocks publish no cost."""
+        assert manifest_expected_costs({"toolMetadata": {_TOOL: entry}}) == {}
+
+    @pytest.mark.parametrize("payload", [None, [], "x", {}, {"toolMetadata": []}])
+    def test_a_manifest_without_tool_metadata_publishes_none(
+        self, payload: Any
+    ) -> None:
+        """No ``toolMetadata`` object means no expected costs."""
+        assert manifest_expected_costs(payload) == {}
+
+    @pytest.mark.parametrize(
+        "payment_type, expected",
+        [
+            (PaymentType.TOKEN_USDC.value, {_TOOL: 15000}),
+            (PaymentType.TOKEN_USDC.value.upper().replace("0X", "0x"), {_TOOL: 15000}),
+            (PaymentType.NATIVE.value, {"other": 7}),
+            (PaymentType.TOKEN_OLAS.value, {}),
+            ("0x" + "00" * 32, {}),
+            ("", {}),
+        ],
+    )
+    def test_only_costs_in_the_mech_s_asset_are_kept(
+        self, payment_type: str, expected: dict
+    ) -> None:
+        """A cost stated in another asset is not usable for this mech."""
+        costs = {_TOOL: ("usdc", 15000), "other": ("native", 7)}
+        assert costs_in_asset(costs, payment_type) == expected
+
+
+class TestOffchainOffer:
+    """The rate signed into an off-chain request."""
+
+    @pytest.mark.parametrize(
+        "bound, expected_cost, max_delivery_rate, offer",
+        [
+            (80000, 15000, 10000, EXPECTED_COST_FACTOR * 15000),
+            (20000, 15000, 10000, 20000),
+            (10000, 15000, 10000, 10000),
+            (80000, None, 10000, 10000),
+            (80000, None, 200000, 80000),
+            (80000, None, 0, 80000),
+            (80000, 0, 10000, 10000),
+            (80000, -5, 10000, 10000),
+        ],
+    )
+    def test_the_offer(
+        self,
+        bound: int,
+        expected_cost: Optional[int],
+        max_delivery_rate: int,
+        offer: int,
+    ) -> None:
+        """Priced: a multiple of the expected cost; unpriced: the on-chain rate; never above the bound."""
+        assert offchain_offer(bound, expected_cost, max_delivery_rate) == offer
+
+
+class TestExpectedCostsReachTheMech:
+    """Populating tools stores each mech's expected costs, in its own asset."""
+
+    def test_costs_are_stored_per_mech_asset(self) -> None:
+        """Mechs sharing a manifest keep only the costs stated in their own asset."""
+        from types import SimpleNamespace
+
+        behaviour = _make_mech_info_behaviour()
+        api = _setup_api(behaviour)
+        api.process_response.return_value = [_TOOL]
+        manifest = {
+            "tools": [_TOOL],
+            "toolMetadata": {_TOOL: _cost_entry("usdc", _USDC_COST)},
+        }
+        _wire_get_http_response(
+            behaviour, [SimpleNamespace(body=json.dumps(manifest).encode("utf-8"))]
+        )
+        usdc_mech = _make_mech_info(address="0xusdc", relevant_tools=set())
+        usdc_mech.payment_type = PaymentType.TOKEN_USDC.value
+        native_mech = _make_mech_info(address="0xnative", relevant_tools=set())
+        native_mech.payment_type = PaymentType.NATIVE.value
+
+        assert _drive(behaviour.populate_tools([usdc_mech, native_mech])) is True
+        assert usdc_mech.expected_costs == {_TOOL: 15000}
+        assert native_mech.expected_costs == {}
+
+    def test_costs_survive_the_round_trip_through_synchronized_data(self) -> None:
+        """The costs come back intact after the JSON round trip between rounds."""
+        mech = _make_mech_info(relevant_tools={_TOOL})
+        mech.expected_costs = {_TOOL: 15000}
+        restored = MechInfo(**json.loads(json.dumps(mech, cls=MechInfoEncoder)))
+        assert restored.expected_costs == {_TOOL: 15000}
