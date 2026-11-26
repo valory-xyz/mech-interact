@@ -91,10 +91,25 @@ jobs:
         # below the versions the current pip and setuptools advisories are
         # fixed in, so safety reports the venv's own tooling. Upgrade both
         # before scanning.
+        # The filelock ids below are advisories in that same venv (safety
+        # depends on filelock). Every fixed filelock (>=4.2.1) requires
+        # Python >=3.11, and this job runs on 3.10. The command is otherwise
+        # tomte 0.7.3's own safety command, including its nltk ignore. tox
+        # does not substitute in -x overrides, so the policy path comes from
+        # the tomte installed above, the same version as the env's.
         run: |
+          policy=$(python -c 'from tomte.configs import SAFETY_POLICY; print(SAFETY_POLICY)')
+          ignores=(
+            SFTY-20260902-58666
+            SFTY-20261017-72390 SFTY-20261017-54654 SFTY-20261017-57659
+            SFTY-20261020-34461 SFTY-20261020-18367 SFTY-20261020-13394
+            SFTY-20261020-91319 SFTY-20261020-81101 SFTY-20261020-25530
+            SFTY-20261020-11422
+          )
           tomte tox -p \
             -x 'testenv:safety.commands_pre+=python -m ensurepip --upgrade
                 python -m pip install --upgrade pip>=26.1.2 setuptools>=83.0.0' \
+            -x "testenv:safety.commands=safety check --policy-file $policy ${ignores[*]/#/--ignore }" \
             -e safety -e bandit
       - name: Check packages
         run: tomte tox -e check-packages
