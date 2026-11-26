@@ -39,3 +39,13 @@ class PaymentType(str, Enum):
 
 TOKEN_PAYMENT_TYPES = frozenset({PaymentType.TOKEN_USDC, PaymentType.TOKEN_OLAS})
 NVM_PAYMENT_TYPES = frozenset({PaymentType.NATIVE_NVM, PaymentType.TOKEN_NVM_USDC})
+
+# The asset name a manifest's ``toolMetadata.<tool>.expectedCost.asset``
+# states its amount in, per payment type.
+PAYMENT_ASSETS = {
+    PaymentType.NATIVE: "native",
+    PaymentType.TOKEN_OLAS: "olas",
+    PaymentType.TOKEN_USDC: "usdc",
+    PaymentType.NATIVE_NVM: "native",
+    PaymentType.TOKEN_NVM_USDC: "usdc",
+}

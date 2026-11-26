@@ -31,8 +31,11 @@ Wire shape (mirrors the mech server at
   server's parser ignores the URL path suffix and reads the field from the
   body.
 * 200 with ``{}`` means "still processing"; the poller waits and retries.
-* Terminal: 200 with ``status == "ok"`` (result available) or 200 with
-  ``status == "rejected"`` (the mech aborted the task).
+* Terminal: 200 with ``status == "ok"`` (result available), 200 with
+  ``status == "rejected"`` (refused at acceptance, never charged) or 200
+  with ``status == "failed"`` (the run failed and is settled on chain at
+  the envelope's ``delivery_rate``; ``fault`` says whether the request or
+  the mech caused it).
 
 State carried across rounds:
 
@@ -47,16 +50,15 @@ State carried across rounds:
 import dataclasses
 import json
 import time
-from typing import Any, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 from urllib.parse import urlencode
 
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_request import (
     PendingRequest,
 )
-from packages.valory.skills.mech_interact_abci.nonce_allocator import (
-    note_slot_abandoned,
-)
 from packages.valory.skills.mech_interact_abci.states.base import (
+    FAULT_CLIENT,
+    FAULT_MECH,
     MechInteractionResponse,
 )
 from packages.valory.skills.mech_interact_abci.utils import loads_bounded
@@ -66,15 +68,19 @@ from packages.valory.skills.mech_interact_abci.utils import loads_bounded
 class _PollSnapshot:
     """One terminal observation from ``/fetch_offchain_info``."""
 
-    status: str  # "ok" / "rejected" / "processing"
+    status: str  # "ok" / "rejected" / "failed" / "processing"
     result: Optional[str] = None
     error: Optional[str] = None
+    # Only on "failed": who caused it and what the mech charged.
+    fault: Optional[str] = None
+    charged_delivery_rate: Optional[int] = None
     # Set only by this poller when the mech gave no answer it could read;
     # never from anything the mech's own reply says.
     unanswered: bool = False
 
 
 _PROCESSING_STATUSES = frozenset({"processing", ""})
+_FAULTS = frozenset({FAULT_CLIENT, FAULT_MECH})
 
 # Number of consecutive 5xx responses tolerated before the poll loop
 # fast-fails. Bounds an outage where the mech server stays unhealthy for
@@ -146,21 +152,26 @@ class OffchainResponsePoller:
         snapshot = yield from self._poll_until_terminal(
             mech_url=pending.mech_url,
             request_id_int_str=str(int(pending.request_id, 16)),
+            settle_deadline=pending.deadline,
         )
 
         self._apply_snapshot(target, snapshot)
+        if snapshot.status == "failed":
+            self._logger.warning(
+                f"Offchain request {pending.request_id[:10]}… failed at mech "
+                f"{pending.mech_address} (fault={snapshot.fault}, charged="
+                f"{snapshot.charged_delivery_rate}): {snapshot.error}"
+            )
+            # A mech fault is the mech reporting its own failure, and it is
+            # still paid, so it is set aside; a client fault is the request's.
+            if snapshot.fault == FAULT_MECH:
+                self._b.shared_state.penalize_mech(pending.mech_address)
         if snapshot.unanswered:
             self._logger.warning(
                 f"Penalizing mech {pending.mech_address}: its off-chain "
                 f"response could not be fetched ({snapshot.error})."
             )
             self._b.shared_state.penalize_mech(pending.mech_address)
-            note_slot_abandoned(
-                self._b.context.shared_state,
-                chain=str(self._b.params.mech_chain_id or ""),
-                safe=pending.sender,
-                slot=pending.nonce,
-            )
         return responses
 
     # ---------- polling loop -----------------------------------------------
@@ -169,8 +180,14 @@ class OffchainResponsePoller:
         self,
         mech_url: str,
         request_id_int_str: str,
+        settle_deadline: Optional[int] = None,
     ) -> Generator[None, None, _PollSnapshot]:
         """Drive the GET loop until a terminal status arrives or time runs out.
+
+        ``settle_deadline`` is the signed deadline of an explicit-nonce
+        request: once it has passed the marketplace will not settle the
+        request, so an answer is no longer worth waiting for and the loop
+        stops with ``deadline_expired``.
 
         Polls at ``offchain_poll_interval_seconds`` and bails out after
         ``offchain_poll_timeout_seconds``. The boundary is checked with
@@ -272,6 +289,18 @@ class OffchainResponsePoller:
             if snapshot.status not in _PROCESSING_STATUSES:
                 return snapshot
 
+            if settle_deadline is not None and time.time() > settle_deadline:
+                self._logger.warning(
+                    f"Offchain request {request_id_int_str} passed its signed "
+                    f"settlement deadline {settle_deadline} while still "
+                    f"processing at {url}; surfacing deadline_expired."
+                )
+                return _PollSnapshot(
+                    status="rejected",
+                    error="deadline_expired",
+                    unanswered=True,
+                )
+
             if time.monotonic() >= deadline:
                 self._logger.warning(
                     f"Offchain poll budget {budget:.0f}s exhausted; "
@@ -356,7 +385,40 @@ class OffchainResponsePoller:
                 status="rejected",
                 error=str(payload.get("reason") or "rejected"),
             )
+        if status == "failed":
+            return self._parse_failed(payload)
         return _PollSnapshot(status="processing")
+
+    def _parse_failed(self, payload: Dict[str, Any]) -> _PollSnapshot:
+        """Read a ``failed`` envelope; it is terminal whatever its other fields say."""
+        fault = payload.get("fault")
+        if fault not in _FAULTS:
+            self._logger.warning(
+                f"Offchain 'failed' envelope carries no known fault: {fault!r}."
+            )
+            fault = None
+        charged = payload.get("delivery_rate")
+        charged_int: Optional[int] = None
+        # Integer base units only: ``bool`` is an ``int`` subclass and a float
+        # would be truncated, so neither is read as a charge.
+        if isinstance(charged, (int, str)) and not isinstance(charged, bool):
+            try:
+                charged_int = int(charged)
+            except ValueError:
+                charged_int = None
+        if charged_int is not None and charged_int < 0:
+            charged_int = None
+        if charged_int is None:
+            self._logger.warning(
+                f"Offchain 'failed' envelope carries no readable delivery_rate: "
+                f"{charged!r}."
+            )
+        return _PollSnapshot(
+            status="failed",
+            error=str(payload.get("error") or "failed"),
+            fault=fault,
+            charged_delivery_rate=charged_int,
+        )
 
     # ---------- response-list helpers ---------------------------------------
 
@@ -392,6 +454,11 @@ class OffchainResponsePoller:
         if snapshot.status == "ok":
             target.result = snapshot.result
             target.error = "Unknown" if snapshot.error is None else snapshot.error
+        elif snapshot.status == "failed":
+            target.result = None
+            target.error = snapshot.error or "failed"
+            target.fault = snapshot.fault
+            target.charged_delivery_rate = snapshot.charged_delivery_rate
         else:
             target.result = None
             target.error = snapshot.error if snapshot.error is not None else "rejected"

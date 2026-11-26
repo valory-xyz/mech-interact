@@ -34,9 +34,7 @@ import pytest
 from packages.valory.skills.mech_interact_abci.behaviours.offchain_response import (
     OffchainResponsePoller,
 )
-from packages.valory.skills.mech_interact_abci.nonce_allocator import (
-    MECH_SLOT_ABANDONED,
-)
+from packages.valory.skills.mech_interact_abci.models import NONCE_MODE_EXPLICIT
 
 
 def _http_response(status_code: int, body: bytes = b"") -> SimpleNamespace:
@@ -104,9 +102,9 @@ def _drive(gen: Any) -> Any:
         return exc.value
 
 
-def _pending_dict() -> dict:
+def _pending_dict(**overrides: Any) -> dict:
     """A well-formed pending request as the request round writes it."""
-    return {
+    pending = {
         "request_id": "ab" * 32,
         "nonce": 7,
         "mech_address": "0x" + "aa" * 20,
@@ -117,10 +115,12 @@ def _pending_dict() -> dict:
         "ipfs_data": "{}",
         "metadata_nonce": "meta-nonce",
     }
+    pending.update(overrides)
+    return pending
 
 
 class TestAMechThatGivesNoAnswerIsSetAside:
-    """A mech whose response cannot be fetched is penalized and its slot marked."""
+    """A mech whose response cannot be fetched is penalized."""
 
     @pytest.mark.parametrize(
         "reason", ["not_found", "poll_timeout", "server_unavailable", "rejected"]
@@ -136,7 +136,6 @@ class TestAMechThatGivesNoAnswerIsSetAside:
         responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
 
         assert stub.penalties == []
-        assert stub.context.shared_state.get(MECH_SLOT_ABANDONED, set()) == set()
         assert responses[-1].error == reason
 
     @pytest.mark.parametrize(
@@ -185,8 +184,21 @@ class TestAMechThatGivesNoAnswerIsSetAside:
 
         expected = ["0x" + "aa" * 20] if penalized else []
         assert stub.penalties == expected
-        abandoned = stub.context.shared_state.get(MECH_SLOT_ABANDONED, set())
-        assert abandoned == ({("gnosis", "0x" + "bb" * 20, 7)} if penalized else set())
+
+    def test_an_unanswered_explicit_request_penalizes_the_mech_too(self) -> None:
+        """The mode changes how the request was signed, not what no answer means."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(404) for _ in range(5)],
+            pending=_pending_dict(
+                nonce=2**255 + 3,
+                nonce_mode=NONCE_MODE_EXPLICIT,
+                deadline=1_900_000_000,
+            ),
+            mech_responses=[],
+        )
+        _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert stub.penalties == ["0x" + "aa" * 20]
 
 
 class TestRunFallbackPlaceholder:
@@ -458,6 +470,51 @@ class TestPollUntilTerminal:
         assert snapshot.error == "poll_timeout"
 
 
+class TestASignedDeadlineBoundsThePoll:
+    """Once an explicit request can no longer settle, waiting for it is pointless."""
+
+    def test_a_passed_deadline_stops_the_poll(self) -> None:
+        """A request still processing after its deadline is given up as ``deadline_expired``."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, b'{"status":"processing"}')] * 3,
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(
+            poller._poll_until_terminal("https://m", "42", settle_deadline=1)
+        )
+        assert snapshot.status == "rejected"
+        assert snapshot.error == "deadline_expired"
+        assert snapshot.unanswered is True
+        assert stub.sleep_calls == 0
+
+    def test_a_deadline_still_ahead_keeps_polling(self) -> None:
+        """A deadline in the future changes nothing about the poll budget."""
+        stub = _StubBehaviour(
+            http_responses=[
+                _http_response(200, b'{"status":"processing"}'),
+                _http_response(200, b'{"status":"rejected","reason":"no"}'),
+            ],
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        snapshot = _drive(
+            poller._poll_until_terminal("https://m", "42", settle_deadline=2**32)
+        )
+        assert snapshot.status == "rejected"
+        assert snapshot.error != "deadline_expired"
+        assert stub.sleep_calls == 1
+
+    def test_the_pending_deadline_reaches_the_loop(self) -> None:
+        """``run`` hands the blob's deadline to the loop."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, b'{"status":"processing"}')] * 3,
+            pending=_pending_dict(nonce_mode="explicit", deadline=1),
+        )
+        poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
+        responses = _drive(poller.run())
+        assert responses[-1].error == "deadline_expired"
+        assert stub.penalties == [_pending_dict()["mech_address"]]
+
+
 class TestLoadPending:
     """The poller only accepts dict pending shapes (review C13)."""
 
@@ -490,3 +547,121 @@ class TestLoadPending:
         stub = _StubBehaviour(http_responses=[], pending=raw)
         poller = OffchainResponsePoller(stub)  # type: ignore[arg-type]
         assert poller._load_pending() is None
+
+
+_MECH = "0x" + "aa" * 20
+
+
+def _failed_body(**fields: Any) -> bytes:
+    """A ``failed`` poll envelope with the given fields."""
+    return json.dumps({"status": "failed", **fields}).encode()
+
+
+class TestAFailedRunIsFinished:
+    """A run the mech settled as failed ends polling with the charge recorded."""
+
+    @pytest.mark.parametrize(
+        ("fields", "fault", "charged"),
+        [
+            (
+                {
+                    "error": "ValueError: Tool nope is not supported.",
+                    "fault": "client",
+                    "delivery_rate": 10**16,
+                },
+                "client",
+                10**16,
+            ),
+            (
+                {
+                    "error": "TimeoutError: the model did not answer",
+                    "fault": "mech",
+                    "delivery_rate": "1",
+                },
+                "mech",
+                1,
+            ),
+            ({"error": "E: x", "fault": "nobody", "delivery_rate": 5}, None, 5),
+            ({"error": "E: x", "fault": "client", "delivery_rate": -1}, "client", None),
+            (
+                {"error": "E: x", "fault": "client", "delivery_rate": 1.5},
+                "client",
+                None,
+            ),
+            ({"error": "E: x", "fault": "mech", "delivery_rate": True}, "mech", None),
+            (
+                {"error": "E: x", "fault": "mech", "delivery_rate": "a lot"},
+                "mech",
+                None,
+            ),
+            ({"error": "E: x", "fault": "mech"}, "mech", None),
+        ],
+    )
+    def test_a_failed_envelope_is_terminal_and_recorded(
+        self, fields: dict, fault: Any, charged: Any
+    ) -> None:
+        """One poll ends it: no result, the mech's error, fault and charge kept."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, _failed_body(**fields))],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert stub.sleep_calls == 0
+        assert stub._http_responses == []
+        assert responses[-1].result is None
+        assert responses[-1].error == fields["error"]
+        assert responses[-1].fault == fault
+        assert responses[-1].charged_delivery_rate == charged
+
+    @pytest.mark.parametrize(
+        ("fault", "penalized"), [("client", False), ("mech", True)]
+    )
+    def test_only_a_mech_fault_penalizes_the_mech(
+        self, fault: str, penalized: bool
+    ) -> None:
+        """A mech fault is the mech reporting its own failure; a client fault is the request's."""
+        stub = _StubBehaviour(
+            http_responses=[
+                _http_response(
+                    200, _failed_body(error="E: x", fault=fault, delivery_rate=1)
+                )
+            ],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert stub.penalties == (
+            [_pending_dict()["mech_address"]] if penalized else []
+        )
+
+    def test_a_failed_envelope_without_an_error_still_ends_polling(self) -> None:
+        """A missing error is reported as ``failed`` rather than polled to timeout."""
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, _failed_body(fault="mech"))],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert responses[-1].error == "failed"
+        assert stub.penalties == [_pending_dict()["mech_address"]]  # a mech fault
+
+    def test_a_rejected_envelope_records_no_fault_or_charge(self) -> None:
+        """A refusal at acceptance is never charged, so neither field is set."""
+        body = json.dumps(
+            {"status": "rejected", "reason": "bad prompt", "delivery_rate": 5}
+        ).encode()
+        stub = _StubBehaviour(
+            http_responses=[_http_response(200, body)],
+            pending=_pending_dict(),
+            mech_responses=[],
+        )
+        responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
+
+        assert responses[-1].error == "bad prompt"
+        assert responses[-1].fault is None
+        assert responses[-1].charged_delivery_rate is None
+        assert stub.penalties == []

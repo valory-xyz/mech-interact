@@ -38,6 +38,7 @@ from packages.valory.skills.mech_interact_abci.states.base import (
     MechRequest,
     Service,
     SynchronizedData,
+    request_problem,
 )
 
 TWO_MIN_IN_SEC = 2 * 60
@@ -1671,3 +1672,51 @@ class TestSynchronizedData:
         sd = _make_synced_data(participant_to_purchase=collection)
         result = sd.participant_to_purchase
         assert "agent1" in result
+
+
+class TestRequestProblem:
+    """Requests every mech would fail are found before they are sent."""
+
+    @pytest.mark.parametrize(
+        ("prompt", "tool", "extras", "expected"),
+        (
+            ("Will it rain?", "prediction-online", None, None),
+            ("Will it rain?", "prediction-online", {}, None),
+            ("Will it rain?", "prediction-online", {"model": "gpt-4.1"}, None),
+            ("", "prediction-online", None, None),
+            ("   \n", "prediction-online", None, None),
+            ("", "propose-question", {"num_questions": 3}, None),
+            (None, "prediction-online", None, "the prompt is not a string"),
+            (7, "prediction-online", None, "the prompt is not a string"),
+            ("Will it rain?", "", None, "the tool is empty"),
+            ("Will it rain?", " ", None, "the tool is empty"),
+            ("Will it rain?", None, None, "the tool is empty"),
+            (
+                "Will it rain?",
+                "prediction-online",
+                ["model"],
+                "extra_attributes is not an object",
+            ),
+            (
+                "Will it rain?",
+                "prediction-online",
+                {"tool": "other-tool", "model": "m"},
+                "extra_attributes overrides reserved request keys ['tool']",
+            ),
+            (
+                "Will it rain?",
+                "prediction-online",
+                {"nonce": "n2", "prompt": "p2"},
+                "extra_attributes overrides reserved request keys "
+                "['nonce', 'prompt']",
+            ),
+        ),
+    )
+    def test_request_problem(
+        self, prompt: Any, tool: Any, extras: Any, expected: Any
+    ) -> None:
+        """Each check passes a well-formed request and names what a bad one lacks."""
+        request = MechMetadata(
+            prompt=prompt, tool=tool, nonce="n", extra_attributes=extras
+        )
+        assert request_problem(request) == expected

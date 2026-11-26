@@ -31,11 +31,14 @@ from packages.valory.skills.abstract_round_abci.test_tools.base import DummyCont
 from packages.valory.skills.mech_interact_abci.models import (
     CHAIN_TO_NVM_CONFIG,
     DEFAULT_MARKETPLACE_API_URL,
+    EXPLICIT_CYCLE_SLACK_SECONDS,
     MechMarketplaceConfig,
     MechParams,
     MechResponseSpecs,
     MechToolsSpecs,
     MultisendBatch,
+    NONCE_MODE_EXPLICIT,
+    NONCE_MODE_SEQUENTIAL,
     NVMConfig,
     Ox,
     SharedState,
@@ -141,6 +144,57 @@ class TestMechMarketplaceConfig:
             )
 
     @pytest.mark.parametrize(
+        "window, floor",
+        [(900, 900), (599, 600), (1, 1), (0, 600), (900, -1), (899, 600), (601, 600)],
+        ids=[
+            "equal",
+            "below",
+            "equal_small",
+            "zero_window",
+            "negative_floor",
+            "slack_one_second_short",
+            "barely_above_the_floor",
+        ],
+    )
+    def test_a_deadline_window_without_the_cycle_slack_is_refused_at_boot(
+        self, window: int, floor: int
+    ) -> None:
+        """A window at the floor, or only just above it, leaves the cycle no time to post."""
+        with pytest.raises(ValueError, match="offchain_explicit"):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                offchain_explicit_deadline_seconds=window,
+                offchain_explicit_min_remaining_seconds=floor,
+            )
+
+    @pytest.mark.parametrize("window, floor", [(900, 600), (300, 0), (1200, 600)])
+    def test_a_deadline_window_with_the_cycle_slack_is_accepted(
+        self, window: int, floor: int
+    ) -> None:
+        """The floor plus the cycle slack is enough; the defaults leave twice that."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            offchain_explicit_deadline_seconds=window,
+            offchain_explicit_min_remaining_seconds=floor,
+        )
+        assert config.offchain_explicit_deadline_seconds == window
+        assert config.offchain_explicit_min_remaining_seconds == floor
+
+    def test_the_defaults_leave_the_cycle_twice_the_slack(self) -> None:
+        """A 20 minute window over a 10 minute floor: the slack covers a slow cycle twice."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket", response_timeout=30
+        )
+        slack = (
+            config.offchain_explicit_deadline_seconds
+            - config.offchain_explicit_min_remaining_seconds
+        )
+        assert config.offchain_explicit_deadline_seconds == 1200
+        assert slack == 2 * EXPLICIT_CYCLE_SLACK_SECONDS
+
+    @pytest.mark.parametrize(
         "interval_in, timeout_in",
         [
             (5, 300),
@@ -169,6 +223,32 @@ class TestMechMarketplaceConfig:
         assert config.offchain_poll_interval_seconds == 5.0
         assert type(config.offchain_poll_timeout_seconds) is float
         assert config.offchain_poll_timeout_seconds == 300.0
+
+    def test_explicit_nonces_are_the_default(self) -> None:
+        """A consumer that names no mode sends each request with its own nonce."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket", response_timeout=30
+        )
+        assert config.offchain_nonce_mode == NONCE_MODE_EXPLICIT
+
+    def test_sequential_nonces_can_be_chosen(self) -> None:
+        """The counter-based path stays available as an opt-in."""
+        config = MechMarketplaceConfig(
+            mech_marketplace_address="0xmarket",
+            response_timeout=30,
+            offchain_nonce_mode=NONCE_MODE_SEQUENTIAL,
+        )
+        assert config.offchain_nonce_mode == NONCE_MODE_SEQUENTIAL
+
+    @pytest.mark.parametrize("mode", ["", "random", "EXPLICIT", "Sequential", None])
+    def test_an_unknown_nonce_mode_is_refused_at_boot(self, mode: Any) -> None:
+        """A typo would otherwise surface as a request no view can settle."""
+        with pytest.raises(ValueError, match="offchain_nonce_mode"):
+            MechMarketplaceConfig(
+                mech_marketplace_address="0xmarket",
+                response_timeout=30,
+                offchain_nonce_mode=mode,  # type: ignore[arg-type]
+            )
 
 
 class TestValidateOffchainParams:
