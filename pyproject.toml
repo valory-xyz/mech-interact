@@ -65,6 +65,20 @@ upstream_pins = [
     "valory-xyz/mech@v0.37.0-rc2",
 ]
 tomte_dep_pin = "==0.7.4"
+# filelock advisories in the safety scanner's own venv (safety requires
+# filelock<4.0), on top of tomte's fleet list. None reach this package.
+safety_ignores = [
+    "SFTY-20261020-34461",
+    "SFTY-20261020-18367",
+    "SFTY-20261020-13394",
+    "SFTY-20261020-91319",
+    "SFTY-20261020-81101",
+    "SFTY-20261020-25530",
+    "SFTY-20261020-11422",
+    "SFTY-20261023-10299",
+    "SFTY-20261023-16869",
+    "SFTY-20261023-24590",
+]
 
 [tool.uv.build-backend]
 module-name = ["packages"]
