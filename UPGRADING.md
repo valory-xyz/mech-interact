@@ -5,6 +5,15 @@ Below, we describe the additional manual steps required to upgrade between diffe
 ## Unreleased (built with `open-aea@2.2.10` and `open-autonomy@0.21.30`)
 
 #### Breaking Changes
+- Off-chain requests sign explicit nonces by default
+  (`offchain_nonce_mode: explicit` in `MechMarketplaceConfig`). This needs
+  every mech the service can reach to run mech v0.37 or later: an earlier mech
+  rebuilds the sequential request id, answers HTTP 401 ("wire request_id does
+  not match local derivation"), and the cycle fails over to the next mech
+  with the same request, so every off-chain request to it fails. A v0.37 mech
+  with explicit nonces off answers 503 instead, and the request is resent
+  sequentially, signed at no more than the mech's on-chain rate. A service
+  that may reach an earlier mech must set `offchain_nonce_mode: sequential`.
 - `delivery_rate_cap` (under `mechs_subgraph`) is replaced by the
   `delivery_rate_caps` skill param: one cap per payment type, keyed by the
   lowercase `PaymentType` name (`native`, `token_olas`, `token_usdc`,
@@ -114,9 +123,11 @@ Below, we describe the additional manual steps required to upgrade between diffe
   amount depends on the mech's settings and can also be the full cap.
   The response gets no `result`, the mech's `error`, and the new
   `MechInteractionResponse.fault` and `charged_delivery_rate` fields.
-  The mech is not penalized for either fault; a consumer reads the empty
-  result as a tool failure, as it does for any errored response. Before
-  this, such a run was polled until timeout and the mech penalized.
+  A `mech` fault penalizes the mech for `penalize_mech_time_window`, since it
+  reports its own failure and is still paid; a `client` fault does not. A
+  consumer reads the empty result as a tool failure, as it does for any
+  errored response. Before this, such a run was polled until timeout and the
+  mech penalized.
   `rejected` is unchanged: a refusal at acceptance, never charged.
 - Both request paths refuse, before reading the chain, signing or
   sending, a request whose prompt is not a string, whose tool is empty,

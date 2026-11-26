@@ -5672,6 +5672,29 @@ class TestAMechWithoutExplicitNoncesIsServedSequentially:
         assert result.offchain_result == Event.OFFCHAIN_DONE.value
         assert len(stub.posted_urls) == 2
 
+    def test_the_resend_signs_no_more_than_the_mech_s_on_chain_rate(self) -> None:
+        """A mech with explicit nonces off charges the full signed rate."""
+        expected, on_chain = 2 * 10**15, 3 * 10**15
+        stub = self._stub(
+            http_responses=[
+                _make_http_response(503, _DISABLED_503),
+                _make_http_response(200),
+            ],
+            reads=[
+                *_per_attempt_reads(),
+                _state_resp({"data": 7}),
+                *_per_attempt_reads(),
+            ],
+            mechs_info=[_discovered({_OFFER_TOOL: expected}, on_chain, _MECH_A)],
+            delivery_rate_caps={PaymentType.NATIVE: 10**16},
+        )
+
+        _drive(OffchainRequestExecutor(stub)._fresh_cycle())  # type: ignore[arg-type]
+
+        first, second = stub.posted_bodies
+        assert _form_field(first, "delivery_rate") == str(2 * expected)
+        assert _form_field(second, "delivery_rate") == str(on_chain)
+
     def test_the_rest_of_the_cycle_stays_sequential(self) -> None:
         """After the refusal a later mech gets the same slot, not a new mode."""
         stub = self._stub(

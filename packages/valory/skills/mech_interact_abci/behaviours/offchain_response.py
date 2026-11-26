@@ -157,14 +157,15 @@ class OffchainResponsePoller:
 
         self._apply_snapshot(target, snapshot)
         if snapshot.status == "failed":
-            # Neither fault penalizes the mech here: a client fault is the
-            # request's doing, and a mech fault is a tool failure, which the
-            # consumer accounts for from the empty result as it does on chain.
             self._logger.warning(
                 f"Offchain request {pending.request_id[:10]}… failed at mech "
                 f"{pending.mech_address} (fault={snapshot.fault}, charged="
                 f"{snapshot.charged_delivery_rate}): {snapshot.error}"
             )
+            # A mech fault is the mech reporting its own failure, and it is
+            # still paid, so it is set aside; a client fault is the request's.
+            if snapshot.fault == FAULT_MECH:
+                self._b.shared_state.penalize_mech(pending.mech_address)
         if snapshot.unanswered:
             self._logger.warning(
                 f"Penalizing mech {pending.mech_address}: its off-chain "

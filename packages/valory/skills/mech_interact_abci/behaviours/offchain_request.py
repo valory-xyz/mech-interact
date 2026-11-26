@@ -1222,6 +1222,8 @@ class OffchainRequestExecutor:
 
         attempted: List[str] = []
         passed_over: Set[str] = set()
+        # mechs that answered with explicit nonces off: they charge the full signed rate
+        explicit_off: Set[str] = set()
         last_failure: Optional[str] = None
         last_outcome: Optional[OffchainAttemptOutcome] = None
 
@@ -1256,6 +1258,13 @@ class OffchainRequestExecutor:
                 self._b.shared_state.penalize_mech(mech_address)
                 last_failure = OFFCHAIN_NO_DELIVERY_RATE_BOUND
                 continue
+            known = self._known_mech(mech_address)
+            if (
+                mech_address.lower() in explicit_off
+                and known
+                and known.max_delivery_rate
+            ):
+                delivery_rate = min(delivery_rate, known.max_delivery_rate)
 
             request_id_bytes = derive_request_id_bytes(
                 marketplace_address=self._config.mech_marketplace_address,
@@ -1501,6 +1510,7 @@ class OffchainRequestExecutor:
                 )
                 nonce_mode = NONCE_MODE_SEQUENTIAL
                 deadline = None
+                explicit_off.add(mech_address.lower())
                 counter = yield from self._read_on_chain_nonce()
                 if counter is None:
                     last_failure = OFFCHAIN_TIMEOUT_ALL_MECHS

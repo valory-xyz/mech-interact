@@ -615,9 +615,13 @@ class TestAFailedRunIsFinished:
         assert responses[-1].fault == fault
         assert responses[-1].charged_delivery_rate == charged
 
-    @pytest.mark.parametrize("fault", ["client", "mech"])
-    def test_a_failed_run_does_not_penalize_the_mech(self, fault: str) -> None:
-        """The mech answered; a client fault is not its doing, a mech fault is a tool failure."""
+    @pytest.mark.parametrize(
+        ("fault", "penalized"), [("client", False), ("mech", True)]
+    )
+    def test_only_a_mech_fault_penalizes_the_mech(
+        self, fault: str, penalized: bool
+    ) -> None:
+        """A mech fault is the mech reporting its own failure; a client fault is the request's."""
         stub = _StubBehaviour(
             http_responses=[
                 _http_response(
@@ -629,7 +633,9 @@ class TestAFailedRunIsFinished:
         )
         _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
 
-        assert stub.penalties == []
+        assert stub.penalties == (
+            [_pending_dict()["mech_address"]] if penalized else []
+        )
 
     def test_a_failed_envelope_without_an_error_still_ends_polling(self) -> None:
         """A missing error is reported as ``failed`` rather than polled to timeout."""
@@ -641,7 +647,7 @@ class TestAFailedRunIsFinished:
         responses = _drive(OffchainResponsePoller(stub).run())  # type: ignore[arg-type]
 
         assert responses[-1].error == "failed"
-        assert stub.penalties == []
+        assert stub.penalties == [_pending_dict()["mech_address"]]  # a mech fault
 
     def test_a_rejected_envelope_records_no_fault_or_charge(self) -> None:
         """A refusal at acceptance is never charged, so neither field is set."""
